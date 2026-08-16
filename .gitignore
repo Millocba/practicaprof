@@ -29,6 +29,9 @@ node_modules/
 dist/
 build/
 
+# Datasets generados localmente
+/datasets/
+
 # Editores y sistema operativo
 .idea/
 .vscode/

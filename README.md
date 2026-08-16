@@ -64,7 +64,24 @@ La detección de anomalías comparará una línea base de reglas con métodos es
 
 ## Estado actual
 
-El proyecto se encuentra en su etapa fundacional y documental. Todavía no presenta datasets, implementaciones ni resultados experimentales.
+El proyecto cuenta con un generador reproducible de datasets sintéticos. Todavía no presenta modelos ni resultados experimentales.
+
+## Generar el dataset inicial
+
+```bash
+python -m synthetic_data.cli \
+  --scenario early_stage \
+  --seed 20260816 \
+  --vehicles 1000 \
+  --devices 700 \
+  --people 2000 \
+  --telemetry-events 100000 \
+  --fuel-transactions 50000 \
+  --months 12 \
+  --output datasets/early_stage
+```
+
+El destino debe no existir para impedir sobrescrituras accidentales. La salida local contiene un CSV por entidad, `ground_truth.csv` y `manifest.json` con conteos y hashes SHA-256. `datasets/` se excluye de Git: solo se versionan el generador, las pruebas y la configuración reproducible.
 
 ## Gobierno y colaboración
 
