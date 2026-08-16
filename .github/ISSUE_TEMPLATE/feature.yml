@@ -1,0 +1,47 @@
+name: Requerimiento
+description: Proponer una mejora, análisis o experimento
+title: "[Requerimiento]: "
+labels: []
+body:
+  - type: textarea
+    id: problema
+    attributes:
+      label: Problema o pregunta
+      description: Describí la necesidad sin anticipar una solución.
+    validations:
+      required: true
+  - type: textarea
+    id: resultado
+    attributes:
+      label: Resultado esperado
+      description: Indicá qué debería poder observarse o hacerse.
+    validations:
+      required: true
+  - type: textarea
+    id: criterios
+    attributes:
+      label: Criterios de aceptación
+      description: Escribí criterios concretos y verificables.
+    validations:
+      required: true
+  - type: textarea
+    id: datos
+    attributes:
+      label: Datos involucrados
+      description: Identificá datasets sintéticos, esquemas y persistencias afectadas.
+    validations:
+      required: true
+  - type: textarea
+    id: riesgos
+    attributes:
+      label: Riesgos y restricciones
+      description: Incluí privacidad, persistencia, reproducibilidad y decisiones pendientes.
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirmacion
+    attributes:
+      label: Confirmación
+      options:
+        - label: El requerimiento no necesita datos ni referencias reales.
+          required: true
