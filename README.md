@@ -74,6 +74,11 @@ El proyecto se encuentra en su etapa fundacional y documental. Todavía no prese
 - [Gobierno de datos y persistencia](docs/DATA_GOVERNANCE.md)
 - [Arquitectura conceptual](docs/ARCHITECTURE.md)
 - [Entorno de desarrollo](docs/DEVELOPMENT.md)
+- [Modelo de datos sintéticos](docs/DATA_MODEL.md)
+- [Diccionario de datos](docs/DATA_DICTIONARY.md)
+- [Método de generación sintética](docs/SYNTHETIC_DATA_METHOD.md)
+- [Escenarios de calidad](docs/DATA_QUALITY_SCENARIOS.md)
+- [Límite de metadatos reales](docs/REAL_DATA_BOUNDARY.md)
 
 Las personas integrantes conservan la autoridad final sobre las decisiones y sobre `main`. Las IA colaboran mediante ramas y pull requests sujetos a revisión humana.
 
