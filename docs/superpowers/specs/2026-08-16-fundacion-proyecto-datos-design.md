@@ -101,6 +101,17 @@ El proyecto recomendará flujos de trabajo con GitHub, skills de planificación 
 
 Las dependencias futuras se declararán en archivos reproducibles del proyecto. Ningún agente instalará dependencias, conectará servicios externos ni modificará configuraciones compartidas sin aprobación humana.
 
+## Persistencia y bases de datos
+
+- Los entornos local, prueba y producción deberán estar separados y ser identificables antes de ejecutar operaciones.
+- Ningún agente borrará, truncará, recreará, migrará o sobrescribirá una persistencia compartida sin aprobación humana explícita.
+- Toda migración deberá ser versionada, revisable y acompañada por un plan de reversión o recuperación.
+- Antes de una operación destructiva se verificarán destino, entorno, alcance y existencia de un respaldo recuperable.
+- Los tests utilizarán persistencias efímeras o aisladas y nunca se ejecutarán contra producción.
+- No se registrarán credenciales, cadenas de conexión, volcados ni archivos de bases de datos.
+- Las cargas y transformaciones deberán ser idempotentes cuando resulte viable y declarar sus efectos laterales.
+- Las copias de seguridad solo se considerarán válidas si existe un procedimiento de restauración comprobable.
+
 ## Criterios de aceptación de la etapa
 
 - La documentación describe el proyecto sin depender de contexto externo.
