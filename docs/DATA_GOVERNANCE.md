@@ -10,7 +10,7 @@ Solo se permiten datos sintéticos creados desde cero: vehículos, dispositivos,
 
 - Registros reales, incluso modificados o anonimizados.
 - Muestras tomadas de planillas, APIs, capturas, logs o bases reales.
-- Nombres, documentos, patentes, tarjetas, dispositivos, coordenadas o contratos reales.
+- Nombres, documentos, patentes observadas, tarjetas, dispositivos, coordenadas o contratos reales. Se permiten formatos públicos y catálogos comerciales generales sin asignaciones reales.
 - Logos, marcas, dominios, textos internos o referencias identificables.
 - Credenciales, tokens, cadenas de conexión y archivos de entorno.
 - Dumps, bases locales, backups o logs que contengan filas.

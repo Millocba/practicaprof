@@ -72,16 +72,18 @@ El proyecto cuenta con un generador reproducible de datasets sintéticos. Todav�
 python -m synthetic_data.cli \
   --scenario early_stage \
   --seed 20260816 \
-  --vehicles 1000 \
-  --devices 700 \
-  --people 2000 \
-  --telemetry-events 100000 \
-  --fuel-transactions 50000 \
+  --vehicles 250 \
+  --devices 180 \
+  --people 500 \
+  --telemetry-events 20000 \
+  --fuel-transactions 5000 \
   --months 12 \
   --output datasets/early_stage
 ```
 
 El destino debe no existir para impedir sobrescrituras accidentales. La salida local contiene un CSV por entidad, `ground_truth.csv` y `manifest.json` con conteos y hashes SHA-256. `datasets/` se excluye de Git: solo se versionan el generador, las pruebas y la configuración reproducible.
+
+Los identificadores internos son deterministas: al reducir o ampliar el volumen con la misma semilla, las entidades existentes conservan sus IDs y las claves foráneas continúan apuntando a esos mismos IDs. Las marcas y modelos provienen de catálogos públicos generales; los dominios son generados y respetan los formatos argentinos histórico `ABC123` y Mercosur `AA123AA`, sin consultar padrones ni copiar asignaciones reales.
 
 ## Gobierno y colaboración
 

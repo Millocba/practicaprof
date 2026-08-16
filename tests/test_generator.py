@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import re
 import tempfile
 import unittest
 
@@ -72,6 +73,24 @@ class GeneratorContractTests(unittest.TestCase):
             self.assertTrue((output / "vehiculo.csv").exists())
             with self.assertRaises(FileExistsError):
                 export_dataset(tables, config, output)
+
+    def test_vehicle_catalogs_and_argentine_domain_formats_are_plausible(self):
+        config = GenerationConfig(scenario="clean", seed=9, vehicles=40, devices=20, people=40, telemetry_events=80, fuel_transactions=40, months=1)
+        vehicles = generate_dataset(config)["vehiculo"]
+        accepted = re.compile(r"^(?:[A-Z]{3}\d{3}|[A-Z]{2}\d{3}[A-Z]{2})$")
+        public_brands = {"Toyota", "Ford", "Renault", "Fiat", "Volkswagen", "Chevrolet", "Iveco"}
+
+        self.assertTrue(all(accepted.fullmatch(row["dominio_sintetico"]) for row in vehicles))
+        self.assertTrue(all(row["marca_sintetica"] in public_brands for row in vehicles))
+        self.assertTrue(all(not row["modelo_sintetico"].startswith("Modelo Sintético") for row in vehicles))
+
+    def test_reducing_volume_preserves_existing_entity_ids(self):
+        common = dict(scenario="clean", seed=11, devices=10, people=20, telemetry_events=30, fuel_transactions=20, months=1)
+        small = generate_dataset(GenerationConfig(vehicles=20, **common))
+        large = generate_dataset(GenerationConfig(vehicles=30, **common))
+
+        self.assertEqual([row["id"] for row in small["vehiculo"]], [row["id"] for row in large["vehiculo"][:20]])
+        self.assertEqual([row["vehiculo_id"] for row in small["dispositivo"]], [row["vehiculo_id"] for row in large["dispositivo"]])
 
 
 if __name__ == "__main__":

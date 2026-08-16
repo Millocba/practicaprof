@@ -43,7 +43,7 @@ erDiagram
 
 - Las claves internas serán UUID o enteros generados, sin semántica externa.
 - Los identificadores visibles usarán prefijos sintéticos: `VEH-SYN-`, `PER-SYN-`, `DEV-SYN-`, `CARD-SYN-` y `CTR-SYN-`.
-- Los dominios visibles no seguirán formatos oficiales de matrículas o documentos personales.
+- Los dominios vehiculares generados pueden respetar formatos argentinos públicos para realismo analítico, pero nunca provienen de padrones ni representan una unidad conocida.
 - Las fechas se almacenarán en ISO 8601 y los instantes en UTC.
 - Importes y volúmenes usarán tipos decimales; no `float` binario en persistencia.
 - Las relaciones rotas solo aparecerán en datasets crudos de escenarios que las inyecten. El modelo curado mantendrá integridad referencial.

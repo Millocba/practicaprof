@@ -13,11 +13,11 @@ from typing import Any
 class GenerationConfig:
     scenario: str = "early_stage"
     seed: int = 20260816
-    vehicles: int = 1_000
-    devices: int = 700
-    people: int = 2_000
-    telemetry_events: int = 100_000
-    fuel_transactions: int = 50_000
+    vehicles: int = 250
+    devices: int = 180
+    people: int = 500
+    telemetry_events: int = 20_000
+    fuel_transactions: int = 5_000
     months: int = 12
 
     def validate(self) -> None:
@@ -38,6 +38,24 @@ def _decimal(value: float, places: str = "0.01") -> str:
     return str(Decimal(str(value)).quantize(Decimal(places)))
 
 
+def _letters(number: int, width: int) -> str:
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    chars = []
+    for _ in range(width):
+        chars.append(alphabet[number % len(alphabet)])
+        number //= len(alphabet)
+    return "".join(reversed(chars))
+
+
+def _argentine_domain(index: int, year: int) -> str:
+    sequence = index - 1
+    if year < 2016:
+        return f"{_letters(sequence // 1000, 3)}{sequence % 1000:03d}"
+    prefix_number = sequence // (1000 * 26 * 26)
+    suffix_number = sequence // 1000
+    return f"{_letters(prefix_number, 2)}{sequence % 1000:03d}{_letters(suffix_number, 2)}"
+
+
 def generate_dataset(config: GenerationConfig) -> dict[str, list[dict[str, Any]]]:
     config.validate()
     rng = random.Random(config.seed)
@@ -51,24 +69,32 @@ def generate_dataset(config: GenerationConfig) -> dict[str, list[dict[str, Any]]
     vehicle_types = [{"id": _id("TV", i, 2), "nombre": name} for i, name in enumerate(("Utilitario A", "Utilitario B", "Transporte A", "Especial A", "Apoyo A"), 1)]
     vehicle_states = [{"id": _id("EV", i, 2), "nombre": name} for i, name in enumerate(("En servicio", "Fuera de servicio", "Baja"), 1)]
 
+    public_catalog = (
+        ("Toyota", "Hilux"), ("Ford", "Ranger"), ("Renault", "Kangoo"),
+        ("Fiat", "Fiorino"), ("Volkswagen", "Amarok"), ("Chevrolet", "S10"),
+        ("Iveco", "Daily"),
+    )
     vehicles = []
     for i in range(1, config.vehicles + 1):
         vtype = vehicle_types[(i - 1) % len(vehicle_types)]
         fuel = "SYN-DIESEL" if i % 3 else "SYN-NAFTA"
+        year = 2008 + (i % 18)
+        brand, model = public_catalog[(i - 1) % len(public_catalog)]
         vehicles.append({
             "id": _id("VEH", i),
             "matricula_sintetica": _id("VEH", i),
-            "dominio_sintetico": _id("DOM", i),
+            "dominio_sintetico": _argentine_domain(i, year),
             "subunidad_id": rng.choice(subunits)["id"],
             "tipo_vehiculo_id": vtype["id"],
             "estado_vehiculo_id": rng.choices(vehicle_states, weights=(85, 12, 3), k=1)[0]["id"],
-            "marca_sintetica": f"Marca Ficticia {(i % 8) + 1}",
-            "modelo_sintetico": f"Modelo Sintético {(i % 12) + 1}",
-            "anio_modelo": 2008 + (i % 18),
+            "marca_sintetica": brand,
+            "modelo_sintetico": model,
+            "anio_modelo": year,
             "tipo_combustible": fuel,
             "capacidad_tanque_l": _decimal(45 + (i % 6) * 10),
             "consumo_esperado": _decimal(7 + (i % 9) * 0.8),
             "identificable": "true",
+            "origen": "SINTETICO",
         })
 
     devices = [

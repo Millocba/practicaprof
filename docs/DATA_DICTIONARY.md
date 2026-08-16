@@ -24,12 +24,12 @@ Los tipos son lógicos y neutrales respecto del motor. `Requerido` describe el e
 | `estado_vehiculo.nombre` | categoría | Sí | En servicio, fuera de servicio o baja ficticia |
 | `vehiculo.id` | UUID | Sí | Clave interna |
 | `vehiculo.matricula_sintetica` | texto | Sí | `VEH-SYN-NNNNN`, única en escenario limpio |
-| `vehiculo.dominio_sintetico` | texto | No | Identificador artificial que no imita formato oficial |
+| `vehiculo.dominio_sintetico` | texto | No | Valor generado con formato argentino `ABC123` o `AA123AA`; no proviene de un padrón |
 | `vehiculo.subunidad_id` | UUID | No | FK de asignación |
 | `vehiculo.tipo_vehiculo_id` | UUID | Sí | FK al tipo |
 | `vehiculo.estado_vehiculo_id` | UUID | Sí | FK al estado |
-| `vehiculo.marca_sintetica` | categoría | No | Marca inventada de catálogo |
-| `vehiculo.modelo_sintetico` | texto | No | Modelo inventado |
+| `vehiculo.marca_sintetica` | categoría | No | Marca de catálogo público, sin asignación real |
+| `vehiculo.modelo_sintetico` | texto | No | Modelo de catálogo público, sin asignación real |
 | `vehiculo.anio_modelo` | entero | No | Año plausible dentro del escenario |
 | `vehiculo.tipo_combustible` | categoría | Sí | Catálogo controlado |
 | `vehiculo.capacidad_tanque_l` | decimal | No | Mayor que cero y coherente con tipo |

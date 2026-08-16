@@ -13,7 +13,9 @@ Estas instrucciones se aplican a todo el repositorio. Las instrucciones humanas 
 
 - Usar exclusivamente datos sintéticos generados desde cero.
 - No copiar, transformar, anonimizar ni usar como muestra registros reales.
-- No incorporar nombres, marcas, logos, dominios, identificadores, coordenadas, credenciales o referencias de organizaciones reales.
+- Se permiten catálogos públicos generales, como marcas y modelos comerciales, cuando aporten realismo analítico y no reproduzcan asignaciones reales.
+- No incorporar nombres de personas, logos, identificadores, coordenadas, credenciales, dominios web o referencias de organizaciones reales.
+- Los dominios vehiculares sintéticos pueden respetar un formato público, pero nunca se obtienen de padrones ni se asocian con unidades reales y deben marcarse como sintéticos.
 - Antes de versionar datos, ejecutar las validaciones de `docs/DATA_GOVERNANCE.md`.
 - Si aparece información potencialmente real, detener el trabajo, no imprimirla ni copiarla y avisar a una persona responsable.
 
