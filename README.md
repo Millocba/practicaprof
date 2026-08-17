@@ -112,7 +112,7 @@ python -m raw_sources.prepare_consumo --output .tmp/consumo_rows.json --seed 202
 node tools/build_consumo_workbooks.mjs .tmp/consumo_rows.json datasets/raw/early_stage
 ```
 
-Los libros `consumo_interno.xlsx` y `consumo_externo.xlsx` son dos proyecciones independientes de los mismos eventos sintéticos. Cubren diariamente el año 2025 y al menos el 95 % de la flota. No exponen IDs internos: la vinculación depende de dominio, matrícula o tarjeta sintética y conserva errores controlados de representación.
+Los libros `consumo_interno.xlsx` y `consumo_externo.xlsx` son dos proyecciones independientes de los mismos eventos sintéticos. Cubren diariamente el año 2025 y al menos el 95 % de la flota. No exponen claves internas: la vinculación depende de dominio o tarjeta sintética y conserva errores controlados de representación. La fuente interna incluye operación, odómetro, ticket, conductor, rendición y anulación; su campo `Id` es un código operativo sintético de la fuente, no una clave del modelo relacional.
 
 ## Gobierno y colaboración
 

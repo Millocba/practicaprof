@@ -7,7 +7,8 @@ import random
 
 
 CONSUMO_INTERNO_COLUMNS = [
-    "FECHA", "HORA", "LITROSCARGADOS", "DOMINIO", "MATRICULA",
+    "Id", "Fecha", "Hora", "Dominio", "LitrosCargados",
+    "OdometroRegistrado", "NumeroTicket", "Conductor", "Rendido", "Anulado",
 ]
 
 CONSUMO_EXTERNO_COLUMNS = [
@@ -23,24 +24,11 @@ def _number(identifier: str) -> int:
 
 
 def _raw_domain(value: str, index: int) -> str:
-    if index % 29 == 0:
-        return ""
     if index % 17 == 0:
         return f" {value.lower()} "
     if index % 13 == 0:
         return value[:3] + " " + value[3:]
     return value
-
-
-def _raw_registration(value: str, index: int):
-    number = _number(value)
-    if index % 31 == 0:
-        return ""
-    if index % 19 == 0:
-        return number
-    if index % 11 == 0:
-        return f" {number:05d} "
-    return f"{number:05d}"
 
 
 def build_raw_consumo(tables: dict[str, list[dict]], seed: int) -> dict[str, list[dict]]:
@@ -66,17 +54,18 @@ def build_raw_consumo(tables: dict[str, list[dict]], seed: int) -> dict[str, lis
         liters = float(transaction["litros"])
         price = float(transaction["precio_unitario"])
         domain = _raw_domain(vehicle["dominio_sintetico"], index)
-        registration = _raw_registration(vehicle["matricula_sintetica"], index)
-
-        if not str(domain).strip() and not str(registration).strip():
-            registration = f"{_number(vehicle['matricula_sintetica']):05d}"
-
+        ticket_number = index - 1 if index % 113 == 0 else index
         internal_row = {
-            "FECHA": instant.strftime("%d/%m/%Y"),
-            "HORA": instant.strftime("%H:%M:%S"),
-            "LITROSCARGADOS": round(liters, 2),
-            "DOMINIO": domain,
-            "MATRICULA": registration,
+            "Id": f"OP-SIN-{index:07d}",
+            "Fecha": instant.strftime("%d/%m/%Y"),
+            "Hora": instant.strftime("%H:%M:%S"),
+            "Dominio": domain,
+            "LitrosCargados": round(liters, 2),
+            "OdometroRegistrado": round(float(transaction["odometro_declarado_km"])),
+            "NumeroTicket": f"TCK-SIN-{ticket_number:07d}",
+            "Conductor": person["nombre_sintetico"],
+            "Rendido": "NO" if index % 10 == 0 else "SI",
+            "Anulado": "SI" if index % 47 == 0 else "NO",
         }
         external_row = {
             "FECHA": instant.strftime("%d/%m/%Y %H:%M:%S"),

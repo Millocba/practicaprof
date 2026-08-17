@@ -20,10 +20,24 @@ class RawConsumoTests(unittest.TestCase):
         external = self.result["externo"]
         self.assertEqual(list(internal[0]), CONSUMO_INTERNO_COLUMNS)
         self.assertEqual(list(external[0]), CONSUMO_EXTERNO_COLUMNS)
-        self.assertFalse(any(c == "id" or c.lower().endswith("_id") for c in internal[0]))
+        self.assertEqual(CONSUMO_INTERNO_COLUMNS, [
+            "Id", "Fecha", "Hora", "Dominio", "LitrosCargados",
+            "OdometroRegistrado", "NumeroTicket", "Conductor", "Rendido", "Anulado",
+        ])
+        self.assertFalse(any(c.lower().endswith("_id") for c in internal[0]))
         self.assertFalse(any(c == "id" or c.lower().endswith("_id") for c in external[0]))
         self.assertEqual(len(internal), 4760)
         self.assertEqual(len(external), 4760)
+
+    def test_internal_source_preserves_operational_fields(self):
+        rows = self.result["interno"]
+        self.assertEqual(len({row["Id"] for row in rows}), len(rows))
+        self.assertTrue(all(str(row["Id"]).startswith("OP-SIN-") for row in rows))
+        self.assertTrue(all(str(row["NumeroTicket"]).startswith("TCK-SIN-") for row in rows))
+        self.assertTrue(all(str(row["Conductor"]).startswith("Persona Sintética ") for row in rows))
+        self.assertTrue(all(row["OdometroRegistrado"] > 0 for row in rows))
+        self.assertTrue({row["Rendido"] for row in rows}.issuperset({"SI", "NO"}))
+        self.assertTrue({row["Anulado"] for row in rows}.issuperset({"SI", "NO"}))
 
     def test_truth_preserves_shared_events_and_at_least_95_percent_vehicle_coverage(self):
         truth = self.result["truth"]
@@ -49,7 +63,7 @@ class RawConsumoTests(unittest.TestCase):
         repeated = build_raw_consumo(self.tables, seed=20260816)
         self.assertEqual(self.result, repeated)
         for row in self.result["interno"]:
-            self.assertTrue(str(row["DOMINIO"]).strip() or str(row["MATRICULA"]).strip())
+            self.assertTrue(str(row["Dominio"]).strip())
 
 
 if __name__ == "__main__":

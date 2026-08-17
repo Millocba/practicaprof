@@ -12,8 +12,9 @@ const definitions = [
   {
     key: "interno", folder: "consumo_interno", file: "consumo_interno.xlsx",
     sheet: "Consumo interno", table: "ConsumoInternoTable", color: "#1F4E78",
-    widths: [15, 13, 18, 16, 16], numberFormats: { C: "0.00" },
-    quality: { claves_naturales_imperfectas: true, tipos_mixtos_matricula: true },
+    widths: [18, 15, 13, 16, 18, 22, 20, 25, 13, 13],
+    numberFormats: { E: "0.00", F: "#,##0" },
+    quality: { dominios_imperfectos: true, tickets_duplicados: true, rendiciones_pendientes: true, anulaciones: true },
   },
   {
     key: "externo", folder: "consumo_externo", file: "consumo_externo.xlsx",
