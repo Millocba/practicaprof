@@ -105,6 +105,15 @@ node tools/build_telemetria_workbook.mjs .tmp/telemetria_rows.json datasets/raw/
 
 `telemetria_dispositivos.xlsx` contiene una fila por dispositivo y omite el ID del vehículo. La vinculación con flota depende de alias, placa o referencias de motor imperfectas e incluye dispositivos sin correspondencia, IMEI duplicados, faltantes y representaciones temporales heterogéneas.
 
+### Fuentes crudas de consumo
+
+```bash
+python -m raw_sources.prepare_consumo --output .tmp/consumo_rows.json --seed 20260816
+node tools/build_consumo_workbooks.mjs .tmp/consumo_rows.json datasets/raw/early_stage
+```
+
+Los libros `consumo_interno.xlsx` y `consumo_externo.xlsx` son dos proyecciones independientes de los mismos eventos sintéticos. Cubren diariamente el año 2025 y al menos el 95 % de la flota. No exponen IDs internos: la vinculación depende de dominio, matrícula o tarjeta sintética y conserva errores controlados de representación.
+
 ## Gobierno y colaboración
 
 - [Reglas para agentes de IA](AGENTS.md)
