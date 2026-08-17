@@ -96,6 +96,15 @@ node tools/build_flota_workbook.mjs .tmp/flota_rows.json datasets/raw/early_stag
 
 El libro `flota_vehicular.xlsx` no expone IDs internos ni claves foráneas. Conserva errores de unicidad y representación para que el futuro pipeline de limpieza deba descubrir y normalizar las vinculaciones.
 
+### Fuente cruda de telemetría
+
+```bash
+python -m raw_sources.prepare_telemetria --output .tmp/telemetria_rows.json --seed 20260816
+node tools/build_telemetria_workbook.mjs .tmp/telemetria_rows.json datasets/raw/early_stage/telemetria
+```
+
+`telemetria_dispositivos.xlsx` contiene una fila por dispositivo y omite el ID del vehículo. La vinculación con flota depende de alias, placa o referencias de motor imperfectas e incluye dispositivos sin correspondencia, IMEI duplicados, faltantes y representaciones temporales heterogéneas.
+
 ## Gobierno y colaboración
 
 - [Reglas para agentes de IA](AGENTS.md)
