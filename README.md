@@ -85,6 +85,17 @@ El destino debe no existir para impedir sobrescrituras accidentales. La salida l
 
 Los identificadores internos son deterministas: al reducir o ampliar el volumen con la misma semilla, las entidades existentes conservan sus IDs y las claves foráneas continúan apuntando a esos mismos IDs. Las marcas y modelos provienen de catálogos públicos generales; los dominios son generados y respetan los formatos argentinos histórico `ABC123` y Mercosur `AA123AA`, sin consultar padrones ni copiar asignaciones reales.
 
+### Fuente cruda de flota
+
+La primera fuente independiente se genera en dos pasos:
+
+```bash
+python -m raw_sources.prepare_flota --output .tmp/flota_rows.json --seed 20260816
+node tools/build_flota_workbook.mjs .tmp/flota_rows.json datasets/raw/early_stage/flota
+```
+
+El libro `flota_vehicular.xlsx` no expone IDs internos ni claves foráneas. Conserva errores de unicidad y representación para que el futuro pipeline de limpieza deba descubrir y normalizar las vinculaciones.
+
 ## Gobierno y colaboración
 
 - [Reglas para agentes de IA](AGENTS.md)
