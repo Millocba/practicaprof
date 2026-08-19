@@ -2,7 +2,7 @@
 
 *¿Cómo vamos a trabajar y con qué?*
 
-**Proyecto:** análisis y auditoría de datos de flota vehicular mediante datos 100 % sintéticos.  
+**Proyecto:** análisis y auditoría de datos de flota vehicular mediante datos 100 % sintéticos.<br>
 **Repositorio:** github.com/Millocba/practicaprof
 
 # 1. Equipo, roles y herramienta de gestión
