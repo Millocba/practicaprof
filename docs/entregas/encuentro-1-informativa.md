@@ -11,11 +11,11 @@ El equipo está integrado por cinco personas. Los roles iniciales podrán revisa
 
 | Integrante | Eje / rol principal | Responsabilidad en Encuentro 1 | Estado |
 | :--- | :--- | :--- | :--- |
-| Integrante 1 | Gestión | Organización del tablero | En curso |
-| Integrante 2 | Gestión y Product Management | Mapa de hipótesis y estimación DRL | En curso |
-| Integrante 3 | Negocio y datos | Mapa de hipótesis y estimación DRL | Pendiente de asignación |
-| Integrante 4 | Modelado e IA | Justificación del stack tecnológico | Pendiente de asignación |
-| Integrante 5 | Modelado e IA | Justificación del stack tecnológico | Pendiente de asignación |
+| Teo Finelli | Gestión | Organización del tablero | En curso |
+| Héctor Banega | Gestión y Product Management | Mapa de hipótesis y estimación DRL | En curso |
+| Gastón Chanquía | Negocio y datos | Mapa de hipótesis y estimación DRL | Pendiente de asignación |
+| Gastón Cressa | Modelado e IA | Justificación del stack tecnológico | Pendiente de asignación |
+| Germán Cochis | Modelado e IA | Justificación del stack tecnológico | Pendiente de asignación |
 
 ## Herramienta de gestión elegida: Trello
 
