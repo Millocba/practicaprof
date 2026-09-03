@@ -1,0 +1,29 @@
+{
+  "source": "telemetria",
+  "synthetic": true,
+  "seed": 20260816,
+  "rows": 180,
+  "columns": [
+    "Alias",
+    "Placa",
+    "IMEI",
+    "MSISDN",
+    "Grupo",
+    "Modelo equipo",
+    "Estado transmisión",
+    "Hora de última transmisión",
+    "Batería",
+    "Batería externa",
+    "Odómetro",
+    "Horómetro",
+    "Latitud",
+    "Longitud"
+  ],
+  "injected_quality": {
+    "duplicate_imei": 6,
+    "unmatched_devices": 15,
+    "mixed_dates": true,
+    "missing_values": true
+  },
+  "sha256": "cd18d83a2db3d3a8717dfd008dacb247bc03e8e30a2da187566f728beebf1669"
+}
