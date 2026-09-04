@@ -48,7 +48,11 @@ class RawConsumoTests(unittest.TestCase):
 
     def test_consumption_is_daily_and_within_telemetry_period(self):
         truth = self.result["truth"]
-        days = {date.fromisoformat(row["fecha"]) for row in truth}
+        days = {
+            date.fromisoformat(row["fecha"])
+            for row in truth 
+            if row["fecha"] is not None
+        }
         self.assertEqual(min(days), date(2025, 1, 1))
         self.assertEqual(max(days), date(2025, 12, 31))
         self.assertEqual(len(days), 365)
@@ -56,8 +60,10 @@ class RawConsumoTests(unittest.TestCase):
     def test_liters_respect_related_vehicle_tank_capacity(self):
         capacities = {row["id"]: float(row["capacidad_tanque_l"]) for row in self.tables["vehiculo"]}
         for row in self.result["truth"]:
-            self.assertGreater(row["litros"], 0)
-            self.assertLessEqual(row["litros"], capacities[row["vehiculo_id"]])
+            if row["litros"] is not None:
+                self.assertGreater(row["litros"], 0)
+
+                self.assertLessEqual(row["litros"], capacities[row["vehiculo_id"]])
 
     def test_generation_is_reproducible_and_keeps_raw_keys_recoverable(self):
         repeated = build_raw_consumo(self.tables, seed=20260816)

@@ -163,7 +163,187 @@ def generate_dataset(config: GenerationConfig) -> dict[str, list[dict[str, Any]]
             source = vehicles[source_start + offset]
             target["dominio_sintetico"] = source["dominio_sintetico"]
             ground_truth.append({"id": _id("GT", len(ground_truth) + 1, 6), "ejecucion_id": _id("RUN", 1, 3), "entidad": "vehiculo", "registro_id": target["id"], "tipo": "DQ_DUP_DOMAIN", "severidad": "alta", "parametros": '{"unidad":"count","escenario":"early_stage"}'})
+        
+        # -------------------------------------------------
+        # Defecto de normalización: espacios en marca
+        # -------------------------------------------------
+        whitespace_count = min(8, len(vehicles)) 
+        for offset in range(whitespace_count): 
+            target = vehicles[64 + offset]
+            target["marca_sintetica"] = f" {target['marca_sintetica']} "
+            ground_truth.append({
+                "id": _id("GT", len(ground_truth) + 1, 6),
+                "ejecucion_id": _id("RUN", 1, 3),
+                "entidad": "vehiculo",
+                "registro_id": target["id"],
+                "tipo": "DQ_WHITESPACE_MARCA",
+                "severidad": "baja",
+                "parametros": '{"campo":"marca_sintetica","tratamiento":"strip"}'
+            })
+            
+        # -------------------------------------------------
+        # Defecto de normalización: mayúsculas/minúsculas
+        # inconsistentes en marca
+        # -------------------------------------------------
+        case_count = min(6, len(vehicles))
+        for offset in range(case_count):
+            target = vehicles[72 + offset]
+            if offset % 2 == 0:
+                target["marca_sintetica"] = target["marca_sintetica"].lower()
+            else:
+                target["marca_sintetica"] = target["marca_sintetica"].swapcase()
+            ground_truth.append({
+                "id": _id("GT", len(ground_truth) + 1, 6),
+                "ejecucion_id": _id("RUN", 1, 3),
+                "entidad": "vehiculo",
+                "registro_id": target["id"],
+                "tipo": "DQ_CASE_MARCA",
+                "severidad": "baja",
+                "parametros": '{"campo":"marca_sintetica","tratamiento":"normalizar_case"}'
+            })
+            
+        # -------------------------------------------------
+        # Defecto de normalización: formato inconsistente
+        # en tipo_combustible
+        # -------------------------------------------------
+        fuel_format_count = min(8, len(vehicles))
+        for offset in range(fuel_format_count):
+            target = vehicles[78 + offset]
+            if offset % 2 == 0:
+                target["tipo_combustible"] = target["tipo_combustible"].lower()
+            else:
+                target["tipo_combustible"] = f"{target['tipo_combustible']} "
+            ground_truth.append({
+                "id": _id("GT", len(ground_truth) + 1, 6),
+                "ejecucion_id": _id("RUN", 1, 3),
+                "entidad": "vehiculo",
+                "registro_id": target["id"],
+                "tipo": "DQ_FORMAT_COMBUSTIBLE",
+                "severidad": "baja",
+                "parametros": '{"campo":"tipo_combustible","tratamiento":"normalizar_texto"}'
+            })     
+               
+        # -------------------------------------------------
+        # Defecto de validez: fechas heterogéneas o inválidas
+        # en fecha_alta de dispositivo
+        # -------------------------------------------------
+        date_format_count = min(6, len(devices))
+        for offset in range(date_format_count):
+            target = devices[offset]
+            if offset % 2 == 0:
+                # Formato alternativo: DD/MM/YYYY
+                fecha_original = datetime.fromisoformat(target["fecha_alta"])
+                target["fecha_alta"] = fecha_original.strftime("%d/%m/%Y")
+            else:
+                # Fecha inválida
+                target["fecha_alta"] = "fecha_error"
+            ground_truth.append({
+                "id": _id("GT", len(ground_truth) + 1, 6),
+                "ejecucion_id": _id("RUN", 1, 3),
+                "entidad": "dispositivo",
+                "registro_id": target["id"],
+                "tipo": "DQ_INVALID_DATE_FORMAT",
+                "severidad": "media",
+                "parametros": '{"campo":"fecha_alta","tratamiento":"parsear_fecha"}'
+            })   
+            
+        # -------------------------------------------------
+        # Defecto de completitud: odometro_km faltante
+        # en evento_telemetria
+        # -------------------------------------------------
+        null_odometer_count = min(10, len(telemetry))
+        for offset in range(null_odometer_count):
+            target = telemetry[offset]
+            target["odometro_km"] = None
+            ground_truth.append({
+                "id": _id("GT", len(ground_truth) + 1, 6),
+                "ejecucion_id": _id("RUN", 1, 3),
+                "entidad": "evento_telemetria",
+                "registro_id": target["id"],
+                "tipo": "DQ_NULL_ODOMETRO",
+                "severidad": "media",
+                "parametros": '{"campo":"odometro_km","tratamiento":"control_completitud"}'
+            })
+        
+        # -------------------------------------------------
+        # Defecto de validez: odometro_km no numérico
+        # en evento_telemetria
+        # -------------------------------------------------
+        invalid_odometer_count = min(10, len(telemetry) - 10)
 
+        for offset in range(invalid_odometer_count):
+            target = telemetry[10 + offset]
+            target["odometro_km"] = "S/D"
+            ground_truth.append({
+                "id": _id("GT", len(ground_truth) + 1, 6),
+                "ejecucion_id": _id("RUN", 1, 3),
+                "entidad": "evento_telemetria",
+                "registro_id": target["id"],
+                "tipo": "DQ_INVALID_ODOMETRO",
+                "severidad": "media",
+                "parametros": '{"campo":"odometro_km","tratamiento":"conversion_numerica"}'
+            })
+        # -------------------------------------------------
+        # Defecto de completitud: litros faltantes
+        # en transaccion_combustible
+        # -------------------------------------------------
+        null_liters_count = min(10, len(transactions))
+        for offset in range(null_liters_count):
+            target = transactions[offset]
+            target["litros"] = None
+            ground_truth.append({
+                "id": _id("GT", len(ground_truth) + 1, 6),
+                "ejecucion_id": _id("RUN", 1, 3),
+                "entidad": "transaccion_combustible",
+                "registro_id": target["id"],
+                "tipo": "DQ_NULL_LITROS",
+                "severidad": "media",
+                "parametros": '{"campo":"litros","tratamiento":"control_completitud"}'
+            })            
+
+        # -------------------------------------------------
+        # Defecto de validez: litros no numéricos
+        # en transaccion_combustible
+        # -------------------------------------------------
+        invalid_liters_count = min(10, max(0, len(transactions) - 10))
+        for offset in range(invalid_liters_count):
+            target = transactions[10 + offset]
+            target["litros"] = "ERROR"
+            ground_truth.append({
+                "id": _id("GT", len(ground_truth) + 1, 6),
+                "ejecucion_id": _id("RUN", 1, 3),
+                "entidad": "transaccion_combustible",
+                "registro_id": target["id"],
+                "tipo": "DQ_INVALID_LITROS",
+                "severidad": "media",
+                "parametros": '{"campo":"litros","tratamiento":"conversion_numerica"}'
+            })
+            
+        # -------------------------------------------------
+        # Defecto de validez: fecha/hora inválida o
+        # heterogénea en transaccion_combustible
+        # -------------------------------------------------
+        invalid_datetime_count = min(8, max(0, len(transactions) - 20))
+
+        for offset in range(invalid_datetime_count):
+            target = transactions[20 + offset]
+
+            if offset % 2 == 0:
+                target["instante_utc"] = "03/05/2025 14:30"
+            else:
+                target["instante_utc"] = "sin fecha"
+
+            ground_truth.append({
+                "id": _id("GT", len(ground_truth) + 1, 6),
+                "ejecucion_id": _id("RUN", 1, 3),
+                "entidad": "transaccion_combustible",
+                "registro_id": target["id"],
+                "tipo": "DQ_INVALID_DATETIME",
+                "severidad": "media",
+                "parametros": '{"campo":"instante_utc","tratamiento":"parsear_fecha"}'
+            })
+        
+        
     tables = {
         "unidad": units, "subunidad": subunits, "tipo_vehiculo": vehicle_types, "estado_vehiculo": vehicle_states,
         "vehiculo": vehicles, "dispositivo": devices, "evento_telemetria": telemetry, "persona": people,
