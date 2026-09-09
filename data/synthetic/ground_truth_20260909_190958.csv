@@ -1,0 +1,82 @@
+tabla,fila,columna,tipo,severidad,descripcion,valor_original,valor_inyectado
+vehiculo,10163,Dominio,TEXT_NORMALIZATION,baja,Dominio con espacios/puntuación,MX687KH,MX.687KH
+vehiculo,10026,Dominio,TEXT_NORMALIZATION,baja,Dominio con espacios/puntuación,IG716OZ,IG.716OZ
+vehiculo,10090,Dominio,TEXT_NORMALIZATION,baja,Dominio con espacios/puntuación,UW250EE,UW.250EE
+vehiculo,10036,Dominio,TEXT_NORMALIZATION,baja,Dominio con espacios/puntuación,JM777HP,JM.777HP
+vehiculo,10168,Dominio,TEXT_NORMALIZATION,baja,Dominio con espacios/puntuación,KE881OU,KE 881OU
+vehiculo,10192,Dominio,TEXT_NORMALIZATION,baja,Dominio con espacios/puntuación,JF239DL,JF 239DL
+vehiculo,10197,Dominio,TEXT_NORMALIZATION,baja,Dominio con espacios/puntuación,EU336AR,EU.336AR
+vehiculo,10087,Dominio,TEXT_NORMALIZATION,baja,Dominio con espacios/puntuación,YM551VI,YM.551VI
+vehiculo,10103,Dominio,TEXT_NORMALIZATION,baja,Dominio con espacios/puntuación,TV023PF,TV.023PF
+vehiculo,10185,Dominio,TEXT_NORMALIZATION,baja,Dominio con espacios/puntuación,ME526VH,ME.526VH
+vehiculo,10144,Dominio,TEXT_NORMALIZATION,baja,Dominio con espacios/puntuación,TK497DL,TK 497DL
+vehiculo,10072,Dominio,TEXT_NORMALIZATION,baja,Dominio con espacios/puntuación,MW620MC,MW.620MC
+vehiculo,10015,Dominio,TEXT_NORMALIZATION,baja,Dominio con espacios/puntuación,BY045AV,BY 045AV
+vehiculo,10017,Dominio,TEXT_NORMALIZATION,baja,Dominio con espacios/puntuación,ZO073RM,ZO 073RM
+vehiculo,10110,Dominio,TEXT_NORMALIZATION,baja,Dominio con espacios/puntuación,EH527CE,EH 527CE
+vehiculo,10024,Dominio,TEXT_NORMALIZATION,baja,Dominio con espacios/puntuación,LF399TN,LF.399TN
+vehiculo,10022,RetiraDni,NUMERIC_FORMAT,baja,DNI con espacios,78592498,7859 2498
+vehiculo,10002,RetiraDni,NUMERIC_FORMAT,baja,DNI con espacios,29191411,2919 1411
+vehiculo,10004,RetiraDni,NUMERIC_FORMAT,baja,DNI con espacios,26299167,2629 9167
+vehiculo,10054,RetiraDni,NUMERIC_FORMAT,baja,DNI con espacios,27402029,2740 2029
+vehiculo,10067,RetiraDni,NUMERIC_FORMAT,baja,DNI con espacios,68727158,6872 7158
+vehiculo,10040,RetiraDni,NUMERIC_FORMAT,baja,DNI con espacios,74696082,7469 6082
+vehiculo,10021,RetiraDni,NUMERIC_FORMAT,baja,DNI con espacios,88378230,8837 8230
+vehiculo,10186,RetiraDni,NUMERIC_FORMAT,baja,DNI con espacios,15114366,1511 4366
+vehiculo,10127,RetiraDni,NUMERIC_FORMAT,baja,DNI con espacios,46123172,4612 3172
+vehiculo,10094,RetiraDni,NUMERIC_FORMAT,baja,DNI con espacios,08242915,0824 2915
+dispositivo,66,Hora de última transmisión,DATE_FORMAT,media,Formato de fecha inconsistente,"lunes, 07 de septiembre de 2026 04:43:46","lunes, 07 de septiembre de 2026 04:43:46"
+dispositivo,3,Hora de última transmisión,DATE_FORMAT,media,Formato de fecha inconsistente,"domingo, 06 de septiembre de 2026 11:34:10","domingo, 06 de septiembre de 2026 11:34:10"
+dispositivo,109,Hora de última transmisión,DATE_FORMAT,media,Formato de fecha inconsistente,"martes, 08 de septiembre de 2026 07:50:51","martes, 08 de septiembre de 2026 07:50:51"
+dispositivo,176,Hora de última transmisión,DATE_FORMAT,media,Formato de fecha inconsistente,"martes, 30 de junio de 2026 01:43:51","martes, 30 de junio de 2026 01:43:51"
+dispositivo,161,Hora de última transmisión,DATE_FORMAT,media,Formato de fecha inconsistente,"miércoles, 09 de septiembre de 2026 00:55:25","miércoles, 09 de septiembre de 2026 00:55:25"
+dispositivo,146,Hora de última transmisión,DATE_FORMAT,media,Formato de fecha inconsistente,"miércoles, 09 de septiembre de 2026 10:45:37","miércoles, 09 de septiembre de 2026 10:45:37"
+dispositivo,131,Hora de última transmisión,DATE_FORMAT,media,Formato de fecha inconsistente,"domingo, 06 de septiembre de 2026 21:46:51","domingo, 06 de septiembre de 2026 21:46:51"
+vehiculo,10196,Dominio,MATCHING_DEFECT,media,Dominio duplicado,YP448WD,JF 239DL
+vehiculo,10179,Dominio,MATCHING_DEFECT,media,Dominio duplicado,YR968MX,EU.336AR
+vehiculo,10058,Dominio,MATCHING_DEFECT,media,Dominio duplicado,QA702NR,WI010ZE
+vehiculo,10027,Dominio,MATCHING_DEFECT,media,Dominio duplicado,YT790PQ,PB186JN
+vehiculo,10018,Dominio,MATCHING_DEFECT,media,Dominio duplicado,RS270AD,YX424LE
+vehiculo,10158,Dominio,MATCHING_DEFECT,media,Dominio duplicado,OW278VS,OX249DC
+vehiculo,10057,Dominio,MATCHING_DEFECT,media,Dominio duplicado,WI010ZE,TD929VR
+vehiculo,10048,Dominio,MATCHING_DEFECT,media,Dominio duplicado,YX424LE,ER669YO
+vehiculo,10012,Dominio,MATCHING_DEFECT,media,Dominio duplicado,CZ010PQ,GK001RL
+vehiculo,10114,Dominio,MATCHING_DEFECT,media,Dominio duplicado,LI038VY,GN065MU
+vehiculo,10047,CapacidadTanque,CONSISTENCY_ERROR,media,Capacidad de tanque inconsistente,45,114
+vehiculo,10141,CapacidadTanque,CONSISTENCY_ERROR,media,Capacidad de tanque inconsistente,47,108
+vehiculo,10194,CapacidadTanque,CONSISTENCY_ERROR,media,Capacidad de tanque inconsistente,51,112
+vehiculo,10013,CapacidadTanque,CONSISTENCY_ERROR,media,Capacidad de tanque inconsistente,18,96
+vehiculo,10138,CapacidadTanque,CONSISTENCY_ERROR,media,Capacidad de tanque inconsistente,45,97
+vehiculo,10148,CapacidadTanque,CONSISTENCY_ERROR,media,Capacidad de tanque inconsistente,75,163
+vehiculo,10098,Matricula,DUPLICADO,alta,Matrícula duplicada,10098,10061
+vehiculo,10133,Matricula,DUPLICADO,alta,Matrícula duplicada,10133,10154
+vehiculo,10189,Matricula,DUPLICADO,alta,Matrícula duplicada,10189,10094
+vehiculo,10075,Matricula,DUPLICADO,alta,Matrícula duplicada,10075,10124
+vehiculo,10171,Matricula,DUPLICADO,alta,Matrícula duplicada,10171,10018
+vehiculo,10119,Matricula,DUPLICADO,alta,Matrícula duplicada,10119,10130
+vehiculo,10038,Matricula,DUPLICADO,alta,Matrícula duplicada,10038,10003
+vehiculo,10112,Matricula,DUPLICADO,alta,Matrícula duplicada,10112,10080
+dispositivo,129,IMEI,DUPLICADO,alta,IMEI duplicado,785848690639149,598252324779577
+dispositivo,150,IMEI,DUPLICADO,alta,IMEI duplicado,747180012939990,033381850438544
+dispositivo,152,IMEI,DUPLICADO,alta,IMEI duplicado,136141752847178,451418619757894
+dispositivo,109,IMEI,DUPLICADO,alta,IMEI duplicado,089670476428631,383275888388056
+dispositivo,118,IMEI,DUPLICADO,alta,IMEI duplicado,187532236718113,004112022683318
+dispositivo,114,IMEI,DUPLICADO,alta,IMEI duplicado,901552510971932,045753551265064
+dispositivo,115,IMEI,DUPLICADO,alta,IMEI duplicado,209131713438970,860279260571772
+vehiculo,10048,Estado,FALTANTE,alta,Estado sin cargar,En Servicio,
+vehiculo,10066,Estado,FALTANTE,alta,Estado sin cargar,Baja,
+vehiculo,10163,Estado,FALTANTE,alta,Estado sin cargar,Fuera de Servicio,
+vehiculo,10081,Estado,FALTANTE,alta,Estado sin cargar,En Servicio,
+vehiculo,10127,Estado,FALTANTE,alta,Estado sin cargar,En Servicio,
+dispositivo,3,MSISDN,FALTANTE,media,MSISDN sin cargar,549891055958,
+dispositivo,34,MSISDN,FALTANTE,media,MSISDN sin cargar,549143041950,
+dispositivo,140,MSISDN,FALTANTE,media,MSISDN sin cargar,549115853209,
+vehiculo,10117,Dominio,INVALIDO,alta,Dominio inválido,TM356YO,SIN DOMINIO
+vehiculo,10178,Dominio,INVALIDO,alta,Dominio inválido,AZ000YT,S/D
+vehiculo,10181,Dominio,INVALIDO,alta,Dominio inválido,HN169CD,SIN DOMINIO
+vehiculo,10173,Dominio,INVALIDO,alta,Dominio inválido,JN943CP,SIN DOMINIO
+vehiculo,10096,Dominio,INVALIDO,alta,Dominio inválido,VT688NH,S/D
+vehiculo,10190,Dominio,INVALIDO,alta,Dominio inválido,TD904MX,S/D
+dispositivo,148,Alias,SIN_NUMERO,media,Alias sin número identificatorio,10170,REPUESTO
+dispositivo,96,Alias,SIN_NUMERO,media,Alias sin número identificatorio,2514254,REPUESTO
+dispositivo,6,Alias,SIN_NUMERO,media,Alias sin número identificatorio,1557188,SIN ASIGNAR

@@ -1,0 +1,33 @@
+tabla,fila,columna,tipo,severidad,descripcion,valor_original,valor_inyectado
+vehiculo,10098,Matricula,DUPLICADO,alta,Matrícula duplicada,10098,10061
+vehiculo,10133,Matricula,DUPLICADO,alta,Matrícula duplicada,10133,10154
+vehiculo,10189,Matricula,DUPLICADO,alta,Matrícula duplicada,10189,10094
+vehiculo,10075,Matricula,DUPLICADO,alta,Matrícula duplicada,10075,10124
+vehiculo,10171,Matricula,DUPLICADO,alta,Matrícula duplicada,10171,10018
+vehiculo,10119,Matricula,DUPLICADO,alta,Matrícula duplicada,10119,10130
+vehiculo,10038,Matricula,DUPLICADO,alta,Matrícula duplicada,10038,10003
+vehiculo,10112,Matricula,DUPLICADO,alta,Matrícula duplicada,10112,10080
+dispositivo,129,IMEI,DUPLICADO,alta,IMEI duplicado,785848690639149,598252324779577
+dispositivo,150,IMEI,DUPLICADO,alta,IMEI duplicado,747180012939990,033381850438544
+dispositivo,152,IMEI,DUPLICADO,alta,IMEI duplicado,136141752847178,451418619757894
+dispositivo,109,IMEI,DUPLICADO,alta,IMEI duplicado,089670476428631,383275888388056
+dispositivo,118,IMEI,DUPLICADO,alta,IMEI duplicado,187532236718113,004112022683318
+dispositivo,114,IMEI,DUPLICADO,alta,IMEI duplicado,901552510971932,045753551265064
+dispositivo,115,IMEI,DUPLICADO,alta,IMEI duplicado,209131713438970,860279260571772
+vehiculo,10048,Estado,FALTANTE,alta,Estado sin cargar,En Servicio,
+vehiculo,10066,Estado,FALTANTE,alta,Estado sin cargar,Baja,
+vehiculo,10163,Estado,FALTANTE,alta,Estado sin cargar,Fuera de Servicio,
+vehiculo,10081,Estado,FALTANTE,alta,Estado sin cargar,En Servicio,
+vehiculo,10127,Estado,FALTANTE,alta,Estado sin cargar,En Servicio,
+dispositivo,3,MSISDN,FALTANTE,media,MSISDN sin cargar,549891055958,
+dispositivo,34,MSISDN,FALTANTE,media,MSISDN sin cargar,549143041950,
+dispositivo,140,MSISDN,FALTANTE,media,MSISDN sin cargar,549115853209,
+vehiculo,10117,Dominio,INVALIDO,alta,Dominio inválido,TM356YO,SIN DOMINIO
+vehiculo,10178,Dominio,INVALIDO,alta,Dominio inválido,AZ000YT,S/D
+vehiculo,10181,Dominio,INVALIDO,alta,Dominio inválido,HN169CD,SIN DOMINIO
+vehiculo,10173,Dominio,INVALIDO,alta,Dominio inválido,JN943CP,SIN DOMINIO
+vehiculo,10096,Dominio,INVALIDO,alta,Dominio inválido,VT688NH,S/D
+vehiculo,10190,Dominio,INVALIDO,alta,Dominio inválido,TD904MX,S/D
+dispositivo,148,Alias,SIN_NUMERO,media,Alias sin número identificatorio,10170,REPUESTO
+dispositivo,96,Alias,SIN_NUMERO,media,Alias sin número identificatorio,2514254,REPUESTO
+dispositivo,6,Alias,SIN_NUMERO,media,Alias sin número identificatorio,1557188,SIN ASIGNAR
