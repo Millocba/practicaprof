@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIFAD - Dashboard Interactivo | Encuentro 1</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1e40af;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --bg: #f9fafb;
+            --bg-light: #ffffff;
+            --text: #1f2937;
+            --text-light: #6b7280;
+            --border: #e5e7eb;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #111827;
+                --bg-light: #1f2937;
+                --text: #f3f4f6;
+                --text-light: #d1d5db;
+                --border: #374151;
+            }
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        /* Header */
+        header {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+            padding: 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        header h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            font-weight: 700;
+        }
+
+        header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+            margin-bottom: 1rem;
+        }
+
+        nav {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        nav button {
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s;
+            font-size: 0.95rem;
+        }
+
+        nav button:hover,
+        nav button.active {
+            background: rgba(255, 255, 255, 0.3);
+            border-color: white;
+        }
+
+        /* Container */
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* Sections */
+        section {
+            display: none;
+            animation: fadeIn 0.3s;
+        }
+
+        section.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        /* Grid */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        /* KPI Cards */
+        .kpi {
+            background: var(--bg-light);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .kpi:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .kpi-label {
+            font-size: 0.9rem;
+            color: var(--text-light);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.5rem;
+        }
+
+        .kpi-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .kpi-meta {
+            font-size: 0.85rem;
+            color: var(--text-light);
+        }
+
+        /* Chart Container */
+        .chart-container {
+            background: var(--bg-light);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            position: relative;
+            height: 400px;
+        }
+
+        .chart-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--text);
+        }
+
+        /* Table */
+        .table-responsive {
+            overflow-x: auto;
+            background: var(--bg-light);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 2rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            background: var(--primary);
+            color: white;
+        }
+
+        th, td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        tbody tr:hover {
+            background: var(--bg);
+        }
+
+        .severity-alta {
+            color: var(--danger);
+            font-weight: 600;
+        }
+
+        .severity-media {
+            color: var(--warning);
+            font-weight: 600;
+        }
+
+        .severity-baja {
+            color: var(--success);
+            font-weight: 600;
+        }
+
+        /* Cards Layout */
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .card {
+            background: var(--bg-light);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .card h3 {
+            font-size: 1.2rem;
+            margin-bottom: 0.5rem;
+            color: var(--text);
+        }
+
+        .card p {
+            color: var(--text-light);
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        .card-badge {
+            display: inline-block;
+            background: var(--primary);
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            margin-top: 1rem;
+            font-weight: 600;
+        }
+
+        /* Timeline (Progreso) */
+        .timeline {
+            position: relative;
+            margin-left: 1rem;
+            padding-left: 2rem;
+            border-left: 3px solid var(--border);
+        }
+
+        .timeline-item {
+            position: relative;
+            margin-bottom: 2rem;
+        }
+
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -2.09rem;
+            top: 0.3rem;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: var(--primary);
+            box-shadow: 0 0 0 3px var(--bg);
+        }
+
+        .timeline-item.milestone::before {
+            background: var(--success);
+        }
+
+        .timeline-date {
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: var(--primary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.4rem;
+        }
+
+        .timeline-item.milestone .timeline-date {
+            color: var(--success);
+        }
+
+        .timeline-content {
+            background: var(--bg-light);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem 1.5rem;
+        }
+
+        .timeline-content h4 {
+            font-size: 1.05rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .timeline-content ul {
+            margin-top: 0.5rem;
+            margin-left: 1.2rem;
+            color: var(--text-light);
+            font-size: 0.9rem;
+        }
+
+        .timeline-content ul li {
+            margin-bottom: 0.2rem;
+        }
+
+        /* Footer */
+        footer {
+            border-top: 1px solid var(--border);
+            padding: 2rem;
+            text-align: center;
+            color: var(--text-light);
+            font-size: 0.9rem;
+        }
+
+        .footer-meta {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            flex-wrap: wrap;
+            margin-top: 1rem;
+            font-size: 0.85rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+
+            header h1 {
+                font-size: 1.5rem;
+            }
+
+            .kpi-value {
+                font-size: 1.8rem;
+            }
+
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            nav {
+                gap: 0.3rem;
+            }
+
+            nav button {
+                padding: 0.4rem 0.8rem;
+                font-size: 0.85rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>📊 SIFAD - Sistema Inteligente de Flota y Auditoría de Datos</h1>
+        <p>Tesis de Grado | Dirección General Gestión Administrativa | Encuentro 1</p>
+        <nav>
+            <button class="nav-btn active" data-section="overview">📈 Overview</button>
+            <button class="nav-btn" data-section="progreso">🕒 Progreso</button>
+            <button class="nav-btn" data-section="datos">📁 Datos Generados</button>
+            <button class="nav-btn" data-section="anomalias">⚠️ Anomalías</button>
+            <button class="nav-btn" data-section="hipotesis">🔬 Hipótesis</button>
+            <button class="nav-btn" data-section="roadmap">📅 Roadmap</button>
+        </nav>
+    </header>
+
+    <div class="container">
+        <!-- OVERVIEW SECTION -->
+        <section id="overview" class="active">
+            <h2 style="font-size: 1.8rem; margin-bottom: 1.5rem;">Estado Actual del Pipeline</h2>
+
+            <div class="grid">
+                <div class="kpi">
+                    <div class="kpi-label">🚗 Vehículos Generados</div>
+                    <div class="kpi-value">200</div>
+                    <div class="kpi-meta">Flota sintética | Seed: 20260910</div>
+                </div>
+
+                <div class="kpi">
+                    <div class="kpi-label">⚠️ Anomalías Inyectadas</div>
+                    <div class="kpi-value">80</div>
+                    <div class="kpi-meta">32 flota + 48 combustible (reales: 356+)</div>
+                </div>
+
+                <div class="kpi">
+                    <div class="kpi-label">🔗 Fuentes de Datos</div>
+                    <div class="kpi-value">4</div>
+                    <div class="kpi-meta">Flota (v7.5) | YPF | RIGCOM | Consumo Diario</div>
+                </div>
+
+                <div class="kpi">
+                    <div class="kpi-label">📊 Hipótesis a Validar</div>
+                    <div class="kpi-value">4</div>
+                    <div class="kpi-meta">H1 (normalización) | H2 (odómetro) | H3a/H3b (volumétrica)</div>
+                </div>
+
+                <div class="kpi">
+                    <div class="kpi-label">🎯 DRL Actual</div>
+                    <div class="kpi-value">Banda B</div>
+                    <div class="kpi-meta">Data Readiness Level | Validación en progreso</div>
+                </div>
+
+                <div class="kpi">
+                    <div class="kpi-label">📍 Sprint</div>
+                    <div class="kpi-value">0 → 1</div>
+                    <div class="kpi-meta">Setup completado | Generación OK</div>
+                </div>
+            </div>
+
+            <h3 style="margin-top: 2rem; margin-bottom: 1rem; font-size: 1.3rem;">Resumen de Ejecución</h3>
+            <div style="background: var(--bg-light); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem;">
+                <p><strong>Pipeline ejecutado:</strong> 2026-09-10 00:06:01 UTC</p>
+                <p style="margin-top: 0.5rem;"><strong>Datos generados:</strong></p>
+                <ul style="margin-top: 0.5rem; margin-left: 1.5rem;">
+                    <li>✅ <strong>vehiculos_20260910_000601.csv</strong> (200 registros, 34KB)</li>
+                    <li>✅ <strong>anomalias_20260910_000601.csv</strong> (32 registros, 2.5KB)</li>
+                    <li>✅ <strong>anomalias_combustible.csv</strong> (48 registros, 4.2KB)</li>
+                    <li>✅ <strong>ground_truth_20260910_000601.csv</strong> (validación de inyecciones)</li>
+                    <li>✅ <strong>defectos_20260910_000601.csv</strong> (dispositivos asociados)</li>
+                </ul>
+                <p style="margin-top: 1rem; color: var(--text-light);"><strong>Próximo paso:</strong> Generar datos de consumo diario, facturación y anomalías asociadas (Sprint 1, Encuentro 1)</p>
+            </div>
+        </section>
+
+        <!-- PROGRESO SECTION (historial real, no plan) -->
+        <section id="progreso">
+            <h2 style="font-size: 1.8rem; margin-bottom: 0.5rem;">🕒 Historial de Avances</h2>
+            <p style="color: var(--text-light); margin-bottom: 1.5rem;">Hitos ya completados, en orden cronológico. A diferencia del Roadmap (el plan), esta sección solo crece: cada entrega nueva se agrega al final, nunca se reescribe lo anterior.</p>
+
+            <div class="timeline">
+                <div class="timeline-item">
+                    <div class="timeline-date">2026-08-16</div>
+                    <div class="timeline-content">
+                        <h4>📋 Fundación del proyecto</h4>
+                        <ul>
+                            <li>Gobierno, alcance y hoja de ruta definidos</li>
+                            <li>Estructura y escenarios de datos sintéticos especificados</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="timeline-item">
+                    <div class="timeline-date">2026-08-16 → 17</div>
+                    <div class="timeline-content">
+                        <h4>⚙️ Generador inicial y primeras fuentes crudas</h4>
+                        <ul>
+                            <li>Dataset sintético reproducible (semilla configurable)</li>
+                            <li>Fuentes crudas: flota, telemetría, consumo interno/externo</li>
+                            <li>Documentación reubicada en <code>docs/</code></li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="timeline-item">
+                    <div class="timeline-date">2026-08-19</div>
+                    <div class="timeline-content">
+                        <h4>📝 Encuentro 1: propuesta y equipo</h4>
+                        <ul>
+                            <li>Propuesta del encuentro inicial incorporada</li>
+                            <li>Roles y responsabilidades del equipo actualizados</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="timeline-item">
+                    <div class="timeline-date">2026-09-03 → 09</div>
+                    <div class="timeline-content">
+                        <h4>🔬 Notebooks de análisis exploratorio</h4>
+                        <ul>
+                            <li>EDA v3, v4 y v5 (defects-aware) sobre datasets sintéticos</li>
+                            <li>Generadores de datos v3 a v5 con inyección de defectos</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="timeline-item milestone">
+                    <div class="timeline-date">2026-09-10 — Sprint 1, Phase 2</div>
+                    <div class="timeline-content">
+                        <h4>✅ Pipeline v7.5 completo: 4 capas generadas y validadas</h4>
+                        <ul>
+                            <li>Capa 1 Flota: 200 vehículos (135 elegibles), 32 anomalías</li>
+                            <li>Capa 2 Combustible: 48 anomalías YPF ↔ RIGCOM</li>
+                            <li>Capa 3 Consumo Diario: 1.353 transacciones, 18 anomalías de odómetro</li>
+                            <li>Capa 4 Facturas: 65 facturas ($32.6M), 2 anomalías de facturación</li>
+                            <li>Cobertura de hipótesis H1–H4: 100%</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- DATOS SECTION -->
+        <section id="datos">
+            <h2 style="font-size: 1.8rem; margin-bottom: 1.5rem;">📁 Datos Generados por Capa</h2>
+
+            <div class="cards-grid">
+                <div class="card">
+                    <h3>🚗 Capa 1: Flota (v7.5 Hybrid)</h3>
+                    <p><strong>Estado:</strong> ✅ Completada</p>
+                    <p style="margin-top: 0.5rem;"><strong>Registros:</strong> 200 vehículos</p>
+                    <p style="margin-top: 0.5rem;"><strong>Campos:</strong> Matrícula, Dominio, TipoVehículo, Combustible, CapacidadTanque, RelacionConsumo</p>
+                    <p style="margin-top: 0.5rem; color: var(--text-light);"><strong>Anomalías inyectadas:</strong> 32</p>
+                    <div class="card-badge">Banda B → A</div>
+                </div>
+
+                <div class="card">
+                    <h3>⛽ Capa 2: Combustible (YPF↔RIGCOM)</h3>
+                    <p><strong>Estado:</strong> ✅ Vinculación pendiente</p>
+                    <p style="margin-top: 0.5rem;"><strong>Fuentes:</strong> YPF (cargas) + RIGCOM (solicitudes)</p>
+                    <p style="margin-top: 0.5rem;"><strong>Tasa vinculación actual:</strong> ~87% (H1 validación)</p>
+                    <p style="margin-top: 0.5rem; color: var(--text-light);"><strong>Anomalías detectadas:</strong> 48</p>
+                    <div class="card-badge">Cruce de datos</div>
+                </div>
+
+                <div class="card">
+                    <h3>📊 Capa 3: Consumo Diario</h3>
+                    <p><strong>Estado:</strong> ⏳ En desarrollo</p>
+                    <p style="margin-top: 0.5rem;"><strong>Base:</strong> ODK (odómetros) + Consumo (H2)</p>
+                    <p style="margin-top: 0.5rem;"><strong>Métrica:</strong> Consumo diario/km</p>
+                    <p style="margin-top: 0.5rem; color: var(--text-light);"><strong>Anomalías esperadas:</strong> ~120</p>
+                    <div class="card-badge">H2 Validación</div>
+                </div>
+
+                <div class="card">
+                    <h3>💰 Capa 4: Facturas</h3>
+                    <p><strong>Estado:</strong> ⏳ Por generar</p>
+                    <p style="margin-top: 0.5rem;"><strong>Origen:</strong> Datos de combustible + precios</p>
+                    <p style="margin-top: 0.5rem;"><strong>Validación:</strong> $ vs Litros</p>
+                    <p style="margin-top: 0.5rem; color: var(--text-light);"><strong>Anomalías esperadas:</strong> ~36</p>
+                    <div class="card-badge">Consistencia</div>
+                </div>
+
+                <div class="card">
+                    <h3>🏆 Ground Truth</h3>
+                    <p><strong>Estado:</strong> ✅ Documentado</p>
+                    <p style="margin-top: 0.5rem;"><strong>Mapeo:</strong> Anomalías inyectadas → Hipótesis</p>
+                    <p style="margin-top: 0.5rem;"><strong>Utilidad:</strong> Validar precisión de detección</p>
+                    <p style="margin-top: 0.5rem; color: var(--text-light);"><strong>Función:</strong> True/False labels para ML</p>
+                    <div class="card-badge">Validación</div>
+                </div>
+
+                <div class="card">
+                    <h3>📋 Documentación</h3>
+                    <p><strong>Régimen:</strong> Documentación ≡ Código</p>
+                    <p style="margin-top: 0.5rem;"><strong>Versionado:</strong> REGLAS_AGENTES_IA.md (8 reglas)</p>
+                    <p style="margin-top: 0.5rem;"><strong>Trazabilidad:</strong> AGENTS_INDEX.md (punto entrada)</p>
+                    <p style="margin-top: 0.5rem; color: var(--text-light);"><strong>Governance:</strong> Separación generador/detector</p>
+                    <div class="card-badge">CRISP-DM</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ANOMALIAS SECTION -->
+        <section id="anomalias">
+            <h2 style="font-size: 1.8rem; margin-bottom: 1.5rem;">⚠️ Anomalías Inyectadas</h2>
+
+            <h3 style="margin-bottom: 1rem; font-size: 1.2rem;">Distribución por Tipo (80 total)</h3>
+
+            <div class="chart-container">
+                <canvas id="anomalyChart"></canvas>
+            </div>
+
+            <h3 style="margin-top: 2rem; margin-bottom: 1rem; font-size: 1.2rem;">Anomalías Detectadas por Capa</h3>
+
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Capa</th>
+                            <th>Tipo</th>
+                            <th>Cantidad</th>
+                            <th>Severidad</th>
+                            <th>Hipótesis</th>
+                            <th>Ejemplos</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Flota</strong></td>
+                            <td>DUPLICADO</td>
+                            <td>15</td>
+                            <td><span class="severity-alta">Alta</span></td>
+                            <td>H1</td>
+                            <td>Matrícula 10098 → 10061</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Flota</strong></td>
+                            <td>FALTANTE</td>
+                            <td>8</td>
+                            <td><span class="severity-alta">Alta</span></td>
+                            <td>H1</td>
+                            <td>Estado sin cargar (NULL)</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Flota</strong></td>
+                            <td>INVÁLIDO</td>
+                            <td>6</td>
+                            <td><span class="severity-alta">Alta</span></td>
+                            <td>H1</td>
+                            <td>Dominio = "SIN DOMINIO"</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Flota</strong></td>
+                            <td>SIN_NÚMERO</td>
+                            <td>3</td>
+                            <td><span class="severity-media">Media</span></td>
+                            <td>H1</td>
+                            <td>Alias = "REPUESTO"</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Combustible</strong></td>
+                            <td>DESACUERDO</td>
+                            <td>20</td>
+                            <td><span class="severity-alta">Alta</span></td>
+                            <td>H3a</td>
+                            <td>Diferencia 2.33L a 17.53L</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Combustible</strong></td>
+                            <td>SOLO_YPF</td>
+                            <td>16</td>
+                            <td><span class="severity-alta">Alta</span></td>
+                            <td>H3b</td>
+                            <td>5-6 cargas YPF sin RIGCOM</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Combustible</strong></td>
+                            <td>SOLO_RIG</td>
+                            <td>12</td>
+                            <td><span class="severity-alta">Alta</span></td>
+                            <td>H3b</td>
+                            <td>5-6 solicitudes RIGCOM sin YPF</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <h3 style="margin-top: 2rem; margin-bottom: 1rem; font-size: 1.2rem;">Métrica de Severidad</h3>
+            <div class="chart-container">
+                <canvas id="severityChart"></canvas>
+            </div>
+        </section>
+
+        <!-- HIPOTESIS SECTION -->
+        <section id="hipotesis">
+            <h2 style="font-size: 1.8rem; margin-bottom: 1.5rem;">🔬 Hipótesis a Validar</h2>
+
+            <div class="cards-grid">
+                <div class="card">
+                    <h3>H1: Normalización incrementa tasa de vinculación</h3>
+                    <p><strong>Observación:</strong> Dominios con espacios/mayúsculas/caracteres especiales no vinculan</p>
+                    <p style="margin-top: 0.5rem;"><strong>Métrica de Éxito:</strong> Tasa vinculación pasa de ~80% a >95%</p>
+                    <p style="margin-top: 0.5rem;"><strong>Variables disponibles:</strong></p>
+                    <ul style="margin-top: 0.5rem; margin-left: 1.5rem;">
+                        <li>Dominio original vs normalizado</li>
+                        <li>Status vinculación pre/post</li>
+                    </ul>
+                    <p style="margin-top: 0.5rem; color: var(--text-light);"><strong>Anomalías para validar:</strong> DUPLICADO (15), FALTANTE (8), INVÁLIDO (6)</p>
+                    <div class="card-badge">Banda B → A</div>
+                </div>
+
+                <div class="card">
+                    <h3>H2: Sesgo de odómetro afecta consumo</h3>
+                    <p><strong>Observación:</strong> Vehículos antiguos vs nuevos tienen sesgos diferentes</p>
+                    <p style="margin-top: 0.5rem;"><strong>Métrica de Éxito:</strong> Identificar 3+ patrones de sesgo por tipo/año</p>
+                    <p style="margin-top: 0.5rem;"><strong>Variables disponibles:</strong></p>
+                    <ul style="margin-top: 0.5rem; margin-left: 1.5rem;">
+                        <li>Año vehículo</li>
+                        <li>Consumo diario</li>
+                        <li>Odómetro (Delta km)</li>
+                    </ul>
+                    <p style="margin-top: 0.5rem; color: var(--text-light);"><strong>Anomalías esperadas:</strong> ~120 en consumo diario</p>
+                    <div class="card-badge">Consumo Diario</div>
+                </div>
+
+                <div class="card">
+                    <h3>H3a: Criterio volumétrico detecta anomalías</h3>
+                    <p><strong>Observación:</strong> Litros > 2×PROMEDIO_DIARIO es mejor que LITROS > CAPACIDAD</p>
+                    <p style="margin-top: 0.5rem;"><strong>Métrica de Éxito:</strong> Precision >90%, Recall >85%</p>
+                    <p style="margin-top: 0.5rem;"><strong>Variables disponibles:</strong></p>
+                    <ul style="margin-top: 0.5rem; margin-left: 1.5rem;">
+                        <li>CapacidadTanque</li>
+                        <li>Litros por transacción</li>
+                        <li>Promedio diario por vehículo</li>
+                    </ul>
+                    <p style="margin-top: 0.5rem; color: var(--text-light);"><strong>Anomalías detectadas:</strong> 20 (DESACUERDO)</p>
+                    <div class="card-badge">H3a Validación</div>
+                </div>
+
+                <div class="card">
+                    <h3>H3b: Geofencing (YPF↔RIGCOM) previene fraude</h3>
+                    <p><strong>Observación:</strong> Cargas YPF sin solicitud RIGCOM o viceversa = riesgo</p>
+                    <p style="margin-top: 0.5rem;"><strong>Métrica de Éxito:</strong> Detectar 100% de transacciones no vinculadas</p>
+                    <p style="margin-top: 0.5rem;"><strong>Variables disponibles:</strong></p>
+                    <ul style="margin-top: 0.5rem; margin-left: 1.5rem;">
+                        <li>YPF fecha/hora/litros</li>
+                        <li>RIGCOM fecha/hora/litros</li>
+                        <li>Dominio (FK común)</li>
+                    </ul>
+                    <p style="margin-top: 0.5rem; color: var(--text-light);"><strong>Anomalías detectadas:</strong> 28 (SOLO_YPF + SOLO_RIG)</p>
+                    <div class="card-badge">H3b Validación</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ROADMAP SECTION -->
+        <section id="roadmap">
+            <h2 style="font-size: 1.8rem; margin-bottom: 1.5rem;">📅 Roadmap de Sprints</h2>
+
+            <div class="cards-grid">
+                <div class="card" style="border-left: 4px solid var(--success);">
+                    <h3>✅ Sprint 0: Setup (Completado)</h3>
+                    <p style="margin-top: 0.5rem;"><strong>Fechas:</strong> 2026-09-03 → 2026-09-09</p>
+                    <p style="margin-top: 0.5rem;"><strong>Deliverables:</strong></p>
+                    <ul style="margin-top: 0.5rem; margin-left: 1.5rem;">
+                        <li>✅ Repositorio configurado</li>
+                        <li>✅ Generador v7.5 funcional</li>
+                        <li>✅ Reglas de agentes IA</li>
+                        <li>✅ Índice de navegación</li>
+                    </ul>
+                </div>
+
+                <div class="card" style="border-left: 4px solid var(--warning);">
+                    <h3>⏳ Sprint 1: Generación (En Curso)</h3>
+                    <p style="margin-top: 0.5rem;"><strong>Fechas:</strong> 2026-09-10 → 2026-09-15</p>
+                    <p style="margin-top: 0.5rem;"><strong>Deliverables:</strong></p>
+                    <ul style="margin-top: 0.5rem; margin-left: 1.5rem;">
+                        <li>✅ Capa 1: Flota (200 vehículos)</li>
+                        <li>🔄 Capa 2: Combustible (4K transacciones)</li>
+                        <li>⏳ Capa 3: Consumo Diario (~5K registros)</li>
+                        <li>⏳ Capa 4: Facturas (~500 registros)</li>
+                    </ul>
+                </div>
+
+                <div class="card" style="border-left: 4px solid #6b7280;">
+                    <h3>📋 Sprint 2: Validación</h3>
+                    <p style="margin-top: 0.5rem;"><strong>Fechas:</strong> 2026-09-16 → 2026-09-22</p>
+                    <p style="margin-top: 0.5rem;"><strong>Deliverables:</strong></p>
+                    <ul style="margin-top: 0.5rem; margin-left: 1.5rem;">
+                        <li>Validar H1 (normalización)</li>
+                        <li>Validar H2 (odómetro)</li>
+                        <li>Detectar anomalías H3a/H3b</li>
+                        <li>Métricas de precisión/recall</li>
+                    </ul>
+                </div>
+
+                <div class="card" style="border-left: 4px solid #6b7280;">
+                    <h3>🎓 Sprint 3: Presentación</h3>
+                    <p style="margin-top: 0.5rem;"><strong>Fechas:</strong> 2026-09-23 → 2026-09-30</p>
+                    <p style="margin-top: 0.5rem;"><strong>Deliverables:</strong></p>
+                    <ul style="margin-top: 0.5rem; margin-left: 1.5rem;">
+                        <li>Resultados de validación</li>
+                        <li>Dashboard interactivo</li>
+                        <li>Documentación final</li>
+                        <li>Defensa de tesis</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div style="background: var(--bg-light); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; margin-top: 2rem;">
+                <h3 style="margin-bottom: 1rem;">🎯 Próximos Hitos</h3>
+                <ul style="margin-left: 1.5rem;">
+                    <li><strong>2026-09-10:</strong> Generar datos consumo diario (sprint1_entrega2.py)</li>
+                    <li><strong>2026-09-11:</strong> Generar facturas y anomalías asociadas</li>
+                    <li><strong>2026-09-12:</strong> Limpiar repositorio y crear rama dev</li>
+                    <li><strong>2026-09-13:</strong> Ejecutar tests y validar DRL Banda B</li>
+                    <li><strong>2026-09-14:</strong> Primera ronda de validación hipótesis</li>
+                </ul>
+            </div>
+        </section>
+    </div>
+
+    <footer>
+        <p>🔐 <strong>SIFAD - Sistema Inteligente de Flota y Auditoría de Datos</strong></p>
+        <p style="margin-top: 0.5rem;">Tesis de Grado | Carrera Ciencias de Datos | Dirección General Gestión Administrativa</p>
+        <div class="footer-meta">
+            <span>📅 Generado: <span id="currentDate"></span></span>
+            <span>🌱 Seed: 20260910</span>
+            <span>📦 Pipeline v7.5 Hybrid</span>
+            <span>🔬 DRL: Banda B</span>
+        </div>
+    </footer>
+
+    <script>
+        // Navigation
+        document.querySelectorAll('.nav-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('section').forEach(s => s.classList.remove('active'));
+
+                btn.classList.add('active');
+                const section = document.getElementById(btn.dataset.section);
+                section.classList.add('active');
+
+                // Trigger chart redraw
+                setTimeout(() => {
+                    if (window.anomalyChartInstance) window.anomalyChartInstance.resize();
+                    if (window.severityChartInstance) window.severityChartInstance.resize();
+                }, 100);
+            });
+        });
+
+        // Update date
+        document.getElementById('currentDate').textContent = new Date().toLocaleDateString('es-ES', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+
+        // Chart configuration
+        const chartConfig = {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        boxWidth: 12,
+                        padding: 15,
+                        font: { size: 13 }
+                    }
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    padding: 12,
+                    titleFont: { size: 14 },
+                    bodyFont: { size: 13 },
+                    cornerRadius: 4
+                }
+            }
+        };
+
+        // Anomaly Distribution Chart
+        const anomalyCtx = document.getElementById('anomalyChart');
+        if (anomalyCtx) {
+            window.anomalyChartInstance = new Chart(anomalyCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['DUPLICADO (15)', 'DESACUERDO (20)', 'SOLO_YPF (16)', 'FALTANTE (8)', 'SOLO_RIG (12)', 'INVÁLIDO (6)', 'SIN_NÚMERO (3)'],
+                    datasets: [{
+                        data: [15, 20, 16, 8, 12, 6, 3],
+                        backgroundColor: [
+                            '#3b82f6',
+                            '#10b981',
+                            '#f59e0b',
+                            '#ef4444',
+                            '#8b5cf6',
+                            '#ec4899',
+                            '#14b8a6'
+                        ],
+                        borderColor: getComputedStyle(document.documentElement).getPropertyValue('--bg-light'),
+                        borderWidth: 2
+                    }]
+                },
+                options: chartConfig
+            });
+        }
+
+        // Severity Distribution Chart
+        const severityCtx = document.getElementById('severityChart');
+        if (severityCtx) {
+            window.severityChartInstance = new Chart(severityCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['Alta', 'Media', 'Baja'],
+                    datasets: [{
+                        label: 'Cantidad de Anomalías',
+                        data: [68, 3, 9],
+                        backgroundColor: [
+                            '#ef4444',
+                            '#f59e0b',
+                            '#10b981'
+                        ],
+                        borderRadius: 4,
+                        borderSkipped: false
+                    }]
+                },
+                options: {
+                    ...chartConfig,
+                    indexAxis: 'y',
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            ticks: { stepSize: 10 }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
