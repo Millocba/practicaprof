@@ -1,3 +1,6 @@
+# libraries
+node*/
+
 # Datos (generados por pipeline, no commitear)
 /data/
 /synthetic_data/
@@ -5,6 +8,13 @@
 /datasets_backup/
 *.csv
 *.xlsx
+
+# Certificados
+*.pem
+*.crt
+*.key
+*.sst
+ca-bundle.crt
 
 # Archivos temporales
 __pycache__/
