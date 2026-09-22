@@ -1,0 +1,21 @@
+====================================================================================================
+REPORTE FINAL - 4 ENCUENTROS
+Dataset v5 Defects-Aware (Integrado con Consumo Vinculado)
+Fecha: 2026-09-22 18:42:59
+====================================================================================================
+
+ENCUENTRO 1 (EDA):
+  Vehículos: 200
+  Defectos: 104
+  Transacciones: 1749
+
+ENCUENTRO 2 (ETL):
+  Dispositivos matched: 100.0%
+  Consumo matched: 100.0%
+
+ENCUENTRO 3 (DETECTABILITY):
+  Detectables: 94.2%
+
+ENCUENTRO 4 (SUMMARY):
+  Cobertura dispositivos: 90.0%
+  Cobertura consumo: 97.0%

@@ -1,0 +1,32 @@
+{
+  "timestamp": "2026-09-22T18:42:59.327482",
+  "dataset": "defects_aware_v5_integrado_con_consumo",
+  "encuentro_1": {
+    "total_vehiculos": 200,
+    "defectos": 104,
+    "defectos_por_tipo": {
+      "DATE_FORMAT": 48,
+      "MATCHING_DEFECT": 21,
+      "CONSISTENCY_ERROR": 13,
+      "TEXT_NORMALIZATION": 12,
+      "NUMERIC_FORMAT": 10
+    },
+    "consumos_transacciones": 1749,
+    "consumos_litros_totales": 75605.13999999998
+  },
+  "encuentro_2": {
+    "dispositivos_matched": 197,
+    "consumo_matched": 1749,
+    "match_rate_disp_pct": 100.0,
+    "match_rate_cons_pct": 100.0
+  },
+  "encuentro_3": {
+    "detectables": 98,
+    "detectability_rate_pct": 94.23076923076923
+  },
+  "encuentro_4": {
+    "cobertura_disp_pct": 90.0,
+    "cobertura_cons_pct": 97.0,
+    "cobertura_autorizaciones_pct": 85.0
+  }
+}
