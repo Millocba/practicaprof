@@ -101,6 +101,10 @@ with col3:
         help="Recargar datos actuales"
     )
 
+if refresh_data:
+    st.cache_data.clear()
+    st.rerun()
+
 # Execute generator
 if execute_button:
     st.markdown("### 📤 Ejecutando Generador...")
@@ -169,6 +173,9 @@ print(json.dumps(resultado, indent=2, default=str))
         # Check result
         if result.returncode == 0 and "✅" in result.stdout:
             progress_bar.progress(100)
+
+            # New CSVs on disk: drop cached (possibly empty) DataFrames so every page reloads them
+            st.cache_data.clear()
 
             with status_container:
                 st.success("✅ ¡Generador ejecutado exitosamente!")
