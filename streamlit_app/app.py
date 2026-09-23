@@ -1,3 +1,4 @@
+
 """
 Main Streamlit application for Dataset v5 Integration Pipeline.
 """
@@ -5,11 +6,11 @@ import streamlit as st
 import pandas as pd
 from pathlib import Path
 import sys
-
+ 
 # Add utils to path
 utils_path = Path(__file__).parent / "utils"
 sys.path.insert(0, str(utils_path))
-
+ 
 from data_loader import (
     get_all_datasets_info,
     load_vehiculo,
@@ -17,7 +18,7 @@ from data_loader import (
     load_ground_truth,
     load_integracion_resumen
 )
-
+ 
 # Page config
 st.set_page_config(
     page_title="Dataset v5 Integrator",
@@ -25,7 +26,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
+ 
 # Custom CSS
 st.markdown("""
 <style>
@@ -49,45 +50,74 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
+ 
 # Title and introduction
 st.markdown("# 📊 Dataset v5 Integration Pipeline")
 st.markdown("**Sistema integral para gestión, visualización y análisis del dataset integrado**")
-
+ 
 # Main metrics
 st.markdown("## 📈 Estado General del Pipeline")
-
+ 
 col1, col2, col3, col4 = st.columns(4)
-
+ 
 # Load summary data
+vehiculos = load_vehiculo()
+consumo = load_reporte_consumo_vinculado()
+ground_truth = load_ground_truth()
+integracion = load_integracion_resumen()
+ 
 try:
-    vehiculos = load_vehiculo()
-    consumo = load_reporte_consumo_vinculado()
-    ground_truth = load_ground_truth()
-    integracion = load_integracion_resumen()
-
     with col1:
-        st.metric("Vehículos", len(vehiculos), "200 total")
-
+        if not vehiculos.empty:
+            st.metric("Vehículos", len(vehiculos), "datos cargados")
+        else:
+            st.metric("Vehículos", "—", "sin datos")
+ 
     with col2:
-        st.metric("Transacciones", len(consumo), "1749 vinculadas")
-
+        if not consumo.empty:
+            st.metric("Transacciones", len(consumo), "vinculadas")
+        else:
+            st.metric("Transacciones", "—", "sin datos")
+ 
     with col3:
-        st.metric("Defectos", len(ground_truth), "104 inyectados")
-
+        if not ground_truth.empty:
+            st.metric("Defectos", len(ground_truth), "inyectados")
+        else:
+            st.metric("Defectos", "—", "sin datos")
+ 
     with col4:
-        detectability = integracion.get("detectability", "94.2%")
-        st.metric("Detectabilidad", detectability, "94.2% visible")
-
+        detectability = integracion.get("detectability", "—")
+        st.metric("Detectabilidad", detectability, "sin datos")
+ 
 except Exception as e:
-    st.error(f"Error loading data: {str(e)}")
-
+    st.error(f"❌ Error al mostrar KPIs: {str(e)}")
+ 
+# Data status check
+st.markdown("---")
+ 
+# Check if datasets exist
+from pathlib import Path
+datasets_check = {
+    "vehiculo.csv": Path(__file__).parent.parent / "datasets" / "defects_aware_v5" / "vehiculo.csv",
+    "consumo.csv": Path(__file__).parent.parent / "datasets" / "defects_aware_v5" / "reporte_consumo_v5_vinculado.csv",
+    "flota.csv": Path(__file__).parent.parent / "datasets" / "synthetics_maestro" / "flota.csv",
+}
+ 
+files_exist = {k: v.exists() for k, v in datasets_check.items()}
+missing_files = [k for k, exists in files_exist.items() if not exists]
+ 
+if missing_files:
+    st.warning(f"⚠️ Faltan archivos de datos: {', '.join(missing_files)}")
+    st.info("💡 Ejecuta `python run_full_pipeline.py` desde la carpeta Integrador para generar los datos")
+else:
+    st.success("✅ Todos los datasets están disponibles")
+ 
 # Info section
 st.markdown("---")
 st.markdown("## ℹ️ Navegación")
-
+ 
 col1, col2, col3 = st.columns(3)
-
+ 
 with col1:
     st.markdown("""
     ### 🎯 1. Generador
@@ -96,7 +126,7 @@ with col1:
     - Visualiza resultados
     - Descarga archivos
     """)
-
+ 
 with col2:
     st.markdown("""
     ### 📋 2. Datasets
@@ -105,7 +135,7 @@ with col2:
     - Aplica filtros y búsquedas
     - Exporta datos
     """)
-
+ 
 with col3:
     st.markdown("""
     ### 🔄 3. Pipeline
@@ -114,13 +144,13 @@ with col3:
     - Validaciones aplicadas
     - Estadísticas de cruces
     """)
-
+ 
 # Status boxes
 st.markdown("---")
 st.markdown("## ✅ Estado de Consolidación")
-
+ 
 col1, col2 = st.columns(2)
-
+ 
 with col1:
     st.markdown("""
     <div class="success-box">
@@ -133,7 +163,7 @@ with col1:
         </ul>
     </div>
     """, unsafe_allow_html=True)
-
+ 
 with col2:
     st.markdown("""
     <div class="info-box">
@@ -146,11 +176,11 @@ with col2:
         </ul>
     </div>
     """, unsafe_allow_html=True)
-
+ 
 # Datasets overview
 st.markdown("---")
 st.markdown("## 📂 Resumen de Datasets")
-
+ 
 try:
     datasets_info = get_all_datasets_info()
     if not datasets_info.empty:
@@ -168,7 +198,7 @@ try:
         )
 except Exception as e:
     st.warning(f"Could not load datasets info: {str(e)}")
-
+ 
 # Footer
 st.markdown("---")
 st.markdown("""
