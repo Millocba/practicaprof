@@ -153,9 +153,11 @@ class GeneradorMaestro:
     def generar_consumo(self):
         """Genera tabla CONSUMO (transacciones de combustible)
 
-        Incluye inyección de defectos:
-        - ~5-10% de vehículos con consumos anómalos (superen capacidad)
-        - Para validar H3a (Exceso Volumétrico)
+        Incluye inyección de defectos para demostrar limpieza:
+        - ~7% de vehículos con consumos anómalos (superen capacidad) - H3a
+        - ~2% de registros con valores nulos aleatorios
+        - ~1% de registros con dominios mal formados
+        - ~1% de duplicados intencionados
         """
         logger.info("Generando CONSUMO...")
 
@@ -173,39 +175,63 @@ class GeneradorMaestro:
 
         rows = []
         fecha_inicio = datetime(2024, 1, 1)
+        contador_total = 0
 
         for veh_idx, veh_row in flota_df.iterrows():
             # Cada vehículo genera 5-12 transacciones
             n_transacciones = random.randint(5, 12)
             es_anomalo = veh_idx in indices_anomalos
 
-            for _ in range(n_transacciones):
+            for trans_idx in range(n_transacciones):
                 fecha = fecha_inicio + timedelta(days=random.randint(0, 270))
                 capacidad = veh_row.get('CapacidadTanque', 100)
 
                 # DEFECTO H3a: Vehículos anómalos consumen más que la capacidad del tanque
                 if es_anomalo:
-                    # Generar consumos que superen la capacidad (1.1x a 1.8x)
                     litros = round(random.uniform(capacidad * 1.1, capacidad * 1.8), 2)
                 else:
-                    # Vehículos normales: consumo prudente
                     litros = round(random.uniform(5, min(80, capacidad * 0.8)), 2)
 
-                rows.append({
-                    "id": f"CONS-{len(rows)+1:08d}",
+                dominio = veh_row['Dominio']
+                estacion = random.choice(estaciones)
+                conductor = f"CONDUCTOR-{random.randint(1, 500)}"
+
+                # DEFECTO: Inyectar dominios mal formados (~1%)
+                if random.random() < 0.01:
+                    dominio = f"XX{random.randint(0, 999)}XX"  # Formato incorrecto
+
+                row = {
+                    "id": f"CONS-{contador_total+1:08d}",
                     "vehiculo_id": veh_row['Matricula'],
-                    "dominio": veh_row['Dominio'],
+                    "dominio": dominio,
                     "fecha": fecha,
-                    "estacion": random.choice(estaciones),
+                    "estacion": estacion,
                     "producto": random.choice(productos),
                     "litros": litros,
                     "precio_unitario": round(random.uniform(1.5, 3.5), 2),
-                    "importe_total": 0.0,  # Calculado después
+                    "importe_total": 0.0,
                     "numero_tarjeta": veh_row['NumeroTarjeta'],
-                    "conductor": f"CONDUCTOR-{random.randint(1, 500)}",
+                    "conductor": conductor,
                     "odometro": random.randint(10000, 300000),
-                    "_es_anomalo": es_anomalo,  # Flag para análisis
-                })
+                    "_es_anomalo": es_anomalo,
+                }
+
+                # DEFECTO: Inyectar valores nulos (~2%)
+                if random.random() < 0.02:
+                    campo_nulo = random.choice(['estacion', 'conductor', 'odometro'])
+                    row[campo_nulo] = None
+
+                rows.append(row)
+                contador_total += 1
+
+        # DEFECTO: Inyectar duplicados (~1%)
+        n_duplicados = max(1, int(len(rows) * 0.01))
+        for _ in range(n_duplicados):
+            row_original = random.choice(rows)
+            row_copia = row_original.copy()
+            row_copia['id'] = f"CONS-{contador_total+1:08d}"
+            rows.append(row_copia)
+            contador_total += 1
 
         df = pd.DataFrame(rows)
         # Calcular importe
@@ -216,7 +242,7 @@ class GeneradorMaestro:
 
         self.datasets['consumo'] = df
         self.metadata['generadores_ejecutados'].append('consumo')
-        logger.info(f"✓ CONSUMO generado: {len(df)} transacciones ({n_anomalos} vehículos con anomalías H3a)")
+        logger.info(f"✓ CONSUMO generado: {len(df)} transacciones ({n_anomalos} anómalas H3a, con defectos inyectados)")
         return df
 
     def generar_solicitudes(self):
