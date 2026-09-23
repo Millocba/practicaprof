@@ -15,6 +15,11 @@ from data_loader import (
     load_solicitud_combustible,
     load_ground_truth,
     load_reporte_enriquecido,
+    load_flota,
+    load_telemetria,
+    load_consumo_maestro,
+    load_solicitudes,
+    load_facturacion,
     filter_dataframe
 )
 
@@ -23,29 +28,75 @@ st.set_page_config(page_title="Datasets", page_icon="📋", layout="wide")
 st.markdown("# 📋 Exploración de Datasets")
 st.markdown("Visualiza, filtra y analiza todos los datasets del proyecto")
 
-# Dataset selector
-datasets = {
-    "Vehículos": load_vehiculo(),
-    "Dispositivos": load_dispositivo(),
-    "Consumo Vinculado": load_reporte_consumo_vinculado(),
-    "Solicitud Combustible": load_solicitud_combustible(),
-    "Ground Truth (Defectos)": load_ground_truth(),
-    "Consumo Enriquecido": load_reporte_enriquecido(),
-}
+# Initialize session state for dataset selection
+if "categoria" not in st.session_state:
+    st.session_state.categoria = "Pipeline Maestro (Nuevos)"
+if "selected_dataset" not in st.session_state:
+    st.session_state.selected_dataset = None
 
-selected_dataset = st.selectbox(
-    "Selecciona un dataset",
-    list(datasets.keys()),
-    key="dataset_select"
+# Category selector
+st.markdown("## Selecciona una categoría:")
+categoria = st.radio(
+    "Datasets disponibles:",
+    ["Pipeline Maestro (Nuevos)", "Legacy (Anteriores)"],
+    horizontal=True,
+    label_visibility="collapsed"
 )
 
+# Update session state
+st.session_state.categoria = categoria
+
+# Define datasets based on category
+if categoria == "Pipeline Maestro (Nuevos)":
+    st.markdown("### 🆕 Synthetics Maestro - 5 Entidades")
+
+    datasets = {
+        "🚗 Flota": load_flota(),
+        "📡 Telemetría": load_telemetria(),
+        "⛽ Consumo": load_consumo_maestro(),
+        "📋 Solicitudes": load_solicitudes(),
+        "💰 Facturación": load_facturacion(),
+    }
+
+    # Set default if first load in this category
+    if st.session_state.selected_dataset is None:
+        st.session_state.selected_dataset = list(datasets.keys())[0]
+
+else:  # Legacy
+    st.markdown("### 🔧 Datos Legacy - Versiones Anteriores")
+
+    datasets = {
+        "Vehículos": load_vehiculo(),
+        "Dispositivos": load_dispositivo(),
+        "Consumo Vinculado": load_reporte_consumo_vinculado(),
+        "Solicitud Combustible": load_solicitud_combustible(),
+        "Ground Truth (Defectos)": load_ground_truth(),
+        "Consumo Enriquecido": load_reporte_enriquecido(),
+    }
+
+    # Set default if first load in this category
+    if st.session_state.selected_dataset is None:
+        st.session_state.selected_dataset = list(datasets.keys())[0]
+
+# Dataset selector
+selected_dataset = st.selectbox(
+    "Selecciona un dataset:",
+    list(datasets.keys()),
+    index=list(datasets.keys()).index(st.session_state.selected_dataset) if st.session_state.selected_dataset in datasets else 0,
+    key=f"dataset_select_{categoria.replace(' ', '_')}"
+)
+
+# Update session state
+st.session_state.selected_dataset = selected_dataset
+
+# Get the dataframe
 df = datasets[selected_dataset]
 
 if df.empty:
-    st.warning(f"El dataset '{selected_dataset}' no está disponible")
+    st.warning(f"❌ El dataset '{selected_dataset}' está vacío")
     st.stop()
 
-# Section 1: Dataset overview
+# Metrics
 st.markdown(f"## 📊 {selected_dataset}")
 
 col1, col2, col3, col4 = st.columns(4)
@@ -58,7 +109,7 @@ with col3:
 with col4:
     st.metric("Datos faltantes", df.isnull().sum().sum())
 
-# Section 2: Filters
+# Filters
 st.markdown("---")
 st.markdown("## 🔍 Filtros")
 
@@ -67,7 +118,7 @@ col1, col2 = st.columns(2)
 with col1:
     search_text = st.text_input(
         "Buscar en todas las columnas",
-        key="search_text"
+        key=f"search_text_{selected_dataset}"
     )
 
 with col2:
@@ -86,7 +137,7 @@ st.markdown("### Filtros por columna")
 filter_cols = st.multiselect(
     "Selecciona columnas para filtrar",
     df.columns,
-    key="filter_cols"
+    key=f"filter_cols_{selected_dataset}"
 )
 
 filters = {}
@@ -100,12 +151,12 @@ if filter_cols:
             container = filter_col2
 
         with container:
-            unique_values = df[col].unique()[:100]  # Limit to 100 unique values
+            unique_values = sorted(df[col].unique()[:100])  # Limit to 100 unique values
 
             selected_values = st.multiselect(
                 f"Filtrar {col}",
                 unique_values,
-                key=f"filter_{col}"
+                key=f"filter_{selected_dataset}_{col}"
             )
 
             if selected_values:
@@ -116,7 +167,7 @@ if filters:
     filtered_df = filter_dataframe(filtered_df, filters)
     st.success(f"✅ {len(filtered_df)} registros después de aplicar filtros")
 
-# Section 3: Data display
+# Data display
 st.markdown("---")
 st.markdown(f"## 📈 Datos ({len(filtered_df)} registros)")
 
@@ -163,14 +214,14 @@ if show_info and len(filtered_df) > 0:
 
     st.dataframe(col_info, use_container_width=True, hide_index=True)
 
-# Section 4: Export
+# Export
 st.markdown("---")
 st.markdown("## 💾 Exportar")
 
 export_format = st.selectbox(
     "Formato de exportación",
     ["CSV", "Excel", "JSON"],
-    key="export_format"
+    key=f"export_format_{selected_dataset}"
 )
 
 if st.button("⬇️ Descargar datos", use_container_width=True, type="primary"):
