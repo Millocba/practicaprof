@@ -159,12 +159,13 @@ telemetria_stats = {
 }
 
 # Validación de formato dominio
+import re
+valid_domain_pattern = r'^[A-Z]{2}\d{4}[A-Z]{2}$|^[A-Z]{2}\d{3}[A-Z]{2}$'
 if not consumo.empty:
-    import re
-    valid_domain_pattern = r'^[A-Z]{2}\d{4}[A-Z]{2}$|^[A-Z]{2}\d{3}[A-Z]{2}$'
     dominios_invalidos = consumo[~consumo['dominio'].str.match(valid_domain_pattern, na=False)]
     invalid_domain_count = len(dominios_invalidos)
 else:
+    dominios_invalidos = pd.DataFrame()
     invalid_domain_count = 0
 
 # ============================================================================
