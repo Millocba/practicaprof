@@ -7,12 +7,10 @@ font = "sans serif"
 
 [client]
 showErrorDetails = true
+toolbarMode = "viewer"
 
 [logger]
 level = "info"
-
-[client]
-toolbarMode = "viewer"
 
 [browser]
 gatherUsageStats = false
