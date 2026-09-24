@@ -7,7 +7,9 @@ import pandas as pd
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from generator_pipeline_maestro import CATALOGO_ANOMALIAS, COLUMNAS_GROUND_TRUTH, GeneradorMaestro
+from generator_pipeline_maestro import (
+    CATALOGO_ANOMALIAS, COLUMNAS_GROUND_TRUTH, TIPOS_POR_ESCENARIO, GeneradorMaestro,
+)
 
 ENTIDADES = ["flota", "telemetria", "consumo", "solicitudes", "facturacion"]
 N_FLOTA = 80
@@ -88,8 +90,9 @@ def test_facturacion_suma_el_consumo_de_cada_periodo(datos):
 def test_ground_truth_tiene_el_esquema_y_catalogo_esperados(datos):
     gt = datos["ground_truth"]
     assert list(gt.columns) == COLUMNAS_GROUND_TRUTH
-    assert set(gt["tipo_anomalia"]) == set(CATALOGO_ANOMALIAS)
-    for tipo, (hipotesis, severidad) in CATALOGO_ANOMALIAS.items():
+    assert set(gt["tipo_anomalia"]) == set(TIPOS_POR_ESCENARIO["didactico"])
+    for tipo in TIPOS_POR_ESCENARIO["didactico"]:
+        hipotesis, severidad = CATALOGO_ANOMALIAS[tipo]
         filas = gt[gt["tipo_anomalia"] == tipo]
         assert (filas["hipotesis"] == hipotesis).all()
         assert (filas["severidad"] == severidad).all()
