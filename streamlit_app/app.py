@@ -15,6 +15,8 @@ utils_path = Path(__file__).parent / "utils"
 sys.path.insert(0, str(utils_path))
 
 from data_loader import (
+    NOMBRES_ESCENARIO,
+    selector_escenario,
     asegurar_datos_maestro,
     load_flota,
     load_telemetria,
@@ -58,13 +60,15 @@ st.markdown("# 📊 Pipeline Maestro de Datos Sintéticos")
 st.markdown("**Sistema integral para gestión, visualización y análisis del dataset integrado**")
 
 # Load data (same source as the Generador and Análisis pages)
-asegurar_datos_maestro()
-flota = load_flota()
-telemetria = load_telemetria()
-consumo = load_consumo_maestro()
-solicitudes = load_solicitudes()
-facturacion = load_facturacion()
-metadata = load_maestro_metadata()
+escenario = selector_escenario()
+st.caption(f"Escenario: **{NOMBRES_ESCENARIO[escenario]}** — se cambia en la barra lateral.")
+asegurar_datos_maestro(escenario)
+flota = load_flota(escenario)
+telemetria = load_telemetria(escenario)
+consumo = load_consumo_maestro(escenario)
+solicitudes = load_solicitudes(escenario)
+facturacion = load_facturacion(escenario)
+metadata = load_maestro_metadata(escenario)
 
 hay_datos = not flota.empty and not consumo.empty
 
@@ -169,11 +173,20 @@ with col1:
 
 with col2:
     st.markdown("""
-    ### 🤖 5. Modelo de ML
-    Isolation Forest comparado con las reglas
-    - Detección no supervisada
-    - Recall por tipo de anomalía
-    - Distribución de puntajes
+    ### 🧪 5. Hipótesis
+    Análisis del escenario realista
+    - Regla ingenua vs. regla con contexto
+    - Falsas alarmas por casos legítimos
+    - Veredicto de cada hipótesis
+    """)
+
+with col3:
+    st.markdown("""
+    ### 🤖 6. Modelo de ML
+    Qué revisar primero
+    - Cola de revisión con motivos
+    - Curva de esfuerzo por método
+    - Vehículos a auditar
     """)
 
 # Status boxes (computed from the loaded data, not hardcoded)
@@ -229,7 +242,7 @@ st.markdown("---")
 st.markdown("## 📂 Resumen de Datasets")
 
 try:
-    datasets_info = get_maestro_datasets_info()
+    datasets_info = get_maestro_datasets_info(escenario)
     if not datasets_info.empty:
         st.dataframe(
             datasets_info,

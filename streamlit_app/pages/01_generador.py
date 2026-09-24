@@ -4,6 +4,7 @@ import pandas as pd
 from pathlib import Path
 import sys
 import json
+import os
 import subprocess
 from datetime import datetime
 
@@ -12,6 +13,9 @@ utils_path = Path(__file__).parent.parent / "utils"
 sys.path.insert(0, str(utils_path))
 
 from data_loader import (
+    NOMBRES_ESCENARIO,
+    directorio,
+    selector_escenario,
     load_flota,
     load_telemetria,
     load_consumo_maestro,
@@ -26,10 +30,15 @@ st.set_page_config(page_title="Generador", page_icon="⚙️", layout="wide")
 st.markdown("# ⚙️ Generador de Datos - Pipeline Maestro")
 st.markdown("Configura y ejecuta el generador de entidades sintéticas")
 
+escenario = selector_escenario()
+st.caption(f"Escenario: **{NOMBRES_ESCENARIO[escenario]}** (se elige en la barra lateral). "
+           "El realista simula el uso día por día e incluye anomalías sutiles y casos legítimos "
+           "que se les parecen; el didáctico, anomalías inconfundibles.")
+
 # Paths
 BASE_DIR = Path(__file__).parent.parent.parent
 GENERATOR_SCRIPT = BASE_DIR / "generator_pipeline_maestro.py"
-DATASETS_DIR = BASE_DIR / "datasets" / "synthetics_maestro"
+DATASETS_DIR = directorio(escenario)
 
 # Check if generator exists
 if not GENERATOR_SCRIPT.exists():
@@ -122,16 +131,17 @@ if execute_button:
             sys.executable,
             str(GENERATOR_SCRIPT),
             "--n_flota", str(n_flota),
-            "--seed", str(seed)
+            "--seed", str(seed),
+            "--escenario", escenario,
         ]
 
-        status_text.info(f"⏳ Iniciando: {' '.join(cmd[-4:])}")
+        status_text.info(f"⏳ Iniciando: {' '.join(cmd[-6:])}")
 
         # Execute with output capture
         result = subprocess.run(
             [sys.executable, "-c", f"""
 import sys
-sys.path.insert(0, '{BASE_DIR}')
+sys.path.insert(0, {str(BASE_DIR)!r})
 from generator_pipeline_maestro import GeneradorMaestro
 
 print("=== INICIANDO PIPELINE MAESTRO ===")
@@ -139,7 +149,8 @@ print(f"n_flota: {n_flota}")
 print(f"seed: {seed}")
 print()
 
-generador = GeneradorMaestro(n_flota={n_flota}, seed={seed})
+generador = GeneradorMaestro(n_flota={n_flota}, seed={seed}, escenario={escenario!r},
+                             output_dir={str(DATASETS_DIR)!r})
 resultado = generador.ejecutar()
 
 print()
@@ -157,6 +168,8 @@ print(json.dumps(resultado, indent=2, default=str))
 """],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
             timeout=300
         )
 
@@ -236,7 +249,7 @@ try:
     metadata_path = DATASETS_DIR / "metadata.json"
 
     if metadata_path.exists():
-        with open(metadata_path) as f:
+        with open(metadata_path, encoding="utf-8") as f:
             metadata = json.load(f)
 
         meta_col1, meta_col2, meta_col3 = st.columns(3)
@@ -264,7 +277,7 @@ try:
     # Dataset summary table
     st.markdown("### 📊 Resumen de Datasets")
 
-    datasets_info = get_maestro_datasets_info()
+    datasets_info = get_maestro_datasets_info(escenario)
 
     if not datasets_info.empty:
         # Format the dataframe for display
@@ -284,10 +297,10 @@ try:
         # Cross-entity validation
         st.markdown("### ✅ Validación de Integridad")
 
-        flota = load_flota()
-        consumo = load_consumo_maestro()
-        solicitudes = load_solicitudes()
-        telemetria = load_telemetria()
+        flota = load_flota(escenario)
+        consumo = load_consumo_maestro(escenario)
+        solicitudes = load_solicitudes(escenario)
+        telemetria = load_telemetria(escenario)
 
         validations = []
 
@@ -339,17 +352,10 @@ st.markdown("""
 
 ### 📚 Archivos Generados
 
-Los datos se generan en: `datasets/synthetics_maestro/`
-
-```
-datasets/synthetics_maestro/
-├── flota.csv
-├── telemetria.csv
-├── consumo.csv
-├── solicitudes.csv
-├── facturacion.csv
-└── metadata.json
-```
+Los datos se generan en `datasets/synthetics_maestro/` (didáctico) o `datasets/synthetics_realista/`
+(realista). Ambos incluyen las cinco entidades, `ground_truth.csv` y `metadata.json`; el realista suma
+`estaciones.csv`, `telemetria_diaria.csv` y `casos_legitimos.csv`. El detalle está en el diccionario
+de datos (`docs/DICCIONARIO_DATOS.md`).
 
 Puedes explorar estos datos en la página **"📋 Exploración de Datasets"**
 """)

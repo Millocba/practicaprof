@@ -13,6 +13,11 @@ streamlit run streamlit_app/app.py
 
 Se abre en http://localhost:8501. No hace falta generar datos antes: si no existen, la app los crea con la semilla por defecto (200 vehículos, semilla 42) la primera vez que se abre una página.
 
+En la barra lateral se elige el **escenario**, y la elección vale para todas las páginas:
+
+- **Realista** (predeterminado): uso simulado día por día, anomalías sutiles y casos legítimos que se parecen a anomalías.
+- **Didáctico**: anomalías inconfundibles, para explicar el método.
+
 ## Páginas
 
 | Página | Archivo | Qué muestra |
@@ -21,12 +26,14 @@ Se abre en http://localhost:8501. No hace falta generar datos antes: si no exist
 | Generador | `pages/01_generador.py` | Genera un dataset nuevo con otra cantidad de vehículos o semilla; **🔄 Refrescar** recarga los datos |
 | Datasets | `pages/02_datasets.py` | Explorar, filtrar y exportar cada entidad y el ground truth |
 | Análisis Maestro | `pages/05_analisis_maestro.py` | Validación de las hipótesis H1 a H3a con ejemplos |
-| Detección | `pages/06_deteccion.py` | Reglas base evaluadas contra el ground truth y explorador de errores |
-| Modelo de ML | `pages/07_modelo_ml.py` | Isolation Forest comparado con las reglas |
+| Detección | `pages/06_deteccion.py` | Reglas evaluadas contra el ground truth; en el escenario realista, el origen de cada falso positivo (caso legítimo, otra anomalía o carga normal) y un explorador de errores |
+| Hipótesis | `pages/07_hipotesis.py` | Siempre usa el escenario realista. Para cada hipótesis compara la regla ingenua con la regla con contexto y da el veredicto calculado, las falsas alarmas y casos concretos |
+| Modelo de ML | `pages/08_modelo_ml.py` | Realista: qué revisar primero según un presupuesto de revisión, curva de esfuerzo de cinco métodos, cola de revisión con motivos (descargable) y vehículos a auditar. Didáctico: Isolation Forest comparado con las reglas |
 
 ## Datos
 
-- Todas las páginas leen `datasets/synthetics_maestro/`; ver el [diccionario de datos](../docs/DICCIONARIO_DATOS.md).
+- Las páginas leen `datasets/synthetics_realista/` o `datasets/synthetics_maestro/` (didáctico), según el escenario; ver el [diccionario de datos](../docs/DICCIONARIO_DATOS.md).
+- La primera vez que se abre la página de ML en el escenario realista, el modelo supervisado se entrena con tres datasets de otras semillas. Tarda unos 10 segundos y queda en memoria.
 - Los datos se cachean. Después de generar desde la página Generador, la caché se limpia sola.
 - Si en disco hay datos de una versión anterior del generador, sin `ground_truth.csv`, se regeneran automáticamente.
 

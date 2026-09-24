@@ -19,6 +19,7 @@ utils_path = Path(__file__).parent.parent / "utils"
 sys.path.insert(0, str(utils_path))
 
 from data_loader import (
+    selector_escenario,
     asegurar_datos_maestro,
     load_flota,
     load_telemetria,
@@ -33,12 +34,13 @@ st.markdown("# 🔍 Análisis de Hipótesis: Validación H1-H3a")
 st.markdown("Validación con ejemplos concretos: antes y después de la detección")
 
 # Load all data
-asegurar_datos_maestro()
-flota = load_flota()
-telemetria = load_telemetria()
-consumo = load_consumo_maestro()
-solicitudes = load_solicitudes()
-facturacion = load_facturacion()
+escenario = selector_escenario()
+asegurar_datos_maestro(escenario)
+flota = load_flota(escenario)
+telemetria = load_telemetria(escenario)
+consumo = load_consumo_maestro(escenario)
+solicitudes = load_solicitudes(escenario)
+facturacion = load_facturacion(escenario)
 
 if flota.empty or consumo.empty:
     st.error("❌ Datos insuficientes. Ejecuta primero el Generador.")

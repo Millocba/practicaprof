@@ -9,6 +9,10 @@ utils_path = Path(__file__).parent.parent / "utils"
 sys.path.insert(0, str(utils_path))
 
 from data_loader import (
+    selector_escenario,
+    load_casos_legitimos,
+    load_estaciones,
+    load_telemetria_diaria,
     asegurar_datos_maestro,
     load_flota,
     load_telemetria,
@@ -24,18 +28,26 @@ st.set_page_config(page_title="Datasets", page_icon="📋", layout="wide")
 st.markdown("# 📋 Exploración de Datasets")
 st.markdown("Visualiza, filtra y analiza todos los datasets del proyecto")
 
-asegurar_datos_maestro()
+escenario = selector_escenario()
+asegurar_datos_maestro(escenario)
 
 GROUND_TRUTH = "🎯 Ground truth (anomalías inyectadas)"
+LEGITIMOS = "✅ Casos legítimos (parecen anomalías)"
 
 datasets = {
-    "🚗 Flota": load_flota(),
-    "📡 Telemetría": load_telemetria(),
-    "⛽ Consumo": load_consumo_maestro(),
-    "📋 Solicitudes": load_solicitudes(),
-    "💰 Facturación": load_facturacion(),
-    GROUND_TRUTH: load_ground_truth_maestro(),
+    "🚗 Flota": load_flota(escenario),
+    "📡 Telemetría": load_telemetria(escenario),
+    "⛽ Consumo": load_consumo_maestro(escenario),
+    "📋 Solicitudes": load_solicitudes(escenario),
+    "💰 Facturación": load_facturacion(escenario),
+    GROUND_TRUTH: load_ground_truth_maestro(escenario),
 }
+if escenario == "realista":
+    datasets.update({
+        "⛽ Estaciones": load_estaciones(escenario),
+        "🛰️ Telemetría diaria": load_telemetria_diaria(escenario),
+        LEGITIMOS: load_casos_legitimos(escenario),
+    })
 
 # Dataset selector
 selected_dataset = st.selectbox(
@@ -44,6 +56,11 @@ selected_dataset = st.selectbox(
     key="dataset_select"
 )
 
+if selected_dataset == LEGITIMOS:
+    st.info(
+        "ℹ️ Cargas legítimas que una regla ingenua marcaría como anomalía: tanques no registrados, "
+        "viajes largos, odómetros reemplazados y errores de tipeo. Sirven para medir las falsas alarmas."
+    )
 if selected_dataset == GROUND_TRUTH:
     st.info(
         "ℹ️ Verdad de referencia: una fila por anomalía que inyectó el generador. "
@@ -112,7 +129,8 @@ if filter_cols:
             container = filter_col2
 
         with container:
-            unique_values = sorted(df[col].unique()[:100])  # Limit to 100 unique values
+            # Hasta 100 valores; key=str permite ordenar columnas con tipos mezclados
+            unique_values = sorted(df[col].dropna().unique()[:100], key=str)
 
             selected_values = st.multiselect(
                 f"Filtrar {col}",
