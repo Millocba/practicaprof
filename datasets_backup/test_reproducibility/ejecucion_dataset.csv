@@ -1,2 +1,0 @@
-id,scenario,seed,vehicles,devices,people,telemetry_events,fuel_transactions,months
-RUN-SYN-001,early_stage,20260816,250,180,500,20000,5000,12
