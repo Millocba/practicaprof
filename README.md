@@ -66,7 +66,7 @@ La detección de anomalías comparará una línea base de reglas con métodos es
 
 - **Generador oficial**: [`generator_pipeline_maestro.py`](generator_pipeline_maestro.py) produce cinco entidades relacionadas (flota, telemetría, consumo, solicitudes y facturación) y un `ground_truth.csv` con cada anomalía inyectada. La misma semilla produce los mismos datos. Tiene dos escenarios:
   - **Didáctico**: anomalías inconfundibles, para explicar el método.
-  - **Realista**: cada vehículo se simula día por día (consumo según su rendimiento, cargas cuando baja el tanque, GPS diario); incluye anomalías sutiles, cruces entre fuentes y **casos legítimos que se parecen a anomalías** (`casos_legitimos.csv`), con una prevalencia cercana al 1%.
+  - **Realista**: cada vehículo se simula día por día (consumo según su rendimiento, cargas cuando baja el tanque, GPS diario) y el circuito **solicitud → carga → factura** es coherente: cada carga tiene su solicitud y cada proveedor factura por mes con detalle línea por línea. Incluye anomalías sutiles, cruces entre fuentes y **casos legítimos que se parecen a anomalías** (`casos_legitimos.csv`), con una prevalencia cercana al 1%.
 - **Detección**: reglas ingenuas y reglas con contexto, un Isolation Forest y un modelo supervisado, evaluados contra el ground truth (paquete [`deteccion/`](deteccion/)).
 - **Aplicación**: Streamlit con generación, exploración, análisis, detección, contraste de hipótesis y priorización de la revisión ([`streamlit_app/`](streamlit_app/README.md)).
 - **Tests**: `python -m pytest` cubre generador, reglas, modelo y páginas, y se ejecuta en cada push.
@@ -87,7 +87,7 @@ Promedio de 5 semillas, 200 vehículos cada una.
 - En los saltos de odómetro (H2), comparar con el historial del propio vehículo detecta el 100% de los casos, contra el 25% de un umbral fijo.
 - Isolation Forest encuentra todas las anomalías de odómetro, pero solo el 76% de los excesos volumétricos: los vehículos con exceso forman un grupo denso que deja de parecer atípico.
 
-**Escenario realista: hipótesis.** Cada una compara una regla ingenua con una regla con contexto; se sostiene si el F1 mejora al menos 0,10. Las 7 se sostienen en las 5 semillas.
+**Escenario realista: hipótesis.** Cada una compara una regla ingenua con una regla con contexto; se sostiene si el F1 mejora al menos 0,10. Las 9 se sostienen en las 5 semillas.
 
 | | Hipótesis | F1 ingenua → con contexto | Falsas alarmas por casos legítimos |
 |---|---|---|---|
@@ -98,19 +98,27 @@ Promedio de 5 semillas, 200 vehículos cada una.
 | H5 | Una carga sin recorrido que la justifique solo se ve con el rendimiento km/L frente al habitual | 0,00 → 0,61 | 0 → 0 |
 | H6 | Las cargas a vehículos de baja o fuera de servicio solo se detectan cruzando con el estado de la flota | 0,00 → 1,00 | — |
 | H7 | El recorrido del GPS distingue una tarjeta usada en otro lado de un viaje real | 0,58 → 0,89 | 43 → 5 |
+| H8 | Cruzar cargas con solicitudes detecta las no autorizadas o que superan lo autorizado; aceptar regularizaciones posteriores y la tolerancia del surtidor evita falsas alarmas | 0,63 → 0,98 | 90 → 0 |
+| H9 | Conciliar la factura línea por línea detecta cargas inexistentes, duplicadas, sobreprecios y totales inflados que la comparación de totales mensuales no ve o confunde con desfases de corte y ajustes (evaluada por factura) | 0,49 → 1,00 | 66 → 0 |
 
 - En H5 el GPS no mejora al odómetro, porque en esos vehículos el odómetro no está adulterado. La mayoría de sus falsos positivos son otras anomalías que también cargan sin recorrido (vehículos inactivos, cargas lejos, fraccionamiento).
 - El umbral fijo de saltos es inutilizable con uso realista: genera unas 400 falsas alarmas por dataset, porque un camión recorre 500 km en pocos días.
+- Las solicitudes no traen el número de carga: se emparejan por vehículo con una asignación óptima (método húngaro) por fecha y litros. Con un emparejamiento simple, una solicitud "se la llevaba" otra carga cercana y H8 no se sostenía.
+- La comparación de totales mensuales (H9) solo detecta 69% de las facturas con irregularidades: un sobreprecio o una línea de más cambian menos del 1% del total, mientras que los desfases de corte y los ajustes documentados sí superan ese umbral.
 
-**Escenario realista: priorización de la revisión.** Qué encuentra cada método según cuántas cargas se revisan, de unas 50 anomalías de comportamiento por dataset (prevalencia 0,97%).
+**Escenario realista: priorización de la revisión.** Qué encuentra cada método según cuántas cargas se revisan, de unas 67 anomalías de comportamiento en las cargas por dataset (prevalencia 1,3%). Con 50 revisiones, el máximo posible es 75%.
 
-| Método | Revisando 25 | Revisando 50 | Legítimos revisados en vano (de 50) |
+| Método | Revisando 50 | Revisando 100 | Legítimos revisados en vano (de 100) |
 |---|---|---|---|
-| Reglas ingenuas | 31% | 50% | 21 |
-| Isolation Forest | 23% | 33% | 12 |
-| Reglas con contexto | 47% | 93% | 1 |
-| Modelo supervisado (entrenado con otras semillas) | 48% | 91% | 2 |
-| Combinado (reglas con contexto + modelo) | 49% | 97% | 0 |
+| Reglas ingenuas | 42% | 75% | 45 |
+| Isolation Forest | 23% | 37% | 18 |
+| Reglas con contexto | 72% | 99% | 1 |
+| Modelo supervisado (entrenado con otras semillas) | 72% | 99% | 14* |
+| Combinado (reglas con contexto + modelo) | 74% | 100% | 14* |
+
+\* Revisan casos legítimos recién después de haber encontrado todas las anomalías: con 50 revisiones, el combinado no revisa ninguno.
+
+**Escenario realista: facturas a revisar.** La conciliación línea por línea marca unas 15 de 45 facturas por dataset y encuentra todas las irregularidades de facturación (19 por dataset), con un importe en juego de 3.000 a 6.200 por dataset.
 
 - El modelo supervisado llega al nivel de las reglas con contexto sin que nadie las haya escrito: aprende de auditorías anteriores.
 - Isolation Forest confunde lo raro con lo sospechoso, porque los viajes largos y los tanques no registrados también son raros.
@@ -176,7 +184,7 @@ Las personas integrantes conservan la autoridad final sobre las decisiones y sob
 - [x] Escenario realista con anomalías sutiles, cruces entre fuentes y casos legítimos.
 - [x] Contraste de hipótesis: reglas ingenuas vs. reglas con contexto.
 - [x] Modelo supervisado y priorización de la revisión.
-- [ ] Anomalías en facturación y solicitudes.
+- [x] Circuito solicitud → carga → factura: emparejamiento de solicitudes y conciliación de facturas.
 - [ ] Métodos estadísticos robustos y comparación de más modelos.
 - [ ] Validaciones de privacidad automatizadas antes de versionar datos.
 

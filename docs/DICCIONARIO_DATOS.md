@@ -166,9 +166,11 @@ Cada vehículo se simula día por día desde un perfil propio que no forma parte
 | `telemetria.csv` | un dispositivo GPS | 176 (uno por vehículo, 88% de la flota) |
 | `telemetria_diaria.csv` | un dispositivo y un día | ~46.000 (3% de los días sin señal) |
 | `consumo.csv` | una carga de combustible | ~5.200 (unas 25 por vehículo) |
-| `solicitudes.csv` / `facturacion.csv` | igual que en el escenario didáctico | ~500 / 9 |
-| `ground_truth.csv` | una anomalía inyectada | ~130 |
-| `casos_legitimos.csv` | una carga legítima que parece anomalía | ~80 |
+| `solicitudes.csv` | una solicitud de combustible | ~5.600 (una por carga, más rechazadas y pendientes) |
+| `facturacion.csv` | una factura mensual de un proveedor | 45 (5 proveedores × 9 meses) |
+| `facturacion_detalle.csv` | una línea de factura | ~5.200 (una por carga facturada, más ajustes) |
+| `ground_truth.csv` | una anomalía inyectada | ~145 |
+| `casos_legitimos.csv` | un caso legítimo que parece anomalía | ~180 |
 
 ### Diferencias con el escenario didáctico
 
@@ -184,6 +186,9 @@ Cada vehículo se simula día por día desde un perfil propio que no forma parte
 | consumo | `precio_unitario` | Precio base del producto con un aumento del 2% mensual |
 | consumo | `litros` / `odometro` | Resultan de la simulación: el odómetro avanza según los km recorridos y los litros reponen lo consumido |
 | telemetria | `Odometro` | km acumulados del vehículo al final del período |
+| solicitudes | todas | Coherentes con las cargas: cada carga tiene una solicitud APROBADA del mismo vehículo 0 a 2 días antes, por el 100% al 125% de los litros cargados. Además, un 8% de solicitudes RECHAZADA o PENDIENTE que no terminan en carga (`litros_autorizados` = 0) |
+| facturacion | `proveedor` (nueva) | Marca de la estación: cada proveedor emite una factura por mes |
+| facturacion | `total_monto` | Suma de las líneas de la factura (salvo en las anomalías `TOTAL_INFLADO`) |
 
 ### estaciones.csv
 
@@ -203,6 +208,22 @@ Cada vehículo se simula día por día desde un perfil propio que no forma parte
 | `km_gps` | km recorridos ese día según el GPS (±3% de los reales; 0 si no se movió) |
 | `lat_inicio` / `lon_inicio` / `lat_fin` / `lon_fin` | Posición al empezar y al terminar el recorrido del día |
 
+### facturacion_detalle.csv
+
+Detalle de cada factura: una línea por carga facturada, más las líneas de ajuste.
+
+| Columna | Descripción |
+|---|---|
+| `numero_linea` | `LIN-NNNNNNNN` |
+| `numero_factura` | Factura a la que pertenece |
+| `referencia_consumo` | `consumo.id` de la carga facturada; vacía en los ajustes |
+| `concepto` | COMBUSTIBLE o AJUSTE |
+| `fecha` / `dominio` / `litros` | Datos de la carga según el proveedor |
+| `precio_unitario` / `importe` | Precio por litro e importe facturados |
+| `descripcion` | Motivo del ajuste (bonificación o recargo) |
+
+Las solicitudes no traen el número de carga: para cruzarlas hay que emparejarlas por vehículo, fecha y litros.
+
 ### casos_legitimos.csv
 
 Cargas que una regla ingenua marcaría como anomalía pero no lo son. No están en el ground truth; sirven para medir cuántas falsas alarmas produce cada regla.
@@ -219,6 +240,12 @@ Cargas que una regla ingenua marcaría como anomalía pero no lo son. No están 
 | `VIAJE_LARGO` | 4 vehículos | Un viaje de ida y vuelta por una ruta; carga en estaciones de ruta, lejos de su zona |
 | `CAMBIO_ODOMETRO` | 2 vehículos | El odómetro se reemplaza y vuelve a contar desde 0 a 3.000 km |
 | `ERROR_TIPEO_ODOMETRO` | 5 vehículos | Una lectura con dos dígitos intercambiados (difiere ≥1.000 km); las siguientes son correctas |
+| `REGULARIZACION_POSTERIOR` | 8 cargas | La solicitud se aprueba 1 a 3 días después de la carga (una urgencia regularizada) |
+| `TOLERANCIA_MEDICION` | 10 cargas | La carga supera lo autorizado entre 1% y 3%, dentro de la tolerancia del surtidor |
+| `DESFASE_DE_CORTE` | 50% de las cargas del último día de cada mes (línea de factura) | Se facturan en la factura del mes siguiente |
+| `AJUSTE_DOCUMENTADO` | 4 facturas | La factura incluye una línea AJUSTE (bonificación o recargo de 2% a 5%) |
+
+La columna `tabla` indica a qué tabla pertenece `id_registro`: `consumo`, `facturacion` o `facturacion_detalle`.
 
 ### Catálogo de anomalías del escenario realista
 
@@ -235,4 +262,11 @@ Incluye las del escenario didáctico, con otra forma de inyección, y cinco tipo
 | `ODOMETRO_REGRESIVO_LEVE` | H2 | 4 vehículos | Igual, pero de 50 a 200 km |
 | `ODOMETRO_SALTO` | H2 | 3 vehículos | La lectura suma de 1.500 a 9.000 km que el GPS no registra; las siguientes continúan desde ahí |
 | `DOMINIO_INVALIDO` / `VALOR_NULO` / `DUPLICADO` | H1 / CALIDAD | 0,3% / 0,5% / 0,3% de las cargas | Como en el escenario didáctico, solo sobre cargas sin otra anomalía ni caso legítimo |
+| `CARGA_SIN_SOLICITUD` | H8 | 6 cargas | La carga no tiene ninguna solicitud del vehículo |
+| `CARGA_CON_SOLICITUD_RECHAZADA` | H8 | 4 cargas | La única solicitud cercana fue rechazada |
+| `CARGA_SUPERA_AUTORIZADO` | H8 | 6 cargas | Se cargó entre 15% y 50% más de lo autorizado |
+| `TOTAL_INFLADO` | H9 | 2 facturas (`tabla` = facturacion) | El total supera en 3% a 10% la suma de sus líneas |
+| `LINEA_SIN_CONSUMO` | H9 | 6 líneas (`tabla` = facturacion_detalle) | Se factura una carga que no existe en el registro |
+| `LINEA_DUPLICADA` | H9 | 5 líneas | Una carga se factura dos veces |
+| `SOBREPRECIO` | H9 | 6 líneas | El precio por litro facturado supera en 8% a 20% el de la carga |
 

@@ -41,7 +41,7 @@ Cada ejecución deberá asociarse con versión de código, esquema, semilla, par
 |---|---|---|
 | Generación | `generator_pipeline_maestro.py` | Cinco entidades más `ground_truth.csv`, reproducible por semilla. Escenario realista: simulación diaria, estaciones, GPS diario y `casos_legitimos.csv` |
 | Calidad | `deteccion/reglas.py` | Duplicados, nulos y dominios sin vínculo |
-| Integración | — | Pendiente: hoy las fuentes se generan ya vinculadas |
+| Integración | `deteccion/reglas.py` (`emparejar_solicitudes`) | Solicitudes y cargas se emparejan por vehículo, fecha y litros (asignación óptima); facturas y cargas, por la referencia de cada línea. La limpieza de fuentes con defectos de formato sigue pendiente |
 | Análisis | `streamlit_app/pages/05_analisis_maestro.py` | Validación de hipótesis H1 a H3a |
 | Detección | `deteccion/reglas.py`, `deteccion/modelo.py`, `deteccion/evaluacion.py` | Reglas ingenuas y con contexto, Isolation Forest y modelo supervisado, evaluados contra el ground truth |
 | Hipótesis | `deteccion/hipotesis.py` | Contraste de cada hipótesis del escenario realista con veredicto calculado |
