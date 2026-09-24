@@ -156,6 +156,26 @@ with col3:
     - Ejemplos antes y después
     """)
 
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.markdown("""
+    ### 🎯 4. Detección
+    Reglas base evaluadas contra el ground truth
+    - Precision, recall y F1 por tipo y por regla
+    - Umbral fijo vs. historial del vehículo
+    - Explorador de errores
+    """)
+
+with col2:
+    st.markdown("""
+    ### 🤖 5. Modelo de ML
+    Isolation Forest comparado con las reglas
+    - Detección no supervisada
+    - Recall por tipo de anomalía
+    - Distribución de puntajes
+    """)
+
 # Status boxes (computed from the loaded data, not hardcoded)
 st.markdown("---")
 st.markdown("## ✅ Estado de la Generación")
