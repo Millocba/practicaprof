@@ -64,55 +64,53 @@ La detección de anomalías comparará una línea base de reglas con métodos es
 
 ## Estado actual
 
-El proyecto cuenta con un generador reproducible de datasets sintéticos. Todavía no presenta modelos ni resultados experimentales.
+- **Generador oficial**: [`generator_pipeline_maestro.py`](generator_pipeline_maestro.py) produce cinco entidades relacionadas (flota, telemetría, consumo, solicitudes y facturación) y un `ground_truth.csv` con cada anomalía inyectada. La misma semilla produce los mismos datos.
+- **Detección**: nueve reglas base y un modelo Isolation Forest, evaluados contra el ground truth (paquete [`deteccion/`](deteccion/)).
+- **Aplicación**: Streamlit con generación, exploración, análisis de hipótesis, detección y ML ([`streamlit_app/`](streamlit_app/README.md)).
+- **Tests**: `python -m pytest` cubre generador, reglas, modelo y páginas, y se ejecuta en cada push.
+- Las versiones anteriores del generador se conservan en [`legacy/`](legacy/EVOLUCION.md).
 
-## Generar el dataset inicial
+### Resultados preliminares
 
-```bash
-python -m synthetic_data.cli \
-  --scenario early_stage \
-  --seed 20260816 \
-  --vehicles 250 \
-  --devices 180 \
-  --people 500 \
-  --telemetry-events 20000 \
-  --fuel-transactions 5000 \
-  --months 12 \
-  --output datasets/early_stage
-```
+Promedio de 5 semillas, 200 vehículos cada una:
 
-El destino debe no existir para impedir sobrescrituras accidentales. La salida local contiene un CSV por entidad, `ground_truth.csv` y `manifest.json` con conteos y hashes SHA-256. `datasets/` se excluye de Git: solo se versionan el generador, las pruebas y la configuración reproducible.
+| Método | Precision | Recall | F1 |
+|---|---|---|---|
+| Reglas (línea base) | 1,00 | 1,00 | 1,00 |
+| Isolation Forest | 0,73 | 0,82 | 0,77 |
 
-Los identificadores internos son deterministas: al reducir o ampliar el volumen con la misma semilla, las entidades existentes conservan sus IDs y las claves foráneas continúan apuntando a esos mismos IDs. Las marcas y modelos provienen de catálogos públicos generales; los dominios son generados y respetan los formatos argentinos histórico `ABC123` y Mercosur `AA123AA`, sin consultar padrones ni copiar asignaciones reales.
+- Las reglas son perfectas porque se diseñaron conociendo cómo se inyectan las anomalías sintéticas: funcionan como techo de referencia, no como desempeño esperable con datos reales.
+- En los saltos de odómetro (H2), comparar con el historial del propio vehículo detecta el 100% de los casos, contra el 25% de un umbral fijo.
+- Isolation Forest encuentra todas las anomalías de odómetro, pero solo el 76% de los excesos volumétricos: los vehículos con exceso forman un grupo denso que deja de parecer atípico.
 
-### Fuente cruda de flota
-
-La primera fuente independiente se genera en dos pasos:
+## Cómo usarlo
 
 ```bash
-python -m raw_sources.prepare_flota --output .tmp/flota_rows.json --seed 20260816
-node tools/build_flota_workbook.mjs .tmp/flota_rows.json datasets/raw/early_stage/flota
+pip install -r requirements.txt                 # Python 3.12
+
+python generator_pipeline_maestro.py            # genera datasets/synthetics_maestro/
+python -m deteccion                             # evalúa las reglas contra el ground truth
+python -m pytest                                # corre todos los tests
+streamlit run streamlit_app/app.py              # abre la aplicación
 ```
 
-El libro `flota_vehicular.xlsx` no expone IDs internos ni claves foráneas. Conserva errores de unicidad y representación para que el futuro pipeline de limpieza deba descubrir y normalizar las vinculaciones.
+- El generador acepta `--n_flota`, `--seed` y `--output`.
+- La aplicación genera los datos por su cuenta si no existen.
+- `datasets/` está excluido de Git: se versionan el generador, las pruebas y la configuración, y los datos se recrean con la semilla.
 
-### Fuente cruda de telemetría
+El detalle de cada archivo, columna y tipo de anomalía está en el [diccionario de datos](docs/DICCIONARIO_DATOS.md).
 
-```bash
-python -m raw_sources.prepare_telemetria --output .tmp/telemetria_rows.json --seed 20260816
-node tools/build_telemetria_workbook.mjs .tmp/telemetria_rows.json datasets/raw/early_stage/telemetria
+## Estructura
+
+```text
+generator_pipeline_maestro.py   generador oficial
+deteccion/                      reglas, modelo de ML y evaluación
+streamlit_app/                  aplicación (páginas y carga de datos)
+tests/                          tests del generador, la detección y la app
+docs/                           gobierno, arquitectura, diccionario, sprints y análisis
+results/                        reportes de los encuentros
+legacy/                         generadores, notebooks y etapa inicial anteriores
 ```
-
-`telemetria_dispositivos.xlsx` contiene una fila por dispositivo y omite el ID del vehículo. La vinculación con flota depende de alias, placa o referencias de motor imperfectas e incluye dispositivos sin correspondencia, IMEI duplicados, faltantes y representaciones temporales heterogéneas.
-
-### Fuentes crudas de consumo
-
-```bash
-python -m raw_sources.prepare_consumo --output .tmp/consumo_rows.json --seed 20260816
-node tools/build_consumo_workbooks.mjs .tmp/consumo_rows.json datasets/raw/early_stage
-```
-
-Los libros `consumo_interno.xlsx` y `consumo_externo.xlsx` son dos proyecciones independientes de los mismos eventos sintéticos. Cubren diariamente el año 2025 y al menos el 95 % de la flota. No exponen claves internas: la vinculación depende de dominio o tarjeta sintética y conserva errores controlados de representación. La fuente interna incluye operación, odómetro, ticket, conductor, rendición y anulación; su campo `Id` es un código operativo sintético de la fuente, no una clave del modelo relacional.
 
 ## Gobierno y colaboración
 
@@ -122,24 +120,26 @@ Los libros `consumo_interno.xlsx` y `consumo_externo.xlsx` son dos proyecciones 
 - [Gobierno de datos y persistencia](docs/DATA_GOVERNANCE.md)
 - [Arquitectura conceptual](docs/ARCHITECTURE.md)
 - [Entorno de desarrollo](docs/DEVELOPMENT.md)
-- [Modelo de datos sintéticos](docs/DATA_MODEL.md)
-- [Diccionario de datos](docs/DATA_DICTIONARY.md)
-- [Método de generación sintética](docs/SYNTHETIC_DATA_METHOD.md)
-- [Escenarios de calidad](docs/DATA_QUALITY_SCENARIOS.md)
+- [Diccionario de datos del pipeline maestro](docs/DICCIONARIO_DATOS.md)
 - [Límite de metadatos reales](docs/REAL_DATA_BOUNDARY.md)
+- [Evolución de los generadores](legacy/EVOLUCION.md)
+- [Registro del Sprint 1](docs/sprints/sprint-1/README.md)
 
 Las personas integrantes conservan la autoridad final sobre las decisiones y sobre `main`. Las IA colaboran mediante ramas y pull requests sujetos a revisión humana.
 
 ## Hoja de ruta
 
-- Fundación documental y reglas de trabajo.
-- Especificación del modelo de datos sintéticos.
-- Generador reproducible y validaciones de privacidad.
-- Análisis exploratorio inicial.
-- Pipeline de integración y calidad.
-- Líneas base de detección.
-- Experimentos de ML y evaluación.
-- Presentación interactiva de resultados.
+- [x] Fundación documental y reglas de trabajo.
+- [x] Especificación del modelo de datos sintéticos.
+- [x] Generador reproducible con verdad de referencia.
+- [x] Análisis exploratorio inicial.
+- [x] Líneas base de detección por reglas.
+- [x] Primer experimento de ML (Isolation Forest) y evaluación.
+- [x] Presentación interactiva de resultados (aplicación Streamlit).
+- [ ] Pipeline de integración y limpieza sobre fuentes con defectos de formato.
+- [ ] Anomalías en facturación y solicitudes.
+- [ ] Métodos estadísticos robustos y comparación de más modelos.
+- [ ] Validaciones de privacidad automatizadas antes de versionar datos.
 
 ## Limitaciones iniciales
 

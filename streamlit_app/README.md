@@ -1,185 +1,52 @@
-# 📊 Dataset v5 Integration Pipeline - Streamlit App
+# Aplicación Streamlit
 
-Interfaz integral para gestión, visualización y análisis del dataset integrado v5 con 104 defectos inyectados.
+Interfaz para generar, explorar y evaluar los datos sintéticos del pipeline maestro. La lógica no está en la app: los datos salen de [`generator_pipeline_maestro.py`](../generator_pipeline_maestro.py) y la detección de [`deteccion/`](../deteccion/).
 
-## 🚀 Inicio Rápido
+## Ejecutar localmente
 
-### Instalación local
+Desde la raíz del repositorio, con Python 3.12:
 
 ```bash
-# Clonar o descargar el repositorio
-cd streamlit_app
-
-# Instalar dependencias
 pip install -r requirements.txt
-
-# Ejecutar la aplicación
-streamlit run app.py
+streamlit run streamlit_app/app.py
 ```
 
-### Acceder a la aplicación
+Se abre en http://localhost:8501. No hace falta generar datos antes: si no existen, la app los crea con la semilla por defecto (200 vehículos, semilla 42) la primera vez que se abre una página.
 
-La aplicación se abrirá automáticamente en `http://localhost:8501`
+## Páginas
 
-## 📋 Estructura de la Aplicación
+| Página | Archivo | Qué muestra |
+|---|---|---|
+| Inicio | `app.py` | KPIs (vehículos, transacciones, vinculación consumo ↔ flota, facturación), estado de la generación y resumen de datasets |
+| Generador | `pages/01_generador.py` | Genera un dataset nuevo con otra cantidad de vehículos o semilla; **🔄 Refrescar** recarga los datos |
+| Datasets | `pages/02_datasets.py` | Explorar, filtrar y exportar cada entidad y el ground truth |
+| Análisis Maestro | `pages/05_analisis_maestro.py` | Validación de las hipótesis H1 a H3a con ejemplos |
+| Detección | `pages/06_deteccion.py` | Reglas base evaluadas contra el ground truth y explorador de errores |
+| Modelo de ML | `pages/07_modelo_ml.py` | Isolation Forest comparado con las reglas |
 
-### Página Principal (`app.py`)
-- Dashboard con métricas principales
-- Estado del pipeline
-- Resumen de datasets
-- Información de consolidación
+## Datos
 
-### 🎯 Generador (`pages/01_generator.py`)
-Ejecuta el generador de reportes de consumo:
-- Configura número de meses a generar
-- Visualiza resultados en tiempo real
-- Descarga archivos Excel generados
-- Previsualiza datos
+- Todas las páginas leen `datasets/synthetics_maestro/`; ver el [diccionario de datos](../docs/DICCIONARIO_DATOS.md).
+- Los datos se cachean. Después de generar desde la página Generador, la caché se limpia sola.
+- Si en disco hay datos de una versión anterior del generador, sin `ground_truth.csv`, se regeneran automáticamente.
 
-### 📋 Datasets (`pages/02_datasets.py`)
-Exploración interactiva de todos los datos:
-- Búsqueda por texto completo
-- Filtros por columna
-- Estadísticas automáticas
-- Exportación (CSV, Excel, JSON)
+## Desplegar en Streamlit Community Cloud
 
-### 🔄 Pipeline (`pages/03_pipeline.py`)
-Visualización del flujo ETL:
-- 5 pasos de transformación
-- Métricas de validación
-- Estadísticas de cruces
-- Información de outputs
+1. En https://share.streamlit.io, **Create app** y elegir el repositorio.
+2. **Main file path**: `streamlit_app/app.py`.
+3. En **Advanced settings**, elegir **Python 3.12**: es la versión con la que se verificaron las dependencias.
+4. **Deploy**. Las dependencias se instalan desde `streamlit_app/requirements.txt`.
 
-### 📈 Análisis (`pages/04_analysis.py`)
-Visualizaciones interactivas:
-- Análisis de consumo
-- Distribución de vehículos
-- Estadísticas de defectos
-- Información de dispositivos
+Tener en cuenta:
 
-## 🔑 Características Principales
+- El disco del despliegue se borra en cada reinicio o suspensión. La app regenera el dataset por defecto al volver a abrirse; un dataset generado con otros parámetros se pierde.
+- Cada push a la rama desplegada redespliega la app.
+- Los errores de instalación o ejecución se ven en **Manage app → Logs**.
 
-### ✅ Funcionalidades
-- ✅ Ejecución del generador desde la UI
-- ✅ Visualización en tiempo real de datos
-- ✅ Búsqueda y filtrado avanzado
-- ✅ Gráficos interactivos (Plotly)
-- ✅ Exportación de datos múltiples formatos
-- ✅ Caché de datos para rendimiento
-- ✅ Responsivo y mobile-friendly
+## Verificar cambios
 
-### 📊 Datasets Soportados
-1. **Vehículos** - 200 registros con 104 defectos
-2. **Dispositivos** - 197 GPS/GPRS
-3. **Consumo Vinculado** - 1749 transacciones
-4. **Solicitudes Combustible** - 449 autorizaciones
-5. **Ground Truth** - 104 defectos inyectados
-6. **Consumo Enriquecido** - 1749 con fields extras
-
-## 🌐 Deploy a Streamlit Cloud
-
-### Prerequisitos
-- Cuenta de GitHub (repositorio público)
-- Cuenta de Streamlit Cloud
-
-### Pasos
-
-1. **Subir a GitHub:**
 ```bash
-git add streamlit_app/
-git commit -m "Add Streamlit app for Dataset v5"
-git push origin main
+python -m pytest tests/test_streamlit_pages.py
 ```
 
-2. **Crear app en Streamlit Cloud:**
-   - Ir a https://share.streamlit.io
-   - Click en "New app"
-   - Conectar con GitHub
-   - Seleccionar repositorio
-   - Configurar:
-     - **Repository**: tu-usuario/tu-repo
-     - **Branch**: main
-     - **Main file path**: `streamlit_app/app.py`
-
-3. **Configurar URL de enlace:**
-   La app estará disponible en: `https://share.streamlit.io/tu-usuario/tu-repo`
-
-### Archivos necesarios
-
-La estructura debe ser:
-```
-tu-repo/
-├── streamlit_app/
-│   ├── app.py
-│   ├── requirements.txt
-│   ├── .streamlit/
-│   │   └── config.toml
-│   ├── utils/
-│   │   ├── data_loader.py
-│   │   └── generator_runner.py
-│   ├── pages/
-│   │   ├── 01_generator.py
-│   │   ├── 02_datasets.py
-│   │   ├── 03_pipeline.py
-│   │   └── 04_analysis.py
-│   └── README.md
-└── ... (otros archivos del proyecto)
-```
-
-## 🎯 Próximas Fases
-
-### Fase 2: ML Models
-- Integración de modelos de clasificación
-- Dashboard de métricas (Precision, Recall, F1)
-- Comparativa de algoritmos
-- Feature importance visualization
-
-### Fase 3: Análisis Profundo
-- PCA y reducción dimensional
-- Clustering interactivo
-- Análisis de correlaciones
-- Predicciones en tiempo real
-
-### Fase 4: Documentación Tesis
-- Exportación de reportes PDF
-- Gráficos para tesis
-- Conclusiones automáticas
-- Referencias y métricas
-
-## 📝 Requisitos Técnicos
-
-### Python
-- Python 3.8+
-- Streamlit 1.28+
-- Pandas 2.0+
-- Plotly 5.17+
-
-### Hardware
-- CPU: 1 core (mínimo)
-- RAM: 512MB (mínimo)
-- Storage: 100MB (aplicación + datos)
-
-## 🔐 Seguridad
-
-- ✅ Sin credenciales almacenadas
-- ✅ Sin datos sensibles en código
-- ✅ Caché local solamente
-- ✅ HTTPS en Streamlit Cloud
-
-## 📞 Soporte
-
-Para reportar problemas:
-1. Verifica que todos los datos estén en `../datasets/`
-2. Revisa los logs en la consola
-3. Reinicia la aplicación: `streamlit run app.py`
-
-## 📄 Licencia
-
-Proyecto académico - Tesis de Grado
-Dirección General de Gestión Administrativa
-
----
-
-**Estado:** ✅ LISTO PARA DEPLOY  
-**Última actualización:** 2026-09-22  
-**Versión:** 1.0.0
+Abre cada página sin navegador, partiendo de un disco vacío, y falla si alguna lanza una excepción.

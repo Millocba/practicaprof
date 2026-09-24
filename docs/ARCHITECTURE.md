@@ -34,3 +34,14 @@ API, reportes y visualización
 Datos crudos, procesados, analíticos y resultados tendrán ubicaciones diferenciadas. Los esquemas evolucionarán mediante migraciones versionadas y los entornos estarán separados.
 
 Cada ejecución deberá asociarse con versión de código, esquema, semilla, parámetros, dependencias y artefactos resultantes.
+
+## Implementación actual
+
+| Unidad | Dónde está | Estado |
+|---|---|---|
+| Generación | `generator_pipeline_maestro.py` | Cinco entidades más `ground_truth.csv`, reproducible por semilla |
+| Calidad | `deteccion/reglas.py` | Duplicados, nulos y dominios sin vínculo |
+| Integración | — | Pendiente: hoy las fuentes se generan ya vinculadas |
+| Análisis | `streamlit_app/pages/05_analisis_maestro.py` | Validación de hipótesis H1 a H3a |
+| Detección | `deteccion/reglas.py`, `deteccion/modelo.py`, `deteccion/evaluacion.py` | Reglas base e Isolation Forest, evaluados contra el ground truth |
+| Presentación | `streamlit_app/` | Aplicación Streamlit; no duplica la lógica de detección, la importa de `deteccion/` |
