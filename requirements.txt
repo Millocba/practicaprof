@@ -1,4 +1,6 @@
-# Dependencias de desarrollo: las de la aplicación más las herramientas de test.
-# El despliegue usa solo streamlit_app/requirements.txt.
--r streamlit_app/requirements.txt
-pytest==9.1.1
+pandas
+numpy
+matplotlib
+seaborn
+jupyter
+pytest
