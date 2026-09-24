@@ -39,8 +39,10 @@ if flota.empty or consumo.empty or ground_truth.empty:
 
 
 @st.cache_data
-def calcular(flota, consumo, ground_truth, estaciones, telemetria_diaria, legitimos):
-    alertas = ejecutar_reglas(flota, consumo, estaciones, telemetria_diaria)
+def calcular(flota, consumo, ground_truth, estaciones, telemetria_diaria, legitimos, solicitudes,
+             facturacion, facturacion_detalle):
+    alertas = ejecutar_reglas(flota, consumo, estaciones, telemetria_diaria, solicitudes, facturacion,
+                              facturacion_detalle)
     por_regla = evaluar_por_regla(alertas, ground_truth)
     if legitimos is not None:
         ids_legitimos = set(legitimos["id_registro"])
@@ -60,7 +62,8 @@ def calcular(flota, consumo, ground_truth, estaciones, telemetria_diaria, legiti
 
 
 alertas, por_tipo, por_regla = calcular(flota, consumo, ground_truth, datos["estaciones"],
-                                        datos["telemetria_diaria"], legitimos)
+                                        datos["telemetria_diaria"], legitimos, datos["solicitudes"],
+                                        datos["facturacion"], datos["facturacion_detalle"])
 
 if escenario == "didactico":
     st.warning(
@@ -146,9 +149,17 @@ with col2:
 if fp.empty and fn.empty:
     st.success(f"✅ `{regla_sel}` no tiene errores en este dataset.")
 else:
+    detalle_factura = datos["facturacion_detalle"]
+    if detalle_factura is not None and fp["id_registro"].str.startswith(("LIN-", "FAC-")).any():
+        columnas_linea = ["numero_linea", "numero_factura", "referencia_consumo", "concepto", "fecha",
+                          "litros", "precio_unitario", "importe"]
+        consumo_o_factura = detalle_factura[columnas_linea].rename(columns={"numero_linea": "id"})
+        columnas = ["id"] + columnas_linea[1:]
+    else:
+        consumo_o_factura = consumo
     if not fp.empty:
         st.markdown("**Falsos positivos** (alertas que no corresponden a una anomalía de ese tipo)")
-        tabla = fp.merge(consumo[columnas], left_on="id_registro", right_on="id")
+        tabla = fp.merge(consumo_o_factura[columnas], left_on="id_registro", right_on="id", how="left")
         if legitimos is not None:
             caso = legitimos.drop_duplicates("id_registro").set_index("id_registro")["tipo_caso"]
             anomalia = ground_truth.groupby("id_registro")["tipo_anomalia"].first()
@@ -157,7 +168,7 @@ else:
         st.dataframe(tabla, use_container_width=True, hide_index=True)
     if not fn.empty:
         st.markdown("**Falsos negativos** (anomalías inyectadas que la regla no detectó)")
-        st.dataframe(fn.merge(consumo[columnas], left_on="id_registro", right_on="id"),
+        st.dataframe(fn.merge(consumo_o_factura[columnas], left_on="id_registro", right_on="id", how="left"),
                      use_container_width=True, hide_index=True)
 
 st.caption(f"Escenario: {NOMBRES_ESCENARIO[escenario]}.")

@@ -19,6 +19,13 @@ DIRECTORIOS = {
 NOMBRES_ESCENARIO = {"realista": "Realista", "didactico": "Didáctico"}
 ESCENARIO_POR_DEFECTO = "realista"
 
+# Archivos que debe tener cada escenario; si falta alguno, los datos son de una versión anterior
+ARCHIVOS_REQUERIDOS = {
+    "didactico": ["flota.csv", "consumo.csv", "ground_truth.csv"],
+    "realista": ["flota.csv", "consumo.csv", "ground_truth.csv", "casos_legitimos.csv", "estaciones.csv",
+                 "telemetria_diaria.csv", "facturacion_detalle.csv"],
+}
+
 # Parámetros del dataset que se genera automáticamente si no hay datos
 N_FLOTA_POR_DEFECTO = 200
 
@@ -48,13 +55,13 @@ def asegurar_datos_maestro(escenario="didactico"):
     cada página encuentra datos sin que haya que abrir primero el Generador. Con
     la misma semilla el resultado es siempre el mismo.
 
-    También regenera si los datos en disco son de una versión anterior del
-    generador, que no producía `ground_truth.csv`.
+    También regenera si a los datos en disco les falta algún archivo del escenario:
+    son de una versión anterior del generador.
 
     Devuelve True si generó datos en esta llamada.
     """
     carpeta = DIRECTORIOS[escenario]
-    if (carpeta / "flota.csv").exists() and (carpeta / "ground_truth.csv").exists():
+    if all((carpeta / archivo).exists() for archivo in ARCHIVOS_REQUERIDOS[escenario]):
         return False
 
     if str(BASE_DIR) not in sys.path:
@@ -157,6 +164,12 @@ def load_estaciones(escenario="realista"):
 
 
 @st.cache_data
+def load_facturacion_detalle(escenario="realista"):
+    """Líneas de cada factura, con la carga que referencian (solo escenario realista)."""
+    return _leer_csv("facturacion_detalle", escenario)
+
+
+@st.cache_data
 def load_telemetria_diaria(escenario="realista"):
     """Recorrido diario de cada dispositivo GPS (solo escenario realista)."""
     return _leer_csv("telemetria_diaria", escenario)
@@ -166,6 +179,7 @@ def load_dataset_deteccion(escenario):
     """Las tablas que usan la detección y la evaluación, como dict (None si no existen)."""
     def o_none(df):
         return None if df.empty else df
+    realista = escenario == "realista"
     return {
         "flota": load_flota(escenario),
         "consumo": load_consumo_maestro(escenario),
@@ -173,6 +187,10 @@ def load_dataset_deteccion(escenario):
         "casos_legitimos": o_none(load_casos_legitimos(escenario)),
         "estaciones": o_none(load_estaciones(escenario)),
         "telemetria_diaria": o_none(load_telemetria_diaria(escenario)),
+        # Solo en el escenario realista las solicitudes y la facturación son coherentes con el consumo
+        "solicitudes": o_none(load_solicitudes(escenario)) if realista else None,
+        "facturacion": o_none(load_facturacion(escenario)) if realista else None,
+        "facturacion_detalle": o_none(load_facturacion_detalle(escenario)),
     }
 
 
@@ -195,6 +213,7 @@ def get_maestro_datasets_info(escenario="didactico"):
         "Solicitudes": load_solicitudes(escenario),
         "Facturación": load_facturacion(escenario),
         "Estaciones": load_estaciones(escenario),
+        "Detalle de facturación": load_facturacion_detalle(escenario),
         "Telemetría diaria": load_telemetria_diaria(escenario),
     }
 

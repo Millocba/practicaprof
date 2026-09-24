@@ -12,6 +12,7 @@ from data_loader import (
     selector_escenario,
     load_casos_legitimos,
     load_estaciones,
+    load_facturacion_detalle,
     load_telemetria_diaria,
     asegurar_datos_maestro,
     load_flota,
@@ -45,6 +46,7 @@ datasets = {
 if escenario == "realista":
     datasets.update({
         "⛽ Estaciones": load_estaciones(escenario),
+        "🧾 Detalle de facturación": load_facturacion_detalle(escenario),
         "🛰️ Telemetría diaria": load_telemetria_diaria(escenario),
         LEGITIMOS: load_casos_legitimos(escenario),
     })

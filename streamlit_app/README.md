@@ -28,7 +28,7 @@ En la barra lateral se elige el **escenario**, y la elección vale para todas la
 | Análisis Maestro | `pages/05_analisis_maestro.py` | Validación de las hipótesis H1 a H3a con ejemplos |
 | Detección | `pages/06_deteccion.py` | Reglas evaluadas contra el ground truth; en el escenario realista, el origen de cada falso positivo (caso legítimo, otra anomalía o carga normal) y un explorador de errores |
 | Hipótesis | `pages/07_hipotesis.py` | Siempre usa el escenario realista. Para cada hipótesis compara la regla ingenua con la regla con contexto y da el veredicto calculado, las falsas alarmas y casos concretos |
-| Modelo de ML | `pages/08_modelo_ml.py` | Realista: qué revisar primero según un presupuesto de revisión, curva de esfuerzo de cinco métodos, cola de revisión con motivos (descargable) y vehículos a auditar. Didáctico: Isolation Forest comparado con las reglas |
+| Modelo de ML | `pages/08_modelo_ml.py` | Realista: qué revisar primero según un presupuesto de revisión, curva de esfuerzo de cinco métodos, cola de revisión con motivos (descargable), vehículos a auditar y facturas a revisar ordenadas por importe en juego. Didáctico: Isolation Forest comparado con las reglas |
 
 ## Datos
 

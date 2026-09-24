@@ -114,8 +114,10 @@ def modelo_supervisado(semillas):
 
 
 @st.cache_data(show_spinner=False)
-def puntuar(_modelo, clave_modelo, flota, consumo, estaciones, telemetria_diaria, seed):
-    dataset = {"flota": flota, "consumo": consumo, "estaciones": estaciones, "telemetria_diaria": telemetria_diaria}
+def puntuar(_modelo, clave_modelo, flota, consumo, estaciones, telemetria_diaria, solicitudes, facturacion,
+            facturacion_detalle, seed):
+    dataset = {"flota": flota, "consumo": consumo, "estaciones": estaciones, "telemetria_diaria": telemetria_diaria,
+               "solicitudes": solicitudes, "facturacion": facturacion, "facturacion_detalle": facturacion_detalle}
     return priorizacion.puntuar(dataset, _modelo, seed=seed)
 
 
@@ -130,7 +132,8 @@ def pagina_realista():
         st.markdown(
             "- **Reglas ingenuas**: litros > tanque, cualquier retroceso, suma del día > tanque, carga lejos "
             "de la zona habitual… Marcan o no marcan.\n"
-            "- **Reglas con contexto**: las de la página *Hipótesis* (historial, estado de la flota, GPS).\n"
+            "- **Reglas con contexto**: las de la página *Hipótesis* (historial, estado de la flota, GPS, "
+            "solicitudes).\n"
             "- **Isolation Forest**: no supervisado; ordena por rareza sin ver ninguna etiqueta.\n"
             "- **Modelo supervisado** (Random Forest): entrenado con datasets de *otras* semillas, como si "
             "aprendiera de auditorías anteriores ya resueltas y se aplicara al período actual.\n"
@@ -143,7 +146,8 @@ def pagina_realista():
         modelo, n_entrenamiento, n_anomalas = modelo_supervisado(semillas)
     with st.spinner("Puntuando las cargas..."):
         puntajes, variables, alertas = puntuar(modelo, semillas, flota, consumo, datos["estaciones"],
-                                               datos["telemetria_diaria"], seed)
+                                               datos["telemetria_diaria"], datos["solicitudes"],
+                                               datos["facturacion"], datos["facturacion_detalle"], seed)
 
     anomalas = ids_con_anomalia_de_comportamiento(ground_truth)
     legitimos = datos["casos_legitimos"]
@@ -213,6 +217,18 @@ def pagina_realista():
     vehiculos = priorizacion.vehiculos_prioritarios(puntajes, metodo, consumo, cantidad_cargas=presupuesto)
     info = flota.set_index("Matricula")[["Dominio", "TipoVehiculo", "Estado", "DireccionGral"]]
     st.dataframe(vehiculos.join(info, on="vehiculo_id").head(20), use_container_width=True, hide_index=True)
+
+    st.markdown("## 🧾 Facturas a revisar")
+    st.caption("Conciliación de cada factura contra sus líneas y de cada línea contra la carga que referencia. "
+               "Se ordenan por el importe en juego.")
+    facturas = priorizacion.facturas_a_revisar(datos["facturacion"], datos["facturacion_detalle"], alertas)
+    if facturas.empty:
+        st.success("✅ Todas las facturas concilian con sus líneas y con las cargas registradas.")
+    else:
+        col1, col2 = st.columns(2)
+        col1.metric("Facturas con hallazgos", f"{len(facturas)} de {len(datos['facturacion'])}")
+        col2.metric("Importe en juego", f"${facturas['importe_en_juego'].sum():,.0f}")
+        st.dataframe(facturas, use_container_width=True, hide_index=True)
 
     st.markdown("## 🔍 Qué mira el modelo supervisado")
     st.caption(f"Entrenado con {n_entrenamiento:,} cargas de {len(semillas)} períodos simulados anteriores "

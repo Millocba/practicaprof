@@ -58,11 +58,12 @@ def test_la_pagina_principal_muestra_kpis_con_datos():
 def test_hipotesis_muestra_un_veredicto_por_hipotesis():
     at = abrir("pages/07_hipotesis.py", "realista")
     assert any("Se sostiene" in e.label or "No se sostiene" in e.label for e in at.expander)
-    assert len([e for e in at.expander if e.label.startswith(("✅", "❌"))]) == 7
+    assert len([e for e in at.expander if e.label.startswith(("✅", "❌"))]) == 9
 
 
 def test_modelo_ml_realista_arma_la_cola_de_revision():
     at = abrir("pages/08_modelo_ml.py", "realista")
     assert at.slider(key="presupuesto").value == 50
     assert any(m.label.startswith("Encontradas revisando 50") for m in at.metric)
-    assert len(at.dataframe) >= 3  # resumen, cola y vehículos
+    assert any(m.label == "Facturas con hallazgos" for m in at.metric)
+    assert len(at.dataframe) >= 4  # resumen, cola, vehículos y facturas
