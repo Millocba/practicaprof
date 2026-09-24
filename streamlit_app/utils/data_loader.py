@@ -1,79 +1,48 @@
-"""Data loading utilities for Streamlit app."""
+"""Data loading utilities for Streamlit app.
+
+Todas las páginas leen la salida del pipeline maestro (datasets/synthetics_maestro).
+"""
 import pandas as pd
 import json
+import sys
 from pathlib import Path
 import streamlit as st
 
 # Base paths
 BASE_DIR = Path(__file__).parent.parent.parent
-DATASETS_DIR = BASE_DIR / "datasets" / "defects_aware_v5"
 SYNTHETICS_DIR = BASE_DIR / "datasets" / "synthetics_maestro"
-RESULTS_DIR = BASE_DIR / "results"
-CONSUMO_DIR = BASE_DIR / "data" / "consumo"
+
+# Parámetros del dataset que se genera automáticamente si no hay datos
+N_FLOTA_POR_DEFECTO = 200
 
 
-@st.cache_data
-def load_vehiculo():
-    """Load vehicle data."""
-    path = DATASETS_DIR / "vehiculo.csv"
-    if path.exists():
-        return pd.read_csv(path, dtype=str)
-    return pd.DataFrame()
+def asegurar_datos_maestro():
+    """Genera el dataset por defecto si todavía no existe.
 
+    En un despliegue en la nube el disco se borra al reiniciar la aplicación; así
+    cada página encuentra datos sin que haya que abrir primero el Generador. Con
+    la misma semilla el resultado es siempre el mismo.
 
-@st.cache_data
-def load_dispositivo():
-    """Load device data."""
-    path = DATASETS_DIR / "dispositivo.csv"
-    if path.exists():
-        return pd.read_csv(path, dtype=str)
-    return pd.DataFrame()
+    También regenera si los datos en disco son de una versión anterior del
+    generador, que no producía `ground_truth.csv`.
 
+    Devuelve True si generó datos en esta llamada.
+    """
+    if (SYNTHETICS_DIR / "flota.csv").exists() and (SYNTHETICS_DIR / "ground_truth.csv").exists():
+        return False
 
-@st.cache_data
-def load_reporte_consumo_vinculado():
-    """Load linked consumption report."""
-    path = DATASETS_DIR / "reporte_consumo_v5_vinculado.csv"
-    if path.exists():
-        return pd.read_csv(path, dtype=str)
-    return pd.DataFrame()
+    if str(BASE_DIR) not in sys.path:
+        sys.path.insert(0, str(BASE_DIR))
+    from generator_pipeline_maestro import GeneradorMaestro, SEED
 
+    with st.spinner("Generando el dataset sintético por defecto (una sola vez)..."):
+        resultado = GeneradorMaestro(
+            n_flota=N_FLOTA_POR_DEFECTO, seed=SEED, output_dir=SYNTHETICS_DIR
+        ).ejecutar()
 
-@st.cache_data
-def load_ground_truth():
-    """Load ground truth defects."""
-    path = DATASETS_DIR / "ground_truth.csv"
-    if path.exists():
-        return pd.read_csv(path, dtype=str)
-    return pd.DataFrame()
-
-
-@st.cache_data
-def load_solicitud_combustible():
-    """Load fuel requests."""
-    path = DATASETS_DIR / "solicitud_combustible.csv"
-    if path.exists():
-        return pd.read_csv(path, dtype=str)
-    return pd.DataFrame()
-
-
-@st.cache_data
-def load_reporte_enriquecido():
-    """Load enriched consumption report."""
-    path = RESULTS_DIR / "integracion_cruces" / "reporte_consumo_v5_vinculado_enriquecido.csv"
-    if path.exists():
-        return pd.read_csv(path, dtype=str)
-    return pd.DataFrame()
-
-
-@st.cache_data
-def load_integracion_resumen():
-    """Load integration summary."""
-    path = RESULTS_DIR / "integracion_cruces" / "INTEGRACION_CONSUMO_RESUMEN.json"
-    if path.exists():
-        with open(path) as f:
-            return json.load(f)
-    return {}
+    # Las páginas pudieron haber cacheado DataFrames vacíos antes de generar
+    st.cache_data.clear()
+    return resultado["exito"]
 
 
 def get_dataset_stats(df, name):
@@ -85,25 +54,6 @@ def get_dataset_stats(df, name):
         "size_mb": df.memory_usage(deep=True).sum() / 1024**2,
         "missing": df.isnull().sum().sum(),
     }
-
-
-def get_all_datasets_info():
-    """Get info about all available datasets."""
-    datasets = {
-        "Vehículos": load_vehiculo(),
-        "Dispositivos": load_dispositivo(),
-        "Consumo Vinculado": load_reporte_consumo_vinculado(),
-        "Solicitud Combustible": load_solicitud_combustible(),
-        "Ground Truth": load_ground_truth(),
-        "Consumo Enriquecido": load_reporte_enriquecido(),
-    }
-
-    stats = []
-    for name, df in datasets.items():
-        if not df.empty:
-            stats.append(get_dataset_stats(df, name))
-
-    return pd.DataFrame(stats)
 
 
 def filter_dataframe(df, filters):
@@ -118,52 +68,54 @@ def filter_dataframe(df, filters):
 
 
 # ============================================================================
-# SYNTHETICS MAESTRO - Nuevos Generadores (5 Entidades)
+# SYNTHETICS MAESTRO - 5 entidades + verdad de referencia
 # ============================================================================
+
+def _leer_csv(nombre):
+    path = SYNTHETICS_DIR / f"{nombre}.csv"
+    if path.exists():
+        return pd.read_csv(path)
+    return pd.DataFrame()
+
 
 @st.cache_data
 def load_flota():
     """Load FLOTA (vehículos) from synthetics maestro."""
-    path = SYNTHETICS_DIR / "flota.csv"
-    if path.exists():
-        return pd.read_csv(path)
-    return pd.DataFrame()
+    return _leer_csv("flota")
 
 
 @st.cache_data
 def load_telemetria():
     """Load TELEMETRIA (dispositivos GPS) from synthetics maestro."""
-    path = SYNTHETICS_DIR / "telemetria.csv"
-    if path.exists():
-        return pd.read_csv(path)
-    return pd.DataFrame()
+    return _leer_csv("telemetria")
 
 
 @st.cache_data
 def load_consumo_maestro():
     """Load CONSUMO (transacciones) from synthetics maestro."""
-    path = SYNTHETICS_DIR / "consumo.csv"
-    if path.exists():
-        return pd.read_csv(path)
-    return pd.DataFrame()
+    return _leer_csv("consumo")
 
 
 @st.cache_data
 def load_solicitudes():
     """Load SOLICITUDES (fuel requests) from synthetics maestro."""
-    path = SYNTHETICS_DIR / "solicitudes.csv"
-    if path.exists():
-        return pd.read_csv(path)
-    return pd.DataFrame()
+    return _leer_csv("solicitudes")
 
 
 @st.cache_data
 def load_facturacion():
     """Load FACTURACION (invoices) from synthetics maestro."""
-    path = SYNTHETICS_DIR / "facturacion.csv"
-    if path.exists():
-        return pd.read_csv(path)
-    return pd.DataFrame()
+    return _leer_csv("facturacion")
+
+
+@st.cache_data
+def load_ground_truth_maestro():
+    """Load the ground truth: one row per injected anomaly.
+
+    Es la verdad de referencia para evaluar la detección; no debe usarse como
+    entrada de las reglas ni de los modelos.
+    """
+    return _leer_csv("ground_truth")
 
 
 @st.cache_data
@@ -171,7 +123,7 @@ def load_maestro_metadata():
     """Load metadata from synthetics maestro."""
     path = SYNTHETICS_DIR / "metadata.json"
     if path.exists():
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     return {}
 

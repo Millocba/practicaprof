@@ -2,9 +2,15 @@
 """
 Pipeline Maestro - Ejecuta todos los generadores de datos
 Genera: Flota, Telemetría, Consumo, Facturación, Solicitudes
+
+Además registra en `ground_truth.csv` cada anomalía inyectada. Ese archivo es la
+verdad de referencia para evaluar la detección y no debe usarse como entrada de
+los modelos.
+
+Reproducibilidad: la misma semilla produce exactamente los mismos datos. Todas las
+fechas se calculan desde FECHA_REFERENCIA, nunca desde la hora actual.
 """
 
-import os
 import sys
 import json
 import logging
@@ -24,33 +30,80 @@ logger = logging.getLogger(__name__)
 # Rutas
 BASE_DIR = Path(__file__).parent
 DATASETS_DIR = BASE_DIR / "datasets" / "synthetics_maestro"
-DATASETS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Seed para reproducibilidad
 SEED = 42
-random.seed(SEED)
-import numpy as np
-np.random.seed(SEED)
+
+# Ventana temporal de los datos: consumos y solicitudes entre FECHA_INICIO y
+# FECHA_INICIO + DIAS_VENTANA. FECHA_REFERENCIA hace de "ahora" para la telemetría.
+FECHA_INICIO = datetime(2024, 1, 1)
+DIAS_VENTANA = 270
+FECHA_REFERENCIA = FECHA_INICIO + timedelta(days=DIAS_VENTANA + 1)
+
+# Tasas de inyección de anomalías en CONSUMO
+TASA_VEHICULOS_EXCESO = 0.07      # vehículos que cargan más que su tanque (H3a)
+TASA_ODOMETRO_REGRESIVO = 0.012   # transacciones con retroceso de odómetro (H2)
+TASA_ODOMETRO_SALTO = 0.012       # transacciones con salto de odómetro (H2)
+TASA_DOMINIO_INVALIDO = 0.01      # dominios mal formados (H1)
+TASA_NULOS = 0.02                 # campos vacíos (calidad)
+TASA_DUPLICADOS = 0.01            # filas duplicadas (calidad)
+
+# tipo_anomalia -> (hipótesis, severidad)
+CATALOGO_ANOMALIAS = {
+    "EXCESO_VOLUMETRICO": ("H3a", "ALTA"),
+    "ODOMETRO_REGRESIVO": ("H2", "ALTA"),
+    "ODOMETRO_SALTO": ("H2", "ALTA"),
+    "DOMINIO_INVALIDO": ("H1", "MEDIA"),
+    "VALOR_NULO": ("CALIDAD", "BAJA"),
+    "DUPLICADO": ("CALIDAD", "MEDIA"),
+}
+
+# Anomalías que siguen presentes en una fila duplicada (las de odómetro no: la copia
+# repite fecha y lectura, así que no hay cambio que detectar)
+ANOMALIAS_HEREDABLES = {"EXCESO_VOLUMETRICO", "DOMINIO_INVALIDO", "VALOR_NULO"}
+
+COLUMNAS_GROUND_TRUTH = [
+    "tabla", "id_registro", "vehiculo_id", "tipo_anomalia",
+    "columna", "hipotesis", "severidad", "descripcion",
+]
 
 
 class GeneradorMaestro:
     """Orquesta la generación de todas las entidades"""
 
-    def __init__(self, n_flota=200, seed=SEED):
+    def __init__(self, n_flota=200, seed=SEED, output_dir=None):
         self.n_flota = n_flota
         self.seed = seed
-        random.seed(seed)
+        self.output_dir = Path(output_dir) if output_dir else DATASETS_DIR
+        # Generador propio: no depende del estado global de `random`
+        self.rng = random.Random(seed)
         self.datasets = {}
+        self.anomalias = []
         self.metadata = {
             "fecha_generacion": datetime.now().isoformat(),
+            "fecha_referencia": FECHA_REFERENCIA.isoformat(),
             "seed": seed,
             "n_flota": n_flota,
             "generadores_ejecutados": []
         }
 
+    def _registrar_anomalia(self, tabla, id_registro, vehiculo_id, tipo, columna, descripcion):
+        hipotesis, severidad = CATALOGO_ANOMALIAS[tipo]
+        self.anomalias.append({
+            "tabla": tabla,
+            "id_registro": id_registro,
+            "vehiculo_id": vehiculo_id,
+            "tipo_anomalia": tipo,
+            "columna": columna,
+            "hipotesis": hipotesis,
+            "severidad": severidad,
+            "descripcion": descripcion,
+        })
+
     def generar_flota(self):
         """Genera tabla FLOTA (200 vehículos)"""
         logger.info("Generando FLOTA...")
+        rng = self.rng
 
         dg = [
             "DIRECCION GRAL. SEGURIDAD CAPITAL",
@@ -75,11 +128,11 @@ class GeneradorMaestro:
 
         rows = []
         for i in range(1, self.n_flota + 1):
-            dg_sel = random.choice(dg)
-            dep = random.choice(dependencias[dg_sel])
-            estado = random.choice(estados)
-            identificable = "SI" if random.random() < 0.94 else "NO"
-            annio = random.randint(2005, 2024)
+            dg_sel = rng.choice(dg)
+            dep = rng.choice(dependencias[dg_sel])
+            estado = rng.choice(estados)
+            identificable = "SI" if rng.random() < 0.94 else "NO"
+            annio = rng.randint(2005, 2024)
 
             rows.append({
                 "Matricula": f"VEH-{i:06d}",
@@ -88,17 +141,17 @@ class GeneradorMaestro:
                 "DireccionGral": dg_sel,
                 "Dependencia": dep,
                 "Identificable": identificable,
-                "TipoVehiculo": random.choice(tipos),
-                "Marca": random.choice(marcas),
-                "Modelo": f"MODEL-{random.randint(2010, 2024)}",
+                "TipoVehiculo": rng.choice(tipos),
+                "Marca": rng.choice(marcas),
+                "Modelo": f"MODEL-{rng.randint(2010, 2024)}",
                 "Año": annio,
-                "TipoCombustible": random.choice(combustible),
-                "CapacidadTanque": random.uniform(40, 120),
+                "TipoCombustible": rng.choice(combustible),
+                "CapacidadTanque": rng.uniform(40, 120),
                 "NumeroMotor": f"M{i:08d}",
                 "NumeroChasis": f"CH{i:08d}",
                 "NumeroTarjeta": f"TARJ{i:08d}",
-                "LimiteSaldo": random.uniform(1000, 10000),
-                "LimiteLitros": random.uniform(100, 500),
+                "LimiteSaldo": rng.uniform(1000, 10000),
+                "LimiteLitros": rng.uniform(100, 500),
                 "SubEstado": "ACTIVO" if estado == "EN SERVICIO" else "INACTIVO",
             })
 
@@ -111,6 +164,7 @@ class GeneradorMaestro:
     def generar_telemetria(self):
         """Genera tabla TELEMETRIA (dispositivos GPS)"""
         logger.info("Generando TELEMETRIA...")
+        rng = self.rng
 
         flota_df = self.datasets.get('flota')
         if flota_df is None:
@@ -120,28 +174,27 @@ class GeneradorMaestro:
         n_dispositivos = int(self.n_flota * 0.88)  # 88% cobertura
 
         rows = []
-        ahora = datetime.now()
         for i in range(1, n_dispositivos + 1):
-            online = random.random() < 0.88
-            bateria = round(random.uniform(20, 100), 1)
-            last = ahora - timedelta(minutes=random.randint(0, 15 if online else 600))
+            online = rng.random() < 0.88
+            bateria = round(rng.uniform(20, 100), 1)
+            last = FECHA_REFERENCIA - timedelta(minutes=rng.randint(0, 15 if online else 600))
 
             # Link a un vehículo de la flota
-            vehiculo = random.choice(flota_df['Dominio'].values)
+            vehiculo = rng.choice(list(flota_df['Dominio'].values))
 
             rows.append({
-                "IMEI": f"{random.randint(350000000000000, 359999999999999)}",
+                "IMEI": f"{rng.randint(350000000000000, 359999999999999)}",
                 "Alias": f"DEV-{i:06d}",
                 "Placa": vehiculo,
-                "MSISDN": f"54911{random.randint(1000000, 9999999)}",
-                "Modelo": f"GPS-{random.choice(['A', 'B', 'C'])}-{random.randint(1, 5)}",
+                "MSISDN": f"54911{rng.randint(1000000, 9999999)}",
+                "Modelo": f"GPS-{rng.choice(['A', 'B', 'C'])}-{rng.randint(1, 5)}",
                 "Tipo": "GPS",
                 "Estado": "ONLINE" if online else "OFFLINE",
                 "Bateria": bateria,
                 "UltimaConexion": last.isoformat(),
-                "Latitud": round(random.uniform(-34.9, -34.4), 6),
-                "Longitud": round(random.uniform(-58.8, -58.2), 6),
-                "Odometro": random.randint(10000, 300000),
+                "Latitud": round(rng.uniform(-34.9, -34.4), 6),
+                "Longitud": round(rng.uniform(-58.8, -58.2), 6),
+                "Odometro": rng.randint(10000, 300000),
             })
 
         df = pd.DataFrame(rows)
@@ -153,13 +206,19 @@ class GeneradorMaestro:
     def generar_consumo(self):
         """Genera tabla CONSUMO (transacciones de combustible)
 
-        Incluye inyección de defectos para demostrar limpieza:
-        - ~7% de vehículos con consumos anómalos (superen capacidad) - H3a
-        - ~2% de registros con valores nulos aleatorios
-        - ~1% de registros con dominios mal formados
-        - ~1% de duplicados intencionados
+        El odómetro avanza de forma monótona según los días entre cargas. Sobre esa
+        base se inyectan anomalías, todas registradas en el ground truth:
+        - ~7% de vehículos cargan más litros que su tanque (EXCESO_VOLUMETRICO, H3a)
+        - ~1.2% de transacciones con retroceso de odómetro (ODOMETRO_REGRESIVO, H2)
+        - ~1.2% de transacciones con salto de odómetro (ODOMETRO_SALTO, H2)
+        - ~1% de dominios mal formados (DOMINIO_INVALIDO, H1)
+        - ~2% de campos vacíos (VALOR_NULO)
+        - ~1% de filas duplicadas (DUPLICADO)
+        Las anomalías de odómetro persisten: las cargas siguientes continúan desde el
+        valor alterado, por lo que solo la transacción anómala muestra el cambio.
         """
         logger.info("Generando CONSUMO...")
+        rng = self.rng
 
         flota_df = self.datasets.get('flota')
         if flota_df is None:
@@ -169,85 +228,121 @@ class GeneradorMaestro:
         productos = ["GASOIL", "NAFTA", "INFINIA", "SUPER", "GLP"]
         estaciones = ["YPF", "SHELL", "AXION", "PUMA", "ESTACION LOCAL"]
 
-        # Seleccionar vehículos anómalos (~7% de la flota para H3a)
-        n_anomalos = max(5, int(self.n_flota * 0.07))
-        indices_anomalos = set(random.sample(range(len(flota_df)), min(n_anomalos, len(flota_df))))
+        n_anomalos = max(5, int(self.n_flota * TASA_VEHICULOS_EXCESO))
+        indices_anomalos = set(rng.sample(range(len(flota_df)), min(n_anomalos, len(flota_df))))
 
         rows = []
-        fecha_inicio = datetime(2024, 1, 1)
+        anomalias_por_id = {}
         contador_total = 0
 
+        def registrar(row, tipo, columna, descripcion):
+            self._registrar_anomalia("consumo", row["id"], row["vehiculo_id"], tipo, columna, descripcion)
+            anomalias_por_id.setdefault(row["id"], []).append((tipo, columna, descripcion))
+
         for veh_idx, veh_row in flota_df.iterrows():
-            # Cada vehículo genera 5-12 transacciones
-            n_transacciones = random.randint(5, 12)
+            # Cada vehículo genera 5-12 transacciones, en orden cronológico
+            n_transacciones = rng.randint(5, 12)
             es_anomalo = veh_idx in indices_anomalos
+            capacidad = veh_row['CapacidadTanque']
+            fechas = sorted(FECHA_INICIO + timedelta(days=rng.randint(0, DIAS_VENTANA))
+                            for _ in range(n_transacciones))
 
-            for trans_idx in range(n_transacciones):
-                fecha = fecha_inicio + timedelta(days=random.randint(0, 270))
-                capacidad = veh_row.get('CapacidadTanque', 100)
+            odometro_real = rng.randint(10000, 250000)
+            km_por_dia = rng.uniform(20, 60)
+            fecha_previa = None
 
-                # DEFECTO H3a: Vehículos anómalos consumen más que la capacidad del tanque
+            for fecha in fechas:
+                if fecha_previa is not None:
+                    dias = (fecha - fecha_previa).days
+                    odometro_real += int(km_por_dia * dias + rng.uniform(0, 30))
+
+                # H3a: los vehículos anómalos cargan más que la capacidad del tanque
                 if es_anomalo:
-                    litros = round(random.uniform(capacidad * 1.1, capacidad * 1.8), 2)
+                    litros = round(rng.uniform(capacidad * 1.1, capacidad * 1.8), 2)
                 else:
-                    litros = round(random.uniform(5, min(80, capacidad * 0.8)), 2)
-
-                dominio = veh_row['Dominio']
-                estacion = random.choice(estaciones)
-                conductor = f"CONDUCTOR-{random.randint(1, 500)}"
-
-                # DEFECTO: Inyectar dominios mal formados (~1%)
-                if random.random() < 0.01:
-                    dominio = f"XX{random.randint(0, 999)}XX"  # Formato incorrecto
+                    litros = round(rng.uniform(5, min(80, capacidad * 0.8)), 2)
 
                 row = {
                     "id": f"CONS-{contador_total+1:08d}",
                     "vehiculo_id": veh_row['Matricula'],
-                    "dominio": dominio,
+                    "dominio": veh_row['Dominio'],
                     "fecha": fecha,
-                    "estacion": estacion,
-                    "producto": random.choice(productos),
+                    "estacion": rng.choice(estaciones),
+                    "producto": rng.choice(productos),
                     "litros": litros,
-                    "precio_unitario": round(random.uniform(1.5, 3.5), 2),
+                    "precio_unitario": round(rng.uniform(1.5, 3.5), 2),
                     "importe_total": 0.0,
                     "numero_tarjeta": veh_row['NumeroTarjeta'],
-                    "conductor": conductor,
-                    "odometro": random.randint(10000, 300000),
-                    "_es_anomalo": es_anomalo,
+                    "conductor": f"CONDUCTOR-{rng.randint(1, 500)}",
+                    "odometro": odometro_real,
                 }
-
-                # DEFECTO: Inyectar valores nulos (~2%)
-                if random.random() < 0.02:
-                    campo_nulo = random.choice(['estacion', 'conductor', 'odometro'])
-                    row[campo_nulo] = None
-
-                rows.append(row)
                 contador_total += 1
 
-        # DEFECTO: Inyectar duplicados (~1%)
-        n_duplicados = max(1, int(len(rows) * 0.01))
+                if es_anomalo:
+                    registrar(row, "EXCESO_VOLUMETRICO", "litros",
+                              f"{litros:.2f} L con tanque de {capacidad:.2f} L")
+
+                # H2: retroceso o salto de odómetro (nunca en la primera carga)
+                odometro_alterado = False
+                if fecha_previa is not None:
+                    r = rng.random()
+                    if r < TASA_ODOMETRO_REGRESIVO:
+                        retroceso = min(rng.randint(3000, 40000), odometro_real - 1000)
+                        odometro_real -= retroceso
+                        row["odometro"] = odometro_real
+                        odometro_alterado = True
+                        registrar(row, "ODOMETRO_REGRESIVO", "odometro", f"retroceso de {retroceso} km")
+                    elif r < TASA_ODOMETRO_REGRESIVO + TASA_ODOMETRO_SALTO:
+                        salto = rng.randint(1500, 9000)
+                        odometro_real += salto
+                        row["odometro"] = odometro_real
+                        odometro_alterado = True
+                        registrar(row, "ODOMETRO_SALTO", "odometro", f"salto de {salto} km")
+                fecha_previa = fecha
+
+                # H1: dominio mal formado
+                if rng.random() < TASA_DOMINIO_INVALIDO:
+                    original = row["dominio"]
+                    row["dominio"] = f"XX{rng.randint(0, 999)}XX"
+                    registrar(row, "DOMINIO_INVALIDO", "dominio", f"{original} registrado como {row['dominio']}")
+
+                # Calidad: campo vacío (no se vacía un odómetro alterado, para que
+                # la anomalía de H2 siga siendo observable)
+                if rng.random() < TASA_NULOS:
+                    candidatos = ['estacion', 'conductor'] + ([] if odometro_alterado else ['odometro'])
+                    campo_nulo = rng.choice(candidatos)
+                    row[campo_nulo] = None
+                    registrar(row, "VALOR_NULO", campo_nulo, f"{campo_nulo} vacío")
+
+                rows.append(row)
+
+        # Calidad: filas duplicadas con un id nuevo
+        n_duplicados = max(1, int(len(rows) * TASA_DUPLICADOS))
         for _ in range(n_duplicados):
-            row_original = random.choice(rows)
+            row_original = rng.choice(rows)
             row_copia = row_original.copy()
             row_copia['id'] = f"CONS-{contador_total+1:08d}"
-            rows.append(row_copia)
             contador_total += 1
+            rows.append(row_copia)
+            registrar(row_copia, "DUPLICADO", "id", f"copia de {row_original['id']}")
+            for tipo, columna, descripcion in anomalias_por_id.get(row_original['id'], []):
+                if tipo in ANOMALIAS_HEREDABLES:
+                    registrar(row_copia, tipo, columna, f"{descripcion} (heredado de {row_original['id']})")
 
         df = pd.DataFrame(rows)
-        # Calcular importe
         df['importe_total'] = (df['litros'] * df['precio_unitario']).round(2)
-
-        # Remover flag (solo para generación)
-        df = df.drop('_es_anomalo', axis=1)
+        df['odometro'] = df['odometro'].astype('Int64')
 
         self.datasets['consumo'] = df
         self.metadata['generadores_ejecutados'].append('consumo')
-        logger.info(f"✓ CONSUMO generado: {len(df)} transacciones ({n_anomalos} anómalas H3a, con defectos inyectados)")
+        logger.info(f"✓ CONSUMO generado: {len(df)} transacciones, "
+                    f"{len(self.anomalias)} anomalías registradas en ground truth")
         return df
 
     def generar_solicitudes(self):
         """Genera tabla SOLICITUDES (solicitudes de combustible)"""
         logger.info("Generando SOLICITUDES...")
+        rng = self.rng
 
         flota_df = self.datasets.get('flota')
         if flota_df is None:
@@ -257,26 +352,24 @@ class GeneradorMaestro:
         estados_solicitud = ["APROBADA", "PENDIENTE", "RECHAZADA", "APROBADA"]
 
         rows = []
-        fecha_inicio = datetime(2024, 1, 1)
-
         for veh_idx, veh_row in flota_df.iterrows():
             # Cada vehículo genera 1-4 solicitudes
-            n_solicitudes = random.randint(1, 4)
+            n_solicitudes = rng.randint(1, 4)
 
             for sol_idx in range(n_solicitudes):
-                fecha = fecha_inicio + timedelta(days=random.randint(0, 270))
+                fecha = FECHA_INICIO + timedelta(days=rng.randint(0, DIAS_VENTANA))
 
                 rows.append({
                     "id": f"SOL-{len(rows)+1:08d}",
                     "vehiculo_id": veh_row['Matricula'],
                     "dominio": veh_row['Dominio'],
                     "fecha_solicitud": fecha,
-                    "litros_solicitados": round(random.uniform(20, 100), 2),
-                    "litros_autorizados": round(random.uniform(20, 100), 2),
-                    "estado": random.choice(estados_solicitud),
-                    "centro_costo": f"CC-{random.randint(1, 50):03d}",
-                    "responsable": f"RESP-{random.randint(1, 100)}",
-                    "observaciones": random.choice(["OK", "REVISADO", "PENDIENTE", ""]),
+                    "litros_solicitados": round(rng.uniform(20, 100), 2),
+                    "litros_autorizados": round(rng.uniform(20, 100), 2),
+                    "estado": rng.choice(estados_solicitud),
+                    "centro_costo": f"CC-{rng.randint(1, 50):03d}",
+                    "responsable": f"RESP-{rng.randint(1, 100)}",
+                    "observaciones": rng.choice(["OK", "REVISADO", "PENDIENTE", ""]),
                 })
 
         df = pd.DataFrame(rows)
@@ -288,6 +381,7 @@ class GeneradorMaestro:
     def generar_facturacion(self):
         """Genera tabla FACTURACION (facturas)"""
         logger.info("Generando FACTURACION...")
+        rng = self.rng
 
         consumo_df = self.datasets.get('consumo')
         if consumo_df is None:
@@ -300,7 +394,7 @@ class GeneradorMaestro:
 
         rows = []
         for (mes, grupo) in consumo_df_copy.groupby('mes'):
-            factura_num = f"FAC-{mes.year}{mes.month:02d}-{random.randint(1000, 9999)}"
+            factura_num = f"FAC-{mes.year}{mes.month:02d}-{rng.randint(1000, 9999)}"
             total_monto = grupo['importe_total'].sum()
 
             rows.append({
@@ -311,7 +405,7 @@ class GeneradorMaestro:
                 "total_monto": total_monto,
                 "iva": total_monto * 0.21,
                 "monto_total_con_iva": total_monto * 1.21,
-                "estado": random.choice(["PAGADA", "PENDIENTE", "VENCIDA"]),
+                "estado": rng.choice(["PAGADA", "PENDIENTE", "VENCIDA"]),
                 "numero_transacciones": len(grupo),
             })
 
@@ -321,24 +415,37 @@ class GeneradorMaestro:
         logger.info(f"✓ FACTURACION generada: {len(df)} facturas")
         return df
 
+    def construir_ground_truth(self):
+        """Tabla con una fila por anomalía inyectada (un registro puede tener varias)."""
+        return pd.DataFrame(self.anomalias, columns=COLUMNAS_GROUND_TRUTH)
+
     def guardar_datasets(self):
         """Guarda todos los datasets en CSV"""
         logger.info("Guardando datasets...")
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
         archivos = {}
         for nombre, df in self.datasets.items():
-            filepath = DATASETS_DIR / f"{nombre}.csv"
+            filepath = self.output_dir / f"{nombre}.csv"
             df.to_csv(filepath, index=False)
             archivos[nombre] = str(filepath)
             logger.info(f"  ✓ {nombre}.csv guardado ({len(df)} filas)")
 
-        # Guardar metadatos
-        metadata_file = DATASETS_DIR / "metadata.json"
-        self.metadata['archivos'] = archivos
-        self.metadata['directorio_salida'] = str(DATASETS_DIR)
+        # La verdad de referencia va aparte: no forma parte de las entidades
+        ground_truth = self.construir_ground_truth()
+        gt_file = self.output_dir / "ground_truth.csv"
+        ground_truth.to_csv(gt_file, index=False)
+        logger.info(f"  ✓ ground_truth.csv guardado ({len(ground_truth)} anomalías)")
 
-        with open(metadata_file, 'w') as f:
-            json.dump(self.metadata, f, indent=2, default=str)
+        # Guardar metadatos
+        metadata_file = self.output_dir / "metadata.json"
+        self.metadata['archivos'] = archivos
+        self.metadata['ground_truth'] = str(gt_file)
+        self.metadata['anomalias_por_tipo'] = ground_truth['tipo_anomalia'].value_counts().to_dict()
+        self.metadata['directorio_salida'] = str(self.output_dir)
+
+        with open(metadata_file, 'w', encoding='utf-8') as f:
+            json.dump(self.metadata, f, indent=2, default=str, ensure_ascii=False)
 
         logger.info(f"✓ Metadatos guardados en {metadata_file}")
         return archivos
@@ -364,8 +471,9 @@ class GeneradorMaestro:
 
             return {
                 "exito": True,
-                "directorio": str(DATASETS_DIR),
+                "directorio": str(self.output_dir),
                 "archivos": archivos,
+                "ground_truth": self.metadata['ground_truth'],
                 "metadata": self.metadata
             }
 
@@ -374,7 +482,7 @@ class GeneradorMaestro:
             return {
                 "exito": False,
                 "error": str(e),
-                "directorio": str(DATASETS_DIR)
+                "directorio": str(self.output_dir)
             }
 
 
@@ -403,8 +511,15 @@ Ejemplos:
     parser.add_argument(
         '--seed',
         type=int,
-        default=42,
-        help='Seed para reproducibilidad (default: 42)'
+        default=SEED,
+        help=f'Seed para reproducibilidad (default: {SEED})'
+    )
+
+    parser.add_argument(
+        '--output',
+        type=Path,
+        default=DATASETS_DIR,
+        help='Directorio de salida (default: datasets/synthetics_maestro)'
     )
 
     parser.add_argument(
@@ -422,7 +537,7 @@ Ejemplos:
     if args.n_flota > 5000:
         print("⚠️  Advertencia: Generar más de 5000 vehículos puede tomar mucho tiempo")
 
-    generador = GeneradorMaestro(n_flota=args.n_flota, seed=args.seed)
+    generador = GeneradorMaestro(n_flota=args.n_flota, seed=args.seed, output_dir=args.output)
     resultado = generador.ejecutar()
 
     # Imprimir resumen
@@ -436,6 +551,7 @@ Ejemplos:
             for nombre, ruta in resultado['archivos'].items():
                 df = pd.read_csv(ruta)
                 print(f"  {nombre:20} | {len(df):6} filas | {ruta}")
+            print(f"  {'ground_truth':20} | {len(generador.anomalias):6} filas | {resultado['ground_truth']}")
             print("\n✅ ÉXITO - Todos los datos fueron generados correctamente")
         print(json.dumps(resultado, indent=2, default=str))
     else:

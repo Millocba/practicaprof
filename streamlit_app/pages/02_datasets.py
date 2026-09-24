@@ -9,17 +9,13 @@ utils_path = Path(__file__).parent.parent / "utils"
 sys.path.insert(0, str(utils_path))
 
 from data_loader import (
-    load_vehiculo,
-    load_dispositivo,
-    load_reporte_consumo_vinculado,
-    load_solicitud_combustible,
-    load_ground_truth,
-    load_reporte_enriquecido,
+    asegurar_datos_maestro,
     load_flota,
     load_telemetria,
     load_consumo_maestro,
     load_solicitudes,
     load_facturacion,
+    load_ground_truth_maestro,
     filter_dataframe
 )
 
@@ -28,66 +24,31 @@ st.set_page_config(page_title="Datasets", page_icon="📋", layout="wide")
 st.markdown("# 📋 Exploración de Datasets")
 st.markdown("Visualiza, filtra y analiza todos los datasets del proyecto")
 
-# Initialize session state for dataset selection
-if "categoria" not in st.session_state:
-    st.session_state.categoria = "Pipeline Maestro (Nuevos)"
-if "selected_dataset" not in st.session_state:
-    st.session_state.selected_dataset = None
+asegurar_datos_maestro()
 
-# Category selector
-st.markdown("## Selecciona una categoría:")
-categoria = st.radio(
-    "Datasets disponibles:",
-    ["Pipeline Maestro (Nuevos)", "Legacy (Anteriores)"],
-    horizontal=True,
-    label_visibility="collapsed"
-)
+GROUND_TRUTH = "🎯 Ground truth (anomalías inyectadas)"
 
-# Update session state
-st.session_state.categoria = categoria
-
-# Define datasets based on category
-if categoria == "Pipeline Maestro (Nuevos)":
-    st.markdown("### 🆕 Synthetics Maestro - 5 Entidades")
-
-    datasets = {
-        "🚗 Flota": load_flota(),
-        "📡 Telemetría": load_telemetria(),
-        "⛽ Consumo": load_consumo_maestro(),
-        "📋 Solicitudes": load_solicitudes(),
-        "💰 Facturación": load_facturacion(),
-    }
-
-    # Set default if first load in this category
-    if st.session_state.selected_dataset is None:
-        st.session_state.selected_dataset = list(datasets.keys())[0]
-
-else:  # Legacy
-    st.markdown("### 🔧 Datos Legacy - Versiones Anteriores")
-
-    datasets = {
-        "Vehículos": load_vehiculo(),
-        "Dispositivos": load_dispositivo(),
-        "Consumo Vinculado": load_reporte_consumo_vinculado(),
-        "Solicitud Combustible": load_solicitud_combustible(),
-        "Ground Truth (Defectos)": load_ground_truth(),
-        "Consumo Enriquecido": load_reporte_enriquecido(),
-    }
-
-    # Set default if first load in this category
-    if st.session_state.selected_dataset is None:
-        st.session_state.selected_dataset = list(datasets.keys())[0]
+datasets = {
+    "🚗 Flota": load_flota(),
+    "📡 Telemetría": load_telemetria(),
+    "⛽ Consumo": load_consumo_maestro(),
+    "📋 Solicitudes": load_solicitudes(),
+    "💰 Facturación": load_facturacion(),
+    GROUND_TRUTH: load_ground_truth_maestro(),
+}
 
 # Dataset selector
 selected_dataset = st.selectbox(
     "Selecciona un dataset:",
     list(datasets.keys()),
-    index=list(datasets.keys()).index(st.session_state.selected_dataset) if st.session_state.selected_dataset in datasets else 0,
-    key=f"dataset_select_{categoria.replace(' ', '_')}"
+    key="dataset_select"
 )
 
-# Update session state
-st.session_state.selected_dataset = selected_dataset
+if selected_dataset == GROUND_TRUTH:
+    st.info(
+        "ℹ️ Verdad de referencia: una fila por anomalía que inyectó el generador. "
+        "Sirve para evaluar la detección; no es una entidad ni una entrada de los modelos."
+    )
 
 # Get the dataframe
 df = datasets[selected_dataset]

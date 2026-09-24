@@ -2,7 +2,8 @@
 Main Streamlit application for the synthetic data pipeline (Pipeline Maestro).
 
 Reads the same source as the Generador and Análisis pages
-(datasets/synthetics_maestro), which is created at runtime by the Generador.
+(datasets/synthetics_maestro). If the data is missing it is generated with the
+default seed on first load (see data_loader.asegurar_datos_maestro).
 """
 import streamlit as st
 import pandas as pd
@@ -14,6 +15,7 @@ utils_path = Path(__file__).parent / "utils"
 sys.path.insert(0, str(utils_path))
 
 from data_loader import (
+    asegurar_datos_maestro,
     load_flota,
     load_telemetria,
     load_consumo_maestro,
@@ -56,6 +58,7 @@ st.markdown("# 📊 Pipeline Maestro de Datos Sintéticos")
 st.markdown("**Sistema integral para gestión, visualización y análisis del dataset integrado**")
 
 # Load data (same source as the Generador and Análisis pages)
+asegurar_datos_maestro()
 flota = load_flota()
 telemetria = load_telemetria()
 consumo = load_consumo_maestro()
@@ -70,7 +73,7 @@ st.markdown("## 📈 Estado General del Pipeline")
 
 if not hay_datos:
     st.warning(
-        "⚠️ Todavía no hay datos generados en esta sesión. "
+        "⚠️ No se pudieron generar los datos automáticamente. "
         "Abrí la página **Generador** en el menú lateral y presioná **🚀 Ejecutar Generador**; "
         "después volvé a esta página."
     )
