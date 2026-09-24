@@ -6,6 +6,7 @@ node*/
 /synthetic_data/
 /datasets/
 /datasets_backup/
+legacy/**/data/
 *.csv
 *.xlsx
 
