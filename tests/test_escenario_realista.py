@@ -20,7 +20,7 @@ from generator_pipeline_maestro import (
 )
 
 ARCHIVOS = ["flota", "estaciones", "telemetria", "telemetria_diaria", "consumo", "solicitudes",
-            "facturacion", "ground_truth", "casos_legitimos"]
+            "facturacion", "facturacion_detalle", "ground_truth", "casos_legitimos"]
 
 
 def generar(directorio, seed=42, n_flota=200):
@@ -36,7 +36,13 @@ def dataset(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def alertas(dataset):
-    return ejecutar_reglas(dataset["flota"], dataset["consumo"], dataset["estaciones"], dataset["telemetria_diaria"])
+    return ejecutar_reglas(dataset["flota"], dataset["consumo"], dataset["estaciones"], dataset["telemetria_diaria"],
+                           dataset["solicitudes"], dataset["facturacion"], dataset["facturacion_detalle"])
+
+
+def _contraste(dataset, alertas):
+    return contrastar_hipotesis(alertas, dataset["ground_truth"], dataset["casos_legitimos"],
+                                dataset["facturacion_detalle"])
 
 
 # --- Generador --------------------------------------------------------------
@@ -54,12 +60,15 @@ def test_estan_todos_los_tipos_de_anomalia_y_de_caso_legitimo(dataset):
     assert set(dataset["casos_legitimos"]["tipo_caso"]) == set(CATALOGO_LEGITIMOS)
 
 
-def test_etiquetas_referencian_cargas_existentes_y_no_se_superponen(dataset):
-    ids = set(dataset["consumo"]["id"])
+def test_etiquetas_referencian_registros_existentes_y_no_se_superponen(dataset):
+    ids = {"consumo": set(dataset["consumo"]["id"]),
+           "facturacion": set(dataset["facturacion"]["numero_factura"]),
+           "facturacion_detalle": set(dataset["facturacion_detalle"]["numero_linea"])}
+    for tabla_etiquetas in [dataset["ground_truth"], dataset["casos_legitimos"]]:
+        for tabla, grupo in tabla_etiquetas.groupby("tabla"):
+            assert set(grupo["id_registro"]) <= ids[tabla], tabla
     anomalas = set(dataset["ground_truth"]["id_registro"])
-    legitimas = set(dataset["casos_legitimos"]["id_registro"])
-    assert anomalas <= ids and legitimas <= ids
-    assert not anomalas & legitimas
+    assert not anomalas & set(dataset["casos_legitimos"]["id_registro"])
 
 
 def test_prevalencia_de_anomalias_de_comportamiento_es_baja(dataset):
@@ -106,6 +115,43 @@ def test_gps_solo_de_vehiculos_con_dispositivo(dataset):
     assert (dataset["telemetria_diaria"]["km_gps"] >= 0).all()
 
 
+# --- Circuito solicitud -> carga -> factura ---------------------------------
+
+def test_cada_carga_limpia_tiene_su_solicitud_aprobada_previa(dataset):
+    consumo, solicitudes = dataset["consumo"].copy(), dataset["solicitudes"].copy()
+    etiquetadas = set(dataset["ground_truth"]["id_registro"]) | set(dataset["casos_legitimos"]["id_registro"])
+    consumo["fecha"] = pd.to_datetime(consumo["fecha"])
+    solicitudes["fecha_solicitud"] = pd.to_datetime(solicitudes["fecha_solicitud"])
+    limpias = consumo[~consumo["id"].isin(etiquetadas)]
+    pares = limpias.merge(solicitudes[solicitudes["estado"] == "APROBADA"], on="vehiculo_id", suffixes=("", "_sol"))
+    dias = (pares["fecha"] - pares["fecha_solicitud"]).dt.days
+    validas = pares[dias.between(0, 2) & (pares["litros_autorizados"] >= pares["litros"])]
+    assert set(validas["id"]) == set(limpias["id"])
+
+
+def test_facturas_limpias_suman_sus_lineas(dataset):
+    lineas = dataset["facturacion_detalle"].groupby("numero_factura")["importe"].sum()
+    facturas = dataset["facturacion"].set_index("numero_factura")
+    diferencia = (facturas["total_monto"] - lineas.reindex(facturas.index)).abs()
+    gt = dataset["ground_truth"]
+    infladas = set(gt.loc[gt["tipo_anomalia"] == "TOTAL_INFLADO", "id_registro"])
+    assert set(diferencia[diferencia > 0.05].index) == infladas
+
+
+def test_lineas_referencian_cargas_reales_salvo_las_inexistentes(dataset):
+    lineas = dataset["facturacion_detalle"]
+    combustible = lineas[lineas["concepto"] == "COMBUSTIBLE"]
+    sin_carga = set(combustible.loc[~combustible["referencia_consumo"].isin(dataset["consumo"]["id"]), "numero_linea"])
+    gt = dataset["ground_truth"]
+    assert sin_carga == set(gt.loc[gt["tipo_anomalia"] == "LINEA_SIN_CONSUMO", "id_registro"])
+
+
+def test_cada_carga_real_se_factura_al_menos_una_vez(dataset):
+    gt = dataset["ground_truth"]
+    reales = set(dataset["consumo"]["id"]) - set(gt.loc[gt["tipo_anomalia"] == "DUPLICADO", "id_registro"])
+    assert reales <= set(dataset["facturacion_detalle"]["referencia_consumo"])
+
+
 # --- Reglas e hipótesis -----------------------------------------------------
 
 def test_todas_las_reglas_con_contexto_emiten_alertas(alertas):
@@ -113,13 +159,13 @@ def test_todas_las_reglas_con_contexto_emiten_alertas(alertas):
 
 
 def test_las_hipotesis_se_sostienen(dataset, alertas):
-    _, veredictos = contrastar_hipotesis(alertas, dataset["ground_truth"], dataset["casos_legitimos"])
+    _, veredictos = _contraste(dataset, alertas)
     assert list(veredictos["hipotesis"]) == [h["codigo"] for h in HIPOTESIS]
     assert (veredictos["veredicto"] == "Se sostiene").all(), veredictos[["hipotesis", "f1_ingenua", "f1_contexto"]]
 
 
 def test_el_contexto_reduce_las_falsas_alarmas_por_casos_legitimos(dataset, alertas):
-    _, veredictos = contrastar_hipotesis(alertas, dataset["ground_truth"], dataset["casos_legitimos"])
+    _, veredictos = _contraste(dataset, alertas)
     assert veredictos["fp_legitimos_contexto"].sum() < veredictos["fp_legitimos_ingenua"].sum() / 5
 
 

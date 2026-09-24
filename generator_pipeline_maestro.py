@@ -66,6 +66,14 @@ CATALOGO_ANOMALIAS = {
     "RENDIMIENTO_IMPOSIBLE": ("H5", "ALTA"),
     "CARGA_VEHICULO_INACTIVO": ("H6", "ALTA"),
     "CARGA_FUERA_DE_ZONA": ("H7", "ALTA"),
+    # Circuito solicitud -> carga -> factura (escenario realista)
+    "CARGA_SIN_SOLICITUD": ("H8", "ALTA"),
+    "CARGA_CON_SOLICITUD_RECHAZADA": ("H8", "ALTA"),
+    "CARGA_SUPERA_AUTORIZADO": ("H8", "MEDIA"),
+    "TOTAL_INFLADO": ("H9", "ALTA"),
+    "LINEA_SIN_CONSUMO": ("H9", "ALTA"),
+    "LINEA_DUPLICADA": ("H9", "ALTA"),
+    "SOBREPRECIO": ("H9", "MEDIA"),
 }
 
 ESCENARIOS = ("didactico", "realista")
@@ -83,6 +91,10 @@ CATALOGO_LEGITIMOS = {
     "VIAJE_LARGO": "carga en estaciones de ruta durante un viaje real",
     "CAMBIO_ODOMETRO": "el odómetro se reemplazó y vuelve a contar desde un valor bajo",
     "ERROR_TIPEO_ODOMETRO": "la lectura del odómetro se cargó con un error de tipeo",
+    "REGULARIZACION_POSTERIOR": "la solicitud se aprobó después de la carga (urgencia regularizada)",
+    "TOLERANCIA_MEDICION": "la carga supera lo autorizado dentro de la tolerancia de medición del surtidor",
+    "DESFASE_DE_CORTE": "la carga del último día del mes se factura en el período siguiente",
+    "AJUSTE_DOCUMENTADO": "la factura incluye un ajuste documentado (bonificación o recargo)",
 }
 
 COLUMNAS_CASOS_LEGITIMOS = ["tabla", "id_registro", "vehiculo_id", "tipo_caso", "descripcion"]
@@ -166,7 +178,20 @@ EVENTOS_REALISTA = {
     "VIAJE_LARGO": 4,
     "CAMBIO_ODOMETRO": 2,
     "ERROR_TIPEO_ODOMETRO": 5,
+    # Circuito solicitud -> carga -> factura
+    "CARGA_SIN_SOLICITUD": 6,       # cargas sin ninguna solicitud
+    "CARGA_CON_SOLICITUD_RECHAZADA": 4,
+    "CARGA_SUPERA_AUTORIZADO": 6,   # 15% a 50% más que lo autorizado
+    "REGULARIZACION_POSTERIOR": 8,  # legítimos
+    "TOLERANCIA_MEDICION": 10,      # legítimos: 1% a 3% más que lo autorizado
+    "TOTAL_INFLADO": 2,             # facturas
+    "LINEA_SIN_CONSUMO": 6,
+    "LINEA_DUPLICADA": 5,
+    "SOBREPRECIO": 6,
+    "AJUSTE_DOCUMENTADO": 4,        # legítimos: facturas con un ajuste
 }
+PROB_DESFASE_DE_CORTE = 0.5         # cargas del último día del mes facturadas al mes siguiente
+TASA_SOLICITUDES_SIN_CARGA = 0.08   # solicitudes rechazadas o pendientes que no terminan en carga
 TASAS_CALIDAD_REALISTA = {"DOMINIO_INVALIDO": 0.003, "VALOR_NULO": 0.005, "DUPLICADO": 0.003}
 
 
@@ -919,6 +944,9 @@ class GeneradorMaestro:
                 self._registrar_legitimo(c["id"], c["vehiculo_id"], c["_legitimo"],
                                          c.get("_detalle") or CATALOGO_LEGITIMOS[c["_legitimo"]])
 
+        # Estación de cada carga antes de los defectos de calidad: el proveedor factura
+        # con la estación real aunque en nuestro registro quede vacía
+        self._estacion_real = {c["id"]: c["estacion"] for c in cargas}
         cargas += self._defectos_de_calidad(cargas, siguiente_id=len(cargas) + 1)
 
         columnas = ["id", "vehiculo_id", "dominio", "fecha", "estacion", "producto", "litros",
@@ -959,6 +987,228 @@ class GeneradorMaestro:
         self.datasets['telemetria_diaria'] = pd.DataFrame(gps)
         self.metadata['generadores_ejecutados'] += ['telemetria', 'telemetria_diaria']
         logger.info(f"✓ TELEMETRIA generada: {len(rows)} dispositivos, {len(gps)} registros diarios")
+
+    def _cargas_facturables(self):
+        """Cargas reales: sin los duplicados, que son un defecto de nuestro registro."""
+        consumo = self.datasets['consumo']
+        duplicadas = {a["id_registro"] for a in self.anomalias if a["tipo_anomalia"] == "DUPLICADO"}
+        return consumo[~consumo["id"].isin(duplicadas)]
+
+    def _repartir(self, candidatos, roles):
+        """Asigna a cada rol una cantidad de candidatos distintos (según EVENTOS_REALISTA)."""
+        candidatos = list(candidatos)
+        self.rng.shuffle(candidatos)
+        asignacion, posicion = {}, 0
+        for rol in roles:
+            n = self._cantidad(rol)
+            for candidato in candidatos[posicion:posicion + n]:
+                asignacion[candidato] = rol
+            posicion += n
+        return asignacion
+
+    def generar_solicitudes_realista(self):
+        """SOLICITUDES coherentes con el consumo: cada carga tiene su solicitud aprobada.
+
+        La solicitud se aprueba entre 0 y 2 días antes de la carga por algo más de los
+        litros cargados. Se inyectan cargas sin solicitud, con solicitud rechazada o por
+        encima de lo autorizado, y casos legítimos: regularizaciones posteriores y
+        diferencias dentro de la tolerancia de medición. Además hay solicitudes
+        rechazadas o pendientes que no terminan en carga.
+        """
+        logger.info("Generando SOLICITUDES (escenario realista)...")
+        rng = self.rng
+        cargas = self._cargas_facturables()
+        dominio = self.datasets['flota'].set_index("Matricula")["Dominio"]
+        etiquetadas = ({a["id_registro"] for a in self.anomalias}
+                       | {c["id_registro"] for c in self.casos_legitimos})
+        asignacion = self._repartir(
+            [i for i in cargas["id"] if i not in etiquetadas],
+            ["CARGA_SIN_SOLICITUD", "CARGA_CON_SOLICITUD_RECHAZADA", "CARGA_SUPERA_AUTORIZADO",
+             "REGULARIZACION_POSTERIOR", "TOLERANCIA_MEDICION"])
+
+        rows = []
+
+        def solicitar(vehiculo, fecha, solicitados, autorizados, estado, observaciones=""):
+            rows.append({
+                "vehiculo_id": vehiculo, "dominio": dominio[vehiculo], "fecha_solicitud": fecha,
+                "litros_solicitados": round(solicitados, 2), "litros_autorizados": round(autorizados, 2),
+                "estado": estado, "centro_costo": f"CC-{rng.randint(1, 50):03d}",
+                "responsable": f"RESP-{rng.randint(1, 100)}", "observaciones": observaciones,
+            })
+
+        for c in cargas.itertuples():
+            rol = asignacion.get(c.id)
+            fecha = pd.Timestamp(c.fecha).to_pydatetime()
+            if rol == "CARGA_SIN_SOLICITUD":
+                self._registrar_anomalia("consumo", c.id, c.vehiculo_id, rol, "solicitud",
+                                         "carga sin ninguna solicitud del vehículo")
+                continue
+            previa = fecha - timedelta(days=rng.randint(0, 2))
+            solicitados = c.litros * rng.uniform(1.0, 1.25)
+            if rol == "CARGA_CON_SOLICITUD_RECHAZADA":
+                solicitar(c.vehiculo_id, previa, solicitados, 0.0, "RECHAZADA", "RECHAZADA POR SUPERVISOR")
+                self._registrar_anomalia("consumo", c.id, c.vehiculo_id, rol, "solicitud",
+                                         "la única solicitud cercana fue rechazada")
+                continue
+            if rol == "REGULARIZACION_POSTERIOR":
+                solicitar(c.vehiculo_id, fecha + timedelta(days=rng.randint(1, 3)), solicitados, solicitados,
+                          "APROBADA", "REGULARIZACION")
+                self._registrar_legitimo(c.id, c.vehiculo_id, rol, CATALOGO_LEGITIMOS[rol])
+                continue
+            if rng.random() < 0.8:
+                autorizados = solicitados
+            else:
+                autorizados = max(c.litros, solicitados * rng.uniform(0.85, 1.0))
+            if rol == "CARGA_SUPERA_AUTORIZADO":
+                autorizados = c.litros / rng.uniform(1.15, 1.5)
+                self._registrar_anomalia("consumo", c.id, c.vehiculo_id, rol, "litros",
+                                         f"{c.litros:.2f} L con {autorizados:.2f} L autorizados")
+            elif rol == "TOLERANCIA_MEDICION":
+                autorizados = c.litros / rng.uniform(1.01, 1.03)
+                self._registrar_legitimo(c.id, c.vehiculo_id, rol,
+                                         f"{c.litros:.2f} L con {autorizados:.2f} L autorizados")
+            solicitar(c.vehiculo_id, previa, solicitados, autorizados, "APROBADA",
+                      rng.choice(["OK", "REVISADO", ""]))
+
+        vehiculos = list(dominio.index)
+        for _ in range(round(len(cargas) * TASA_SOLICITUDES_SIN_CARGA)):
+            estado = rng.choice(["RECHAZADA", "PENDIENTE"])
+            solicitar(rng.choice(vehiculos), FECHA_INICIO + timedelta(days=rng.randint(0, DIAS_VENTANA)),
+                      rng.uniform(10, 80), 0.0, estado, "SIN CUPO DISPONIBLE" if estado == "RECHAZADA" else "")
+
+        rows.sort(key=lambda r: (r["vehiculo_id"], r["fecha_solicitud"]))
+        for i, r in enumerate(rows, 1):
+            r["id"] = f"SOL-{i:08d}"
+        columnas = ["id", "vehiculo_id", "dominio", "fecha_solicitud", "litros_solicitados", "litros_autorizados",
+                    "estado", "centro_costo", "responsable", "observaciones"]
+        df = pd.DataFrame(rows)[columnas]
+        self.datasets['solicitudes'] = df
+        self.metadata['generadores_ejecutados'].append('solicitudes')
+        logger.info(f"✓ SOLICITUDES generada: {len(df)} solicitudes")
+        return df
+
+    def generar_facturacion_realista(self):
+        """FACTURACION por proveedor y mes, con su detalle línea por línea.
+
+        Cada proveedor (marca de estación) emite una factura mensual; cada línea
+        referencia una carga. Se inyectan líneas sin carga real, líneas duplicadas,
+        sobreprecios y totales inflados, y casos legítimos: cargas del último día del
+        mes facturadas en el período siguiente y facturas con un ajuste documentado.
+        """
+        logger.info("Generando FACTURACION (escenario realista)...")
+        rng = self.rng
+        cargas = self._cargas_facturables().copy()
+        marca = self.datasets['estaciones'].set_index("codigo")["marca"]
+        dominio = self.datasets['flota'].set_index("Matricula")["Dominio"]
+        cargas["fecha"] = pd.to_datetime(cargas["fecha"])
+        cargas["proveedor"] = cargas["id"].map(self._estacion_real).map(marca)
+        cargas = cargas.sort_values(["fecha", "id"])
+
+        lineas = []
+        for c in cargas.itertuples():
+            periodo = c.fecha.to_period("M")
+            desfase = c.fecha.is_month_end and rng.random() < PROB_DESFASE_DE_CORTE
+            lineas.append({
+                "periodo": periodo + 1 if desfase else periodo, "proveedor": c.proveedor,
+                "referencia_consumo": c.id, "concepto": "COMBUSTIBLE", "fecha": c.fecha.date(),
+                "dominio": dominio[c.vehiculo_id], "litros": c.litros, "precio_unitario": c.precio_unitario,
+                "importe": c.importe_total, "descripcion": "", "_etiqueta": None,
+                "_legitimo": "DESFASE_DE_CORTE" if desfase else None, "_vehiculo": c.vehiculo_id,
+            })
+
+        # Irregularidades por línea, sobre líneas sin otro caso
+        limpias = [i for i, linea in enumerate(lineas) if not linea["_legitimo"]]
+        asignacion = self._repartir(limpias, ["SOBREPRECIO", "LINEA_DUPLICADA", "LINEA_SIN_CONSUMO"])
+        extras = []
+        for i, rol in sorted(asignacion.items()):
+            linea = lineas[i]
+            if rol == "SOBREPRECIO":
+                original = linea["precio_unitario"]
+                linea["precio_unitario"] = round(original * rng.uniform(1.08, 1.2), 2)
+                linea["importe"] = round(linea["litros"] * linea["precio_unitario"], 2)
+                linea["_etiqueta"] = ("SOBREPRECIO",
+                                      f"{linea['precio_unitario']} por litro; en la carga, {original}")
+            elif rol == "LINEA_DUPLICADA":
+                extras.append(dict(linea, _etiqueta=("LINEA_DUPLICADA",
+                                                     f"{linea['referencia_consumo']} facturada dos veces")))
+            else:  # LINEA_SIN_CONSUMO: una carga que nunca ocurrió, con datos verosímiles
+                inexistente = f"CONS-9{rng.randint(0, 9999999):07d}"
+                litros = round(linea["litros"] * rng.uniform(0.8, 1.2), 2)
+                extras.append(dict(linea, referencia_consumo=inexistente, litros=litros,
+                                   importe=round(litros * linea["precio_unitario"], 2),
+                                   _etiqueta=("LINEA_SIN_CONSUMO",
+                                              f"{inexistente} no existe en el registro de cargas")))
+        lineas += extras
+
+        # Ajustes documentados en algunas facturas (legítimos)
+        grupos = sorted({(linea["periodo"], linea["proveedor"]) for linea in lineas})
+        subtotal = {}
+        for linea in lineas:
+            clave = (linea["periodo"], linea["proveedor"])
+            subtotal[clave] = subtotal.get(clave, 0) + linea["importe"]
+        for periodo, proveedor in rng.sample(grupos, min(self._cantidad("AJUSTE_DOCUMENTADO"), len(grupos))):
+            signo = rng.choice([-1, 1])
+            lineas.append({
+                "periodo": periodo, "proveedor": proveedor, "referencia_consumo": None, "concepto": "AJUSTE",
+                "fecha": periodo.end_time.date(), "dominio": None, "litros": 0.0, "precio_unitario": 0.0,
+                "importe": round(signo * subtotal[(periodo, proveedor)] * rng.uniform(0.02, 0.05), 2),
+                "descripcion": "BONIFICACION POR VOLUMEN" if signo < 0 else "RECARGO POR SERVICIO NOCTURNO",
+                "_etiqueta": None, "_legitimo": "AJUSTE_DOCUMENTADO", "_vehiculo": None,
+            })
+
+        # Numeración y encabezados
+        codigo = {g: f"FAC-{g[0].strftime('%Y%m')}-{g[1].replace(' ', '')[:3].upper()}-{rng.randint(1000, 9999)}"
+                  for g in grupos}
+        lineas.sort(key=lambda linea: (linea["periodo"], linea["proveedor"], linea["concepto"] != "COMBUSTIBLE",
+                                       str(linea["fecha"]), str(linea["referencia_consumo"])))
+        for i, linea in enumerate(lineas, 1):
+            linea["numero_linea"] = f"LIN-{i:08d}"
+            linea["numero_factura"] = codigo[(linea["periodo"], linea["proveedor"])]
+            if linea["_etiqueta"]:
+                tipo, detalle = linea["_etiqueta"]
+                columna = {"SOBREPRECIO": "precio_unitario"}.get(tipo, "referencia_consumo")
+                self._registrar_anomalia("facturacion_detalle", linea["numero_linea"], linea["_vehiculo"],
+                                         tipo, columna, detalle)
+            if linea["_legitimo"] == "DESFASE_DE_CORTE":
+                self.casos_legitimos.append({
+                    "tabla": "facturacion_detalle", "id_registro": linea["numero_linea"],
+                    "vehiculo_id": linea["_vehiculo"], "tipo_caso": "DESFASE_DE_CORTE",
+                    "descripcion": f"carga del {linea['fecha']} facturada en {linea['periodo']}"})
+            elif linea["_legitimo"] == "AJUSTE_DOCUMENTADO":
+                self.casos_legitimos.append({
+                    "tabla": "facturacion", "id_registro": linea["numero_factura"], "vehiculo_id": None,
+                    "tipo_caso": "AJUSTE_DOCUMENTADO", "descripcion": f"{linea['descripcion']}: {linea['importe']}"})
+
+        facturas = []
+        for grupo in grupos:
+            propias = [linea for linea in lineas if (linea["periodo"], linea["proveedor"]) == grupo]
+            combustible = [linea for linea in propias if linea["concepto"] == "COMBUSTIBLE"]
+            facturas.append({
+                "numero_factura": codigo[grupo], "proveedor": grupo[1],
+                "fecha_factura": grupo[0].end_time.date(), "periodo": str(grupo[0]),
+                "total_litros": round(sum(x["litros"] for x in combustible), 2),
+                "total_monto": round(sum(x["importe"] for x in propias), 2),
+                "estado": rng.choice(["PAGADA", "PENDIENTE", "VENCIDA"]),
+                "numero_transacciones": len(combustible),
+            })
+        for factura in rng.sample(facturas, min(self._cantidad("TOTAL_INFLADO"), len(facturas))):
+            real = factura["total_monto"]
+            factura["total_monto"] = round(real * rng.uniform(1.03, 1.10), 2)
+            self._registrar_anomalia("facturacion", factura["numero_factura"], None, "TOTAL_INFLADO",
+                                     "total_monto", f"total {factura['total_monto']} con líneas por {real}")
+        for factura in facturas:
+            factura["iva"] = round(factura["total_monto"] * 0.21, 2)
+            factura["monto_total_con_iva"] = round(factura["total_monto"] * 1.21, 2)
+
+        columnas_factura = ["numero_factura", "proveedor", "fecha_factura", "periodo", "total_litros",
+                            "total_monto", "iva", "monto_total_con_iva", "estado", "numero_transacciones"]
+        columnas_linea = ["numero_linea", "numero_factura", "referencia_consumo", "concepto", "fecha", "dominio",
+                          "litros", "precio_unitario", "importe", "descripcion"]
+        self.datasets['facturacion'] = pd.DataFrame(facturas)[columnas_factura]
+        self.datasets['facturacion_detalle'] = pd.DataFrame(lineas)[columnas_linea]
+        self.metadata['generadores_ejecutados'] += ['facturacion', 'facturacion_detalle']
+        logger.info(f"✓ FACTURACION generada: {len(facturas)} facturas, {len(lineas)} líneas")
+        return self.datasets['facturacion']
 
     def construir_ground_truth(self):
         """Tabla con una fila por anomalía inyectada (un registro puede tener varias)."""
@@ -1021,8 +1271,12 @@ class GeneradorMaestro:
                 self.generar_flota()
                 self.generar_telemetria()
                 self.generar_consumo()
-            self.generar_solicitudes()
-            self.generar_facturacion()
+            if self.escenario == "realista":
+                self.generar_solicitudes_realista()
+                self.generar_facturacion_realista()
+            else:
+                self.generar_solicitudes()
+                self.generar_facturacion()
 
             archivos = self.guardar_datasets()
 

@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pandas as pd
 
-ARCHIVOS = ["flota", "consumo", "ground_truth", "casos_legitimos", "estaciones", "telemetria", "telemetria_diaria"]
+ARCHIVOS = ["flota", "consumo", "ground_truth", "casos_legitimos", "estaciones", "telemetria", "telemetria_diaria",
+            "solicitudes", "facturacion", "facturacion_detalle"]
 
 
 def cargar_dataset(directorio):

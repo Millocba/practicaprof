@@ -21,6 +21,7 @@ from deteccion.reglas import (
     distancia_a_zona_habitual,
     distancia_al_recorrido_gps,
     ejecutar_reglas,
+    emparejar_solicitudes,
     secuencia_odometro,
 )
 
@@ -29,7 +30,7 @@ REGLAS_COMPORTAMIENTO = ["litros_mayor_a_tanque", "odometro_disminuye", "salto_h
 
 # Hipótesis de comportamiento (las de calidad de datos y vinculación, CALIDAD y H1,
 # no son problemas de detección de outliers)
-HIPOTESIS_COMPORTAMIENTO = {"H2", "H3a", "H4", "H5", "H6", "H7"}
+HIPOTESIS_COMPORTAMIENTO = {"H2", "H3a", "H4", "H5", "H6", "H7", "H8"}
 
 VARIABLES = {
     "ratio_litros_tanque": "litros cargados / capacidad del tanque",
@@ -48,10 +49,12 @@ VARIABLES_CONTEXTO = {
     "distancia_gps_km": "km entre la estación y el recorrido del GPS ese día (0 sin dato)",
     "sin_gps": "1 si no hay posición GPS para esa carga",
     "vehiculo_inactivo": "1 si la carga es posterior a la baja o salida de servicio",
+    "sin_solicitud": "1 si no hay solicitud aprobada del vehículo en los 3 días alrededor de la carga",
+    "litros_vs_autorizado": "litros cargados / litros autorizados en su solicitud (1 si no tiene)",
 }
 
 
-def construir_variables(flota, consumo, estaciones=None, telemetria_diaria=None):
+def construir_variables(flota, consumo, estaciones=None, telemetria_diaria=None, solicitudes=None):
     """Una fila por transacción con las variables del modelo.
 
     Las transacciones sin carga anterior válida (primera del vehículo, odómetro
@@ -94,6 +97,13 @@ def construir_variables(flota, consumo, estaciones=None, telemetria_diaria=None)
     inactivos = flota[(flota["Estado"] != "EN SERVICIO") & flota["FechaEstado"].notna()]
     desde = consumo["vehiculo_id"].map(pd.to_datetime(inactivos.set_index("Matricula")["FechaEstado"]))
     variables["vehiculo_inactivo"] = (pd.to_datetime(consumo["fecha"]) >= desde).astype(int).values
+
+    if solicitudes is not None:
+        pares = emparejar_solicitudes(consumo, solicitudes, excluir_ids=duplicados, dias_despues=3)
+        autorizados = pares["litros_autorizados"].reindex(variables.index)
+        variables["sin_solicitud"] = autorizados.isna().astype(int)
+        variables["litros_vs_autorizado"] = (consumo.set_index("id")["litros"].reindex(variables.index)
+                                             / autorizados).fillna(1).clip(upper=5)
     return variables
 
 

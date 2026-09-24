@@ -31,6 +31,11 @@ RENDIMIENTO_MINIMO = 0.4       # km/L del día por debajo de esta fracción de l
 RENDIMIENTO_MINIMO_FRACCIONAMIENTO = 0.75
 LITROS_MINIMOS_RENDIMIENTO = 0.3  # solo se evalúan días con al menos esta fracción del tanque
 DISTANCIA_MAXIMA_KM = 50       # distancia de la estación a la posición del vehículo
+VENTANA_SOLICITUD_DIAS = 3     # días alrededor de la carga en que se busca la solicitud
+TOLERANCIA_AUTORIZADO = 0.05   # exceso sobre lo autorizado atribuible a la medición del surtidor
+DIFERENCIA_CONCILIACION = 0.01  # diferencia relativa entre consumo del mes y total facturado
+DIFERENCIA_ENCABEZADO = 0.005   # diferencia relativa entre el total de la factura y sus líneas
+TOLERANCIA_PRECIO = 0.02        # diferencia de precio por litro entre la factura y la carga
 
 
 def _alertas(df, tipo, regla, detalle):
@@ -414,17 +419,165 @@ def detectar_carga_lejos_del_gps(consumo, flota, estaciones, gps_diario):
                     lambda d: d["distancia"].round().astype(int).astype(str) + " km del recorrido del GPS")
 
 
+# ============================================================================
+# Circuito solicitud -> carga -> factura (escenario realista)
+# ============================================================================
+
+COSTO_SIN_SOLICITUD = 20.0     # costo de dejar una carga sin solicitud en el emparejamiento
+
+
+def emparejar_solicitudes(consumo, solicitudes, excluir_ids=(), dias_antes=VENTANA_SOLICITUD_DIAS,
+                          dias_despues=0):
+    """Asigna a cada carga, como mucho, una solicitud aprobada del mismo vehículo.
+
+    Las solicitudes no traen el número de carga, así que se emparejan por vehículo con
+    una asignación óptima (método húngaro) que minimiza, en conjunto, la distancia en
+    días (penalizando levemente las posteriores) y la diferencia entre litros cargados
+    y autorizados. Solo se consideran solicitudes entre `dias_antes` días antes y
+    `dias_despues` días después de la carga; cada una se usa una vez. Una carga queda
+    sin solicitud si emparejarla cuesta más que COSTO_SIN_SOLICITUD.
+
+    Devuelve, por id de carga, el id y los litros autorizados de su solicitud (NaN si no tiene).
+    """
+    from scipy.optimize import linear_sum_assignment
+
+    cargas = consumo[~consumo["id"].isin(set(excluir_ids))][["id", "vehiculo_id", "fecha", "litros"]].copy()
+    cargas["fecha"] = pd.to_datetime(cargas["fecha"])
+    aprobadas = solicitudes[solicitudes["estado"] == "APROBADA"][
+        ["id", "vehiculo_id", "fecha_solicitud", "litros_autorizados"]].rename(columns={"id": "solicitud_id"})
+    aprobadas["fecha_solicitud"] = pd.to_datetime(aprobadas["fecha_solicitud"])
+    por_vehiculo = dict(tuple(aprobadas.groupby("vehiculo_id")))
+
+    filas = []
+    for vehiculo, propias in cargas.groupby("vehiculo_id"):
+        candidatas = por_vehiculo.get(vehiculo)
+        if candidatas is None:
+            continue
+        dias = ((candidatas["fecha_solicitud"].to_numpy()[None, :] - propias["fecha"].to_numpy()[:, None])
+                / np.timedelta64(1, "D"))
+        proporcion = candidatas["litros_autorizados"].to_numpy()[None, :] / propias["litros"].to_numpy()[:, None]
+        costo = np.abs(dias) + 0.5 * (dias > 0) + 3 * np.abs(np.log(np.clip(proporcion, 1e-6, None)))
+        costo[(dias < -dias_antes) | (dias > dias_despues)] = np.inf
+        # Columnas ficticias: dejar la carga sin solicitud cuesta COSTO_SIN_SOLICITUD
+        completo = np.hstack([np.where(np.isfinite(costo), costo, 1e9),
+                              np.full((len(propias), len(propias)), COSTO_SIN_SOLICITUD)])
+        filas_opt, columnas_opt = linear_sum_assignment(completo)
+        for i, j in zip(filas_opt, columnas_opt):
+            if j < len(candidatas) and np.isfinite(costo[i, j]):
+                solicitud = candidatas.iloc[j]
+                filas.append((propias["id"].iloc[i], solicitud["solicitud_id"], solicitud["litros_autorizados"],
+                              dias[i, j]))
+    resultado = pd.DataFrame(filas, columns=["id", "solicitud_id", "litros_autorizados", "desfase_dias"])
+    return cargas[["id"]].merge(resultado, on="id", how="left").set_index("id")
+
+
+def _tipo_sin_autorizacion(consumo, solicitudes, sin_solicitud, dias_antes, dias_despues):
+    """CARGA_CON_SOLICITUD_RECHAZADA si hubo una solicitud rechazada en la ventana; si no, SIN_SOLICITUD."""
+    rechazadas = solicitudes[solicitudes["estado"] == "RECHAZADA"][["vehiculo_id", "fecha_solicitud"]].copy()
+    rechazadas["fecha_solicitud"] = pd.to_datetime(rechazadas["fecha_solicitud"])
+    cargas = consumo[consumo["id"].isin(sin_solicitud)][["id", "vehiculo_id", "fecha"]].copy()
+    cargas["fecha"] = pd.to_datetime(cargas["fecha"])
+    pares = cargas.merge(rechazadas, on="vehiculo_id")
+    desfase = (pares["fecha_solicitud"] - pares["fecha"]).dt.days
+    con_rechazo = set(pares.loc[desfase.between(-dias_antes, dias_despues), "id"])
+    return cargas.assign(tipo=cargas["id"].isin(con_rechazo).map(
+        {True: "CARGA_CON_SOLICITUD_RECHAZADA", False: "CARGA_SIN_SOLICITUD"}))
+
+
+def detectar_carga_sin_autorizacion(consumo, solicitudes, excluir_ids=(), aceptar_posterior=False):
+    """H8: carga sin una solicitud aprobada del vehículo en los días previos.
+
+    La versión con contexto (`aceptar_posterior`) también acepta una solicitud aprobada en
+    los días siguientes: una urgencia que se regularizó después.
+    """
+    despues = VENTANA_SOLICITUD_DIAS if aceptar_posterior else 0
+    pares = emparejar_solicitudes(consumo, solicitudes, excluir_ids, dias_despues=despues)
+    sin_solicitud = set(pares.index[pares["solicitud_id"].isna()])
+    datos = _tipo_sin_autorizacion(consumo, solicitudes, sin_solicitud, VENTANA_SOLICITUD_DIAS, despues)
+    regla = "carga_sin_autorizacion" if aceptar_posterior else "carga_sin_solicitud_previa"
+    if datos.empty:
+        return pd.DataFrame(columns=COLUMNAS_ALERTA)
+    return pd.DataFrame({"id_registro": datos["id"].values, "tipo_anomalia": datos["tipo"].values,
+                         "regla": regla, "detalle": np.where(
+                             datos["tipo"] == "CARGA_SIN_SOLICITUD", "sin solicitud aprobada",
+                             "la solicitud cercana fue rechazada")})
+
+
+def detectar_supera_autorizado(consumo, solicitudes, excluir_ids=(), tolerancia=0.0):
+    """H8: la carga supera los litros autorizados en su solicitud (con una tolerancia opcional)."""
+    pares = emparejar_solicitudes(consumo, solicitudes, excluir_ids, dias_despues=VENTANA_SOLICITUD_DIAS)
+    datos = consumo.set_index("id").join(pares[["litros_autorizados"]], how="inner").reset_index()
+    exceso = datos[datos["litros"] > datos["litros_autorizados"] * (1 + tolerancia)]
+    regla = "supera_autorizado_con_tolerancia" if tolerancia else "litros_superan_autorizado"
+    return _alertas(exceso, "CARGA_SUPERA_AUTORIZADO", regla,
+                    lambda d: d["litros"].round(2).astype(str) + " L con "
+                    + d["litros_autorizados"].round(2).astype(str) + " L autorizados")
+
+
+def detectar_conciliacion_mensual(consumo, estaciones, facturacion, excluir_ids=()):
+    """H9 (ingenua): el consumo del mes de cada proveedor no coincide con el total facturado."""
+    marca = estaciones.set_index("codigo")["marca"]
+    datos = consumo[~consumo["id"].isin(set(excluir_ids))].assign(
+        proveedor=lambda d: d["estacion"].map(marca),
+        periodo=lambda d: pd.to_datetime(d["fecha"]).dt.to_period("M").astype(str))
+    registrado = datos.groupby(["proveedor", "periodo"])["importe_total"].sum()
+    facturas = facturacion.set_index(["proveedor", "periodo"])
+    comparacion = facturas.join(registrado.rename("registrado"), how="left").fillna({"registrado": 0})
+    diferencia = (comparacion["total_monto"] - comparacion["registrado"]) / comparacion["registrado"].clip(lower=1)
+    marcadas = comparacion[diferencia.abs() > DIFERENCIA_CONCILIACION].reset_index()
+    marcadas = marcadas.assign(id=marcadas["numero_factura"], diferencia=diferencia[diferencia.abs()
+                                                                                   > DIFERENCIA_CONCILIACION].values)
+    return _alertas(marcadas, "TOTAL_INFLADO", "conciliacion_mensual",
+                    lambda d: "facturado " + (d["diferencia"] * 100).round(1).astype(str)
+                    + "% distinto del consumo registrado del mes")
+
+
+def detectar_factura_no_concilia(facturacion, facturacion_detalle):
+    """H9: el total de la factura no coincide con la suma de sus líneas."""
+    lineas = facturacion_detalle.groupby("numero_factura")["importe"].sum()
+    datos = facturacion.assign(lineas=facturacion["numero_factura"].map(lineas).fillna(0))
+    diferencia = (datos["total_monto"] - datos["lineas"]) / datos["lineas"].abs().clip(lower=1)
+    marcadas = datos[diferencia.abs() > DIFERENCIA_ENCABEZADO].assign(
+        id=lambda d: d["numero_factura"], diferencia=diferencia[diferencia.abs() > DIFERENCIA_ENCABEZADO])
+    return _alertas(marcadas, "TOTAL_INFLADO", "factura_no_concilia",
+                    lambda d: "total " + (d["diferencia"] * 100).round(1).astype(str) + "% distinto de sus líneas")
+
+
+def detectar_irregularidades_de_linea(consumo, facturacion_detalle):
+    """H9: líneas de combustible sin carga registrada, duplicadas o con sobreprecio."""
+    lineas = facturacion_detalle[facturacion_detalle["concepto"] == "COMBUSTIBLE"].rename(
+        columns={"numero_linea": "id"}).sort_values("id")
+    sin_consumo = lineas[~lineas["referencia_consumo"].isin(consumo["id"])]
+    duplicadas = lineas[lineas.duplicated("referencia_consumo", keep="first")
+                        & lineas["referencia_consumo"].isin(consumo["id"])]
+    precio = consumo.set_index("id")["precio_unitario"]
+    con_precio = lineas.assign(precio_carga=lineas["referencia_consumo"].map(precio)).dropna(subset=["precio_carga"])
+    sobreprecio = con_precio[con_precio["precio_unitario"] > con_precio["precio_carga"] * (1 + TOLERANCIA_PRECIO)]
+    return pd.concat([
+        _alertas(sin_consumo, "LINEA_SIN_CONSUMO", "linea_sin_consumo",
+                 lambda d: d["referencia_consumo"].astype(str) + " no existe en el registro de cargas"),
+        _alertas(duplicadas, "LINEA_DUPLICADA", "linea_duplicada",
+                 lambda d: d["referencia_consumo"].astype(str) + " ya fue facturada"),
+        _alertas(sobreprecio, "SOBREPRECIO", "sobreprecio",
+                 lambda d: d["precio_unitario"].astype(str) + " por litro; en la carga, "
+                 + d["precio_carga"].astype(str)),
+    ], ignore_index=True)
+
+
 def gps_por_intervalo(dias):
     """Por transacción: km del GPS desde el día de carga anterior y si la cobertura fue completa."""
     filas = dias.explode("ids")[["ids", "km_gps", "completo"]].rename(columns={"ids": "id"})
     return filas.drop_duplicates("id").set_index("id")
 
 
-def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None):
+def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, solicitudes=None,
+                    facturacion=None, facturacion_detalle=None):
     """Aplica todas las reglas disponibles y devuelve las alertas concatenadas.
 
     Las reglas con contexto se agregan cuando existen las fuentes que necesitan: fecha
-    de estado en la flota, estaciones con coordenadas y GPS diario.
+    de estado en la flota, estaciones con coordenadas, GPS diario, solicitudes y el
+    detalle de facturación. Las de solicitudes y facturación solo se aplican al
+    escenario realista, donde esas fuentes son coherentes con el consumo.
     """
     duplicados = detectar_duplicados(consumo)
     secuencia = secuencia_odometro(consumo, excluir_ids=duplicados["id_registro"])
@@ -457,5 +610,20 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None):
             partes.append(detectar_carga_lejos_de_base(consumo, estaciones))
             if telemetria_diaria is not None:
                 partes.append(detectar_carga_lejos_del_gps(consumo, flota, estaciones, telemetria_diaria))
+        excluir = duplicados["id_registro"]
+        if solicitudes is not None:
+            partes += [
+                detectar_carga_sin_autorizacion(consumo, solicitudes, excluir),
+                detectar_carga_sin_autorizacion(consumo, solicitudes, excluir, aceptar_posterior=True),
+                detectar_supera_autorizado(consumo, solicitudes, excluir),
+                detectar_supera_autorizado(consumo, solicitudes, excluir, tolerancia=TOLERANCIA_AUTORIZADO),
+            ]
+        if facturacion is not None and facturacion_detalle is not None:
+            partes += [
+                detectar_factura_no_concilia(facturacion, facturacion_detalle),
+                detectar_irregularidades_de_linea(consumo, facturacion_detalle),
+            ]
+            if estaciones is not None:
+                partes.append(detectar_conciliacion_mensual(consumo, estaciones, facturacion, excluir))
 
     return pd.concat([p for p in partes if not p.empty], ignore_index=True)[COLUMNAS_ALERTA]

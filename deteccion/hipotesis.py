@@ -11,7 +11,9 @@ import pandas as pd
 
 MEJORA_MINIMA_F1 = 0.10
 
-# regla None = no hay regla posible sin la fuente que aporta la hipótesis
+# regla None = no hay regla posible sin la fuente que aporta la hipótesis; una lista de
+# reglas se evalúa como la unión de sus alertas. "nivel": "factura" evalúa por factura:
+# una línea irregular cuenta como una factura con problemas.
 HIPOTESIS = [
     {
         "codigo": "H2b",
@@ -87,20 +89,62 @@ HIPOTESIS = [
                    ("carga_lejos_del_gps", "lejos del recorrido del GPS")],
         "contexto": "telemetría diaria",
     },
+    {
+        "codigo": "H8",
+        "titulo": "Cargas y solicitudes",
+        "enunciado": "Cruzar cada carga con las solicitudes detecta las que no tienen autorización o la "
+                     "superan; aceptar regularizaciones posteriores y la tolerancia de medición evita "
+                     "falsas alarmas.",
+        "tipos": ["CARGA_SIN_SOLICITUD", "CARGA_CON_SOLICITUD_RECHAZADA", "CARGA_SUPERA_AUTORIZADO"],
+        "reglas": [(["carga_sin_solicitud_previa", "litros_superan_autorizado"],
+                    "solicitud previa y litros autorizados exactos"),
+                   (["carga_sin_autorizacion", "supera_autorizado_con_tolerancia"],
+                    "acepta regularizaciones y 5% de tolerancia")],
+        "contexto": "solicitudes aprobadas y rechazadas",
+    },
+    {
+        "codigo": "H9",
+        "titulo": "Conciliación de facturas",
+        "enunciado": "Comparar el total mensual facturado con el consumo registrado confunde desfases de "
+                     "corte y ajustes documentados, y no ve irregularidades chicas; conciliar la factura "
+                     "línea por línea contra las cargas las detecta.",
+        "tipos": ["TOTAL_INFLADO", "LINEA_SIN_CONSUMO", "LINEA_DUPLICADA", "SOBREPRECIO"],
+        "reglas": [("conciliacion_mensual", "total del mes vs. consumo del mes"),
+                   (["factura_no_concilia", "linea_sin_consumo", "linea_duplicada", "sobreprecio"],
+                    "encabezado vs. líneas y cada línea vs. su carga")],
+        "contexto": "detalle de facturación",
+        "nivel": "factura",
+    },
 ]
 
 
-def evaluar_regla(alertas, ground_truth, casos_legitimos, regla, tipos):
-    """Métricas de una regla contra las anomalías de `tipos`, con el origen de cada falso positivo.
+def _nombres(regla):
+    if regla is None:
+        return []
+    return [regla] if isinstance(regla, str) else list(regla)
 
-    Un acierto es una transacción alertada por la regla que tiene alguna anomalía de
-    `tipos`. Los falsos positivos se clasifican en: caso legítimo, otra anomalía o normal.
+
+def describir_regla(regla):
+    return " + ".join(_nombres(regla)) or "—"
+
+
+def evaluar_regla(alertas, ground_truth, casos_legitimos, regla, tipos, agrupar=None):
+    """Métricas de una regla (o unión de reglas) contra las anomalías de `tipos`.
+
+    Un acierto es un registro alertado que tiene alguna anomalía de `tipos`. Los falsos
+    positivos se clasifican en: caso legítimo, otra anomalía o normal. `agrupar` traduce
+    ids a la unidad de evaluación (por ejemplo, línea de factura -> factura).
     """
-    reales = set(ground_truth.loc[ground_truth["tipo_anomalia"].isin(tipos), "id_registro"])
-    alertados = set() if regla is None else set(alertas.loc[alertas["regla"] == regla, "id_registro"])
+    agrupar = agrupar or {}
+
+    def unidad(ids):
+        return {agrupar.get(i, i) for i in ids}
+
+    reales = unidad(ground_truth.loc[ground_truth["tipo_anomalia"].isin(tipos), "id_registro"])
+    alertados = unidad(alertas.loc[alertas["regla"].isin(_nombres(regla)), "id_registro"])
     fp = alertados - reales
-    legitimos = set(casos_legitimos["id_registro"]) if casos_legitimos is not None else set()
-    otras = set(ground_truth["id_registro"]) - reales
+    legitimos = unidad(casos_legitimos["id_registro"]) if casos_legitimos is not None else set()
+    otras = unidad(ground_truth["id_registro"]) - reales
     tp, fn = len(alertados & reales), len(reales - alertados)
     precision = tp / (tp + len(fp)) if tp + len(fp) else float("nan")
     recall = tp / (tp + fn) if tp + fn else float("nan")
@@ -113,15 +157,31 @@ def evaluar_regla(alertas, ground_truth, casos_legitimos, regla, tipos):
     }
 
 
-def contrastar_hipotesis(alertas, ground_truth, casos_legitimos):
-    """Una fila por hipótesis y regla, más el veredicto de cada hipótesis."""
+def factura_de_cada_linea(facturacion_detalle):
+    """Mapa numero_linea -> numero_factura, para evaluar por factura."""
+    if facturacion_detalle is None:
+        return {}
+    return dict(zip(facturacion_detalle["numero_linea"], facturacion_detalle["numero_factura"]))
+
+
+def contrastar_hipotesis(alertas, ground_truth, casos_legitimos, facturacion_detalle=None):
+    """Una fila por hipótesis y regla, más el veredicto de cada hipótesis.
+
+    Las hipótesis cuyas reglas no emitieron ninguna alerta ni tienen casos en el ground
+    truth (por ejemplo, H9 sin detalle de facturación) se omiten.
+    """
+    agrupaciones = {"factura": factura_de_cada_linea(facturacion_detalle)}
     filas, veredictos = [], []
     for h in HIPOTESIS:
+        agrupar = agrupaciones.get(h.get("nivel"))
+        reales = ground_truth["tipo_anomalia"].isin(h["tipos"]).any()
+        if not reales:
+            continue
         resultados = []
         for orden, (regla, descripcion) in enumerate(h["reglas"]):
-            m = evaluar_regla(alertas, ground_truth, casos_legitimos, regla, h["tipos"])
+            m = evaluar_regla(alertas, ground_truth, casos_legitimos, regla, h["tipos"], agrupar)
             resultados.append(m)
-            filas.append({"hipotesis": h["codigo"], "orden": orden, "regla": regla or "—",
+            filas.append({"hipotesis": h["codigo"], "orden": orden, "regla": describir_regla(regla),
                           "descripcion": descripcion, **m})
         ingenua, contexto = resultados[0], resultados[-1]
         if ingenua["reales"] == 0:

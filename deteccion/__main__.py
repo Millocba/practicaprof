@@ -37,7 +37,8 @@ def main():
 
     datos = cargar_dataset(carpeta)
     flota, consumo, ground_truth = datos["flota"], datos["consumo"], datos["ground_truth"]
-    alertas = ejecutar_reglas(flota, consumo, datos["estaciones"], datos["telemetria_diaria"])
+    alertas = ejecutar_reglas(flota, consumo, datos["estaciones"], datos["telemetria_diaria"],
+                              datos["solicitudes"], datos["facturacion"], datos["facturacion_detalle"])
     por_tipo = evaluar_por_tipo(alertas, ground_truth)
     por_regla = evaluar_por_regla(alertas, ground_truth)
 
@@ -52,7 +53,8 @@ def main():
     veredictos = None
     if datos["casos_legitimos"] is not None:
         from deteccion.hipotesis import contrastar_hipotesis
-        _, veredictos = contrastar_hipotesis(alertas, ground_truth, datos["casos_legitimos"])
+        _, veredictos = contrastar_hipotesis(alertas, ground_truth, datos["casos_legitimos"],
+                                             datos["facturacion_detalle"])
         print("\nHipótesis (regla ingenua vs. regla con contexto):")
         print(veredictos.to_string(index=False))
 

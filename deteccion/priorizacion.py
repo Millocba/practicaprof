@@ -31,10 +31,12 @@ from deteccion.modelo import (
 from deteccion.reglas import ejecutar_reglas
 
 REGLAS_INGENUAS = ["litros_mayor_a_tanque", "odometro_disminuye", "salto_historial_vehiculo",
-                   "fraccionamiento_diario", "rendimiento_bajo_odometro", "carga_lejos_de_base"]
+                   "fraccionamiento_diario", "rendimiento_bajo_odometro", "carga_lejos_de_base",
+                   "carga_sin_solicitud_previa", "litros_superan_autorizado"]
 REGLAS_CONTEXTO = ["exceso_sin_antecedente", "retroceso_con_contexto", "salto_con_contexto",
                    "fraccionamiento_sin_recorrido", "rendimiento_bajo_gps", "carga_vehiculo_inactivo",
-                   "carga_lejos_del_gps"]
+                   "carga_lejos_del_gps", "carga_sin_autorizacion", "supera_autorizado_con_tolerancia"]
+REGLAS_FACTURACION = ["factura_no_concilia", "linea_sin_consumo", "linea_duplicada", "sobreprecio"]
 
 METODOS = ["Reglas ingenuas", "Reglas con contexto", "Isolation Forest", "Modelo supervisado", "Combinado"]
 PRESUPUESTOS = [25, 50, 100, 200]
@@ -43,10 +45,11 @@ SEMILLAS_ENTRENAMIENTO = [1001, 1002, 1003]
 
 
 def _variables_y_reglas(dataset):
-    variables = construir_variables(dataset["flota"], dataset["consumo"],
-                                    dataset.get("estaciones"), dataset.get("telemetria_diaria"))
-    alertas = ejecutar_reglas(dataset["flota"], dataset["consumo"],
-                              dataset.get("estaciones"), dataset.get("telemetria_diaria"))
+    variables = construir_variables(dataset["flota"], dataset["consumo"], dataset.get("estaciones"),
+                                    dataset.get("telemetria_diaria"), dataset.get("solicitudes"))
+    alertas = ejecutar_reglas(dataset["flota"], dataset["consumo"], dataset.get("estaciones"),
+                              dataset.get("telemetria_diaria"), dataset.get("solicitudes"),
+                              dataset.get("facturacion"), dataset.get("facturacion_detalle"))
     return variables, alertas
 
 
@@ -62,8 +65,8 @@ def datos_de_entrenamiento(semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200):
             if not resultado["exito"]:
                 raise RuntimeError(resultado["error"])
             dataset = cargar_dataset(directorio)
-        variables = construir_variables(dataset["flota"], dataset["consumo"],
-                                        dataset["estaciones"], dataset["telemetria_diaria"])
+        variables = construir_variables(dataset["flota"], dataset["consumo"], dataset["estaciones"],
+                                        dataset["telemetria_diaria"], dataset["solicitudes"])
         anomalas = ids_con_anomalia_de_comportamiento(dataset["ground_truth"])
         partes_x.append(variables)
         partes_y.append(pd.Series(variables.index.isin(list(anomalas)).astype(int), index=variables.index))
@@ -155,6 +158,10 @@ def motivos(variables, alertas):
                 + "% del habitual")
         agregar(v["retroceso_km"] > 0, "odómetro retrocede " + v["retroceso_km"].round().astype(int).astype(str) + " km")
         agregar(v["vehiculo_inactivo"] == 1, "vehículo inactivo")
+    if "sin_solicitud" in v:
+        agregar(v["sin_solicitud"] == 1, "sin solicitud aprobada")
+        agregar(v["litros_vs_autorizado"] > 1.05,
+                "cargó " + (v["litros_vs_autorizado"] * 100).round().astype(int).astype(str) + "% de lo autorizado")
     agregar(v["exceso_km"] > 1000,
             v["exceso_km"].round().astype(int).astype(str) + " km más de lo habitual")
     if "distancia_gps_km" in v:
@@ -202,3 +209,35 @@ def recall_por_tipo(puntajes, ground_truth, presupuesto):
             filas.append({"metodo": metodo, "tipo_anomalia": tipo, "reales": len(ids),
                           "encontradas": len(ids & revisadas), "recall": len(ids & revisadas) / len(ids)})
     return pd.DataFrame(filas)
+
+
+def facturas_a_revisar(facturacion, facturacion_detalle, alertas):
+    """Facturas con hallazgos de conciliación, ordenadas por el importe comprometido.
+
+    Resume por factura las alertas del encabezado y de sus líneas (sin consumo,
+    duplicadas, sobreprecio) y estima el importe en juego.
+    """
+    if facturacion is None or facturacion_detalle is None:
+        return pd.DataFrame()
+    factura_de = dict(zip(facturacion_detalle["numero_linea"], facturacion_detalle["numero_factura"]))
+    importe_linea = facturacion_detalle.set_index("numero_linea")["importe"]
+    hallazgos = alertas[alertas["regla"].isin(REGLAS_FACTURACION)].copy()
+    hallazgos["numero_factura"] = hallazgos["id_registro"].map(factura_de).fillna(hallazgos["id_registro"])
+    lineas = facturacion_detalle.groupby("numero_factura")["importe"].sum()
+    encabezado = facturacion.set_index("numero_factura")
+    diferencia = (encabezado["total_monto"] - lineas.reindex(encabezado.index)).round(2)
+
+    def en_juego(grupo):
+        propias = grupo[grupo["id_registro"].isin(importe_linea.index)]
+        monto = importe_linea.loc[propias["id_registro"]].sum()
+        if (grupo["regla"] == "factura_no_concilia").any():
+            monto += abs(diferencia.get(grupo.name, 0))
+        return round(monto, 2)
+
+    resumen = hallazgos.groupby("numero_factura").apply(lambda g: pd.Series({
+        "hallazgos": len(g),
+        "detalle": "; ".join(sorted(set(g["regla"]))),
+        "importe_en_juego": en_juego(g),
+    }), include_groups=False)
+    return (encabezado[["proveedor", "periodo", "total_monto"]].join(resumen, how="inner")
+            .sort_values("importe_en_juego", ascending=False).reset_index())
