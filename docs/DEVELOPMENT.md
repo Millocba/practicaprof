@@ -28,6 +28,7 @@ No trabajar directamente sobre `main`.
 - **Python 3.12**. Es la versión con la que se verifican los tests y la que usa CI.
 - `pip install -r requirements.txt` instala la aplicación y las herramientas de test. El despliegue usa solo `streamlit_app/requirements.txt`.
 - `python generator_pipeline_maestro.py` genera todos los datos sintéticos con la semilla por defecto; `--seed` y `--output` permiten otros escenarios sin pisar los datos locales.
+- `python -m perfilador perfilar archivo.xlsx` genera el perfil agregado de una fuente externa en `perfiles/pendientes/`; `aprobar` y `comparar` completan el procedimiento de [perfiles/README.md](../perfiles/README.md). Se ejecuta junto a los datos: los archivos no se copian al repositorio.
 - `python -m pytest` es el comando de verificación: debe pasar antes de abrir un PR. GitHub Actions lo ejecuta en cada push a `main` o `dev-*` y en cada PR.
 - Los tests escriben en carpetas temporales; nunca usan `datasets/` ni una persistencia compartida.
 

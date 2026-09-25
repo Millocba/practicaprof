@@ -40,8 +40,9 @@ Cada ejecución deberá asociarse con versión de código, esquema, semilla, par
 | Unidad | Dónde está | Estado |
 |---|---|---|
 | Generación | `generator_pipeline_maestro.py` | Cinco entidades más `ground_truth.csv`, reproducible por semilla. Escenario realista: simulación diaria, estaciones, GPS diario y `casos_legitimos.csv` |
-| Calidad | `deteccion/reglas.py` | Duplicados, nulos y dominios sin vínculo |
-| Integración | `deteccion/reglas.py` (`emparejar_solicitudes`) | Solicitudes y cargas se emparejan por vehículo, fecha y litros (asignación óptima); facturas y cargas, por la referencia de cada línea. La limpieza de fuentes con defectos de formato sigue pendiente |
+| Perfilado | `perfilador/` | Perfil agregado de fuentes externas (estructura, formatos, calidad, relaciones) sin filas ni valores sensibles, y su comparación con los datos sintéticos; ver [perfiles/README.md](../perfiles/README.md) |
+| Calidad | `deteccion/reglas.py` | Duplicados, nulos y dominios sin vínculo, tal como llegan y normalizados (H1) |
+| Integración | `deteccion/reglas.py` (`emparejar_solicitudes`) | Solicitudes y cargas se emparejan por vehículo, fecha y litros (asignación óptima); facturas y cargas, por la referencia de cada línea. Normalización de dominios (`normalizar_dominio`) y lectura de fechas en dos formatos (`leer_fecha`) para los formatos de origen del escenario realista |
 | Análisis | `streamlit_app/pages/05_analisis_por_hipotesis.py` | Hallazgos de las reglas por hipótesis, sin ground truth; usa el catálogo único de `deteccion/hipotesis.py` |
 | Detección | `deteccion/reglas.py`, `deteccion/modelo.py`, `deteccion/evaluacion.py` | Reglas ingenuas y con contexto, Isolation Forest y modelo supervisado, evaluados contra el ground truth |
 | Hipótesis | `deteccion/hipotesis.py` | Contraste de cada hipótesis del escenario realista con veredicto calculado |

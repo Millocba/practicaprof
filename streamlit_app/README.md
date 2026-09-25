@@ -22,7 +22,7 @@ En la barra lateral se elige el **escenario**, y la elección vale para todas la
 
 | Página | Archivo | Qué muestra |
 |---|---|---|
-| Inicio | `app.py` | KPIs (vehículos, transacciones, vinculación consumo ↔ flota, facturación), estado de la generación y resumen de datasets |
+| Inicio | `app.py` | KPIs (vehículos, transacciones, vinculación consumo ↔ flota tal como llega y normalizada, facturación), estado de la generación y resumen de datasets |
 | Generador | `pages/01_generador.py` | Genera un dataset nuevo con otra cantidad de vehículos o semilla; **🔄 Refrescar** recarga los datos |
 | Datasets | `pages/02_datasets.py` | Explorar, filtrar y exportar cada tabla; muestra el grano, la clave y el diccionario de columnas de la tabla elegida |
 | Diccionario de datos | `pages/03_diccionario_de_datos.py` | Tablas (rol, grano, clave, filas), diagrama y tabla de relaciones, columnas de cada tabla (descargable en JSON) y catálogos de anomalías y casos legítimos del escenario, a partir del `diccionario.json` del generador |
