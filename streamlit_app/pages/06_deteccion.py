@@ -10,6 +10,7 @@ APP_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(APP_DIR / "utils"))
 sys.path.insert(0, str(APP_DIR.parent))
 
+from ayudas import seccion  # noqa: E402
 from data_loader import (  # noqa: E402
     NOMBRES_ESCENARIO,
     asegurar_datos_maestro,
@@ -21,7 +22,15 @@ from deteccion.reglas import ejecutar_reglas  # noqa: E402
 
 st.set_page_config(page_title="Detección y evaluación", page_icon="🎯", layout="wide")
 
-st.markdown("# 🎯 Detección por reglas y evaluación")
+seccion(
+    "🎯 Detección por reglas y evaluación", nivel=1,
+    ayuda="Esta página es el corazón metodológico del proyecto. Primero se ejecutan las reglas "
+          "sobre las entidades generadas; después se compara lo que encontraron con el ground "
+          "truth, que es la lista de anomalías que el generador inyectó a propósito. Conviene "
+          "separar las dos ideas: **detectar** es concluir que algo parece anómalo; **evaluar** "
+          "es medir si eso era cierto. Un F1 alto en un escenario donde las reglas se "
+          "escribieron contra el mismo generador no dice nada sobre cómo se comportarían con "
+          "datos reales.")
 st.markdown(
     "Las reglas analizan solo las entidades generadas; después sus alertas se comparan "
     "con el **ground truth** (las anomalías que inyectó el generador)."
@@ -82,25 +91,56 @@ else:
 
 # KPIs
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("Transacciones analizadas", f"{len(consumo):,}")
-col2.metric("Anomalías en el ground truth", f"{len(ground_truth):,}")
-col3.metric("Alertas emitidas", f"{len(alertas):,}")
-col4.metric("Reglas", por_regla["regla"].nunique())
+col1.metric("Transacciones analizadas", f"{len(consumo):,}",
+            help="Cargas de combustible que entraron al análisis. Es el denominador de todas "
+                 "las tasas de esta página: un recall del 80% significa que de cada 100 "
+                 "transacciones se detectaron 80, no que se detectaron 80 de 10.")
+col2.metric("Anomalías en el ground truth", f"{len(ground_truth):,}",
+            help="Anomalías que el generador inyectó a propósito y dejó anotadas. Son la verdad "
+                 "de referencia: ninguna regla las ve, solo se usan para medir después.")
+col3.metric("Alertas emitidas", f"{len(alertas):,}",
+            help="Filas que produjo el conjunto de reglas. Suele ser mayor que la cantidad de "
+                 "anomalías porque varias reglas pueden marcar la misma carga, y porque cada "
+                 "regla puede tener falsos positivos.")
+col4.metric("Reglas", por_regla["regla"].nunique(),
+            help="Reglas que corrieron con los datos disponibles. El número depende del "
+                 "escenario: en el realista hay reglas con contexto que en el didáctico no "
+                 "tienen las fuentes que necesitan.")
 
 formato = {"precision": "{:.1%}", "recall": "{:.1%}", "f1": "{:.3f}"}
 
-st.markdown("## Resultados por tipo de anomalía")
+seccion(
+    "Resultados por tipo de anomalía",
+    "Cada fila agrupa **todas las reglas que detectan el mismo tipo de anomalía**, por eso hay "
+    "menos filas que reglas. Las columnas son: **TP**, anomalías reales que se detectaron; "
+    "**FP**, alertas que no correspondían; **FN**, anomalías que se pasaron. La precisión "
+    "responde «de lo que marqué, ¿cuánto era cierto?» y el recall «de lo que había, "
+    "¿cuánto encontré?». Ojo: un F1 alto aquí no prueba nada sobre datos reales, porque las "
+    "reglas se escribieron conociendo cómo el generador inyecta cada anomalía.")
 st.caption("Cuando varias reglas detectan el mismo tipo, se cuentan juntas.")
 st.dataframe(por_tipo.style.format(formato, na_rep="—"), use_container_width=True, hide_index=True)
 
-st.markdown("## Resultados por regla")
+seccion(
+    "Resultados por regla",
+    "La misma medición pero una fila por regla, que es el nivel en el que se puede actuar: "
+    "aquí se ve qué regla concreta falla y por qué. Una regla puede tener recall bajo porque "
+    "detecta poco, o precisión baja porque marca de más. Fijate en **FN** para decidir a quién "
+    "le conviene revisar primero.")
 if legitimos is not None:
     st.caption("Falsos positivos por origen: **legítimos** (casos reales que parecen anomalía), "
                "**otra anomalía** (sí hay algo raro, pero de otro tipo) y **normales**.")
 st.dataframe(por_regla.style.format(formato, na_rep="—"), use_container_width=True, hide_index=True)
 
 # H2: umbral general vs historial del vehículo
-st.markdown("## H2 — Saltos de odómetro: umbral general vs. historial del vehículo")
+seccion(
+    "H2 — Saltos de odómetro: umbral general vs. historial del vehículo",
+    "Compara tres reglas sobre la misma anomalía, de la más simple a la más informada. El "
+    "**umbral fijo** dice «si entre dos cargas pasó mucho tiempo y muchos kilómetros, es raro», "
+    "pero no distingue un camión de una moto. El **historial del vehículo** compara cada carga "
+    "con el ritmo habitual de ese vehículo en particular, y por eso encuentra los saltos que "
+    "aparecen entre cargas muy espaciadas. La tercera agrega el descarte del error de tipeo y "
+    "el cruce con el GPS. Es la demostración de que *un umbral general no alcanza: el contexto "
+    "del vehículo vale más que el promedio de la flota*.")
 saltos = por_regla[por_regla["tipo_anomalia"] == "ODOMETRO_SALTO"].copy()
 if not saltos.empty:
     etiquetas = {
@@ -123,7 +163,15 @@ if not saltos.empty:
     )
 
 # Inspección de errores
-st.markdown("## 🔎 Inspeccionar errores")
+seccion(
+    "🔎 Inspeccionar errores",
+    "Acá se baja del número agregado a los registros concretos, que es donde se entiende por "
+    "qué una regla falla. Elegí una regla y vas a ver sus **falsos positivos** (lo que marcó y "
+    "no era anomalía) y sus **falsos negativos** (la anomalía que se le pasó). En la columna "
+    "**origen** de los falsos positivos se distingue el caso: si dice `normal`, la regla está "
+    "inventando; si dice un caso legítimo como `VIAJE_LARGO`, la regla funciona pero el "
+    "concepto de anomalía es demasiado crudo. El selector pone arriba las reglas que tienen "
+    "errores, para no tener que buscarlas.")
 conteo = por_regla.groupby("regla")[["fp", "fn"]].sum()
 opciones = sorted(conteo.index, key=lambda r: (conteo.loc[r].sum() == 0, r))
 col1, col2 = st.columns(2)
