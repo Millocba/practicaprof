@@ -1,0 +1,33 @@
+
+REPORTE FINAL - GENERADOR V5 DEFECTS-AWARE
+====================================================================================================
+
+📊 DATASET OVERVIEW
+  Total registros: 1217
+  Total defectos: 104
+  Cobertura de defectos: 8.5%
+  Detectabilidad: 94.2%
+  Corrección por pipeline: 100.0%
+
+📋 DEFECTOS POR TIPO
+  DATE_FORMAT                   :  48 ( 46.2%)
+  MATCHING_DEFECT               :  21 ( 20.2%)
+  CONSISTENCY_ERROR             :  13 ( 12.5%)
+  TEXT_NORMALIZATION            :  12 ( 11.5%)
+  NUMERIC_FORMAT                :  10 (  9.6%)
+
+🎯 DEFECTOS POR SEVERIDAD
+  media     :  72 ( 69.2%)
+  baja      :  32 ( 30.8%)
+
+✅ VALIDACIONES COMPLETADAS
+  ✓ Ground truth registry auditado
+  ✓ Normalización validada contra pipeline
+  ✓ Detectabilidad verificada
+  ✓ Defectos mapeados a tablas y columnas
+
+🚀 STATUS: DATASET LISTO PARA ANÁLISIS ML
+====================================================================================================
+Timestamp: 2026-09-22T18:26:33.720731
+Generador: v5_defects_aware
+Dataset: defects_aware_v5

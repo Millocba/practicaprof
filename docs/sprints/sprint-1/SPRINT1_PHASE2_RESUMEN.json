@@ -1,0 +1,22 @@
+{
+  "timestamp": "2026-09-10T04:11:53.304399",
+  "sprint": "Sprint 1 Phase 2",
+  "capas": {
+    "capa1": {
+      "tipo": "Flota",
+      "registros": 135
+    },
+    "capa3": {
+      "tipo": "Consumo Diario",
+      "meses": 2,
+      "transacciones": 1353,
+      "anomalias": 18
+    },
+    "capa4": {
+      "tipo": "Facturas",
+      "total": 65,
+      "importe": 32648107.270000007,
+      "anomalias": 2
+    }
+  }
+}

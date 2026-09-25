@@ -1,6 +1,6 @@
 # Entorno de desarrollo
 
-La etapa fundacional no instala dependencias. Las tecnologías se elegirán cuando exista una necesidad aprobada y quedarán fijadas en archivos reproducibles.
+Las dependencias están fijadas en archivos reproducibles. Toda dependencia nueva requiere aprobación humana y se justifica en el PR.
 
 ## Capacidades recomendadas
 
@@ -23,8 +23,12 @@ git switch -c docs/objetivo-acotado
 
 No trabajar directamente sobre `main`.
 
-## Requisitos futuros
+## Entorno de trabajo
 
-Cuando se incorpore código, el repositorio proporcionará versiones soportadas, dependencias bloqueadas, variables de ejemplo sin secretos, un comando de verificación, persistencias aisladas y un procedimiento para generar todos los datos sintéticos.
+- **Python 3.12**. Es la versión con la que se verifican los tests y la que usa CI.
+- `pip install -r requirements.txt` instala la aplicación y las herramientas de test. El despliegue usa solo `streamlit_app/requirements.txt`.
+- `python generator_pipeline_maestro.py` genera todos los datos sintéticos con la semilla por defecto; `--seed` y `--output` permiten otros escenarios sin pisar los datos locales.
+- `python -m pytest` es el comando de verificación: debe pasar antes de abrir un PR. GitHub Actions lo ejecuta en cada push a `main` o `dev-*` y en cada PR.
+- Los tests escriben en carpetas temporales; nunca usan `datasets/` ni una persistencia compartida.
 
 Antes de ejecutar un agente: limitar accesos, pedirle leer `AGENTS.md`, asignarle rama e issue, confirmar operaciones sensibles y revisar personalmente su PR.

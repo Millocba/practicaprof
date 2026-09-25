@@ -1,0 +1,20 @@
+{
+  "timestamp": "2026-09-22T18:26:33.720899",
+  "dataset": "defects_aware_v5",
+  "total_records": 1217,
+  "total_defects": 104,
+  "coverage_pct": 8.545603944124897,
+  "detectability_pct": 94.23076923076923,
+  "pipeline_correction_pct": 100.0,
+  "defects_by_type": {
+    "DATE_FORMAT": 48,
+    "MATCHING_DEFECT": 21,
+    "CONSISTENCY_ERROR": 13,
+    "TEXT_NORMALIZATION": 12,
+    "NUMERIC_FORMAT": 10
+  },
+  "defects_by_severity": {
+    "media": 72,
+    "baja": 32
+  }
+}
