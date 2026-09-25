@@ -9,6 +9,7 @@ APP_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(APP_DIR / "utils"))
 sys.path.insert(0, str(APP_DIR.parent))
 
+from ayudas import seccion  # noqa: E402
 from data_loader import (  # noqa: E402
     asegurar_datos_maestro,
     load_dataset_deteccion,
@@ -41,7 +42,13 @@ if flota.empty or consumo.empty or ground_truth.empty:
 # ============================================================================
 
 def pagina_didactica():
-    st.markdown("# 🤖 Isolation Forest vs. reglas")
+    seccion(
+        "🤖 Isolation Forest vs. reglas", nivel=1,
+        ayuda="Compara un método de **aprendizaje no supervisado** contra la línea base de "
+              "reglas, en el escenario didáctico. El modelo no ve ninguna etiqueta: aprende qué "
+              "es habitual y marca lo que se aparta. Sirve para responder una pregunta concreta: "
+              "¿alcanza con un método que no conoce el problema, o hace falta escribir las "
+              "reglas?")
     st.markdown(
         "Modelo **no supervisado**: aprende qué es habitual sin ver ninguna etiqueta y marca "
         "las transacciones que se apartan. Se compara con la línea base de reglas sobre las "
@@ -64,7 +71,12 @@ def pagina_didactica():
             "- La **precisión promedio** resume el ranking de puntajes sin depender de ningún umbral."
         )
 
-    st.markdown("## Comparación")
+    seccion(
+        "Comparación",
+        ayuda="Los dos métodos medidos con la misma vara: cuántos aciertos, cuántos falsos "
+              "positivos y cuántos se les pasaron. **Precisión promedio** es la única columna "
+              "comparable aunque los métodos usen umbrales distintos: mide si las alertas quedan "
+              "arriba en el ranking, sin cortar en ningún punto.")
     formato = {"precision": "{:.1%}", "recall": "{:.1%}", "f1": "{:.3f}", "precision_promedio": "{:.3f}"}
     st.dataframe(
         comparacion[["metodo", "tp", "fp", "fn", "precision", "recall", "f1", "precision_promedio"]]
@@ -72,14 +84,23 @@ def pagina_didactica():
         use_container_width=True, hide_index=True,
     )
 
-    st.markdown("## Recall por tipo de anomalía")
+    seccion(
+        "Recall por tipo de anomalía",
+        ayuda="El mismo total desglosado por tipo. Es donde se ve el problema real del modelo no "
+              "supervisado: puede tener un número global razonable y aun así fallar por completo "
+              "en una categoría, porque ahí lo anómalo es un grupo denso y deja de parecer raro.")
     fig = px.bar(por_tipo, x="tipo_anomalia", y="recall", color="metodo", barmode="group",
                  range_y=[0, 1.05], text_auto=".0%",
                  labels={"tipo_anomalia": "", "recall": "Recall", "metodo": "Método"})
     fig.update_layout(yaxis_tickformat=".0%", height=380)
     st.plotly_chart(fig, use_container_width=True)
 
-    st.markdown("## Distribución del puntaje de anomalía")
+    seccion(
+        "Distribución del puntaje de anomalía",
+        ayuda="Cada transacción en el eje horizontal según su puntaje: más a la derecha, más rara. "
+              "Lo útil es ver **si los dos grupos se separan**. Si se mezclan, el modelo no puede "
+              "distinguir por sí solo; si hay un punto de corte razonable, el método funciona "
+              "como clasificador aunque no haya escrito ninguna regla.")
     st.caption("La etiqueta real se usa solo para colorear el gráfico; el modelo no la ve.")
     reales = ids_con_anomalia_de_comportamiento(ground_truth)
     resultados["Etiqueta real"] = resultados["id"].isin(reales).map(
@@ -91,7 +112,13 @@ def pagina_didactica():
 
     ratio_exceso = por_tipo.set_index(["tipo_anomalia", "metodo"]).loc[
         ("EXCESO_VOLUMETRICO", "Isolation Forest"), "recall"]
-    st.markdown("## Lectura")
+    seccion(
+        "Lectura",
+        ayuda="La conclusión en dos puntos, y el límite que hay que tener presente: las reglas "
+              "sacan 100% porque se escribieron sabiendo cómo el generador inyecta cada "
+              "anomalía, así que ese número es un techo de referencia, no un resultado esperable "
+              "con datos reales. Lo mismo aplica al Isolation Forest: está midiéndose contra el "
+              "mismo generador.")
     st.markdown(
         "- Las **reglas** conocen cómo se inyectan las anomalías sintéticas, por eso son perfectas: "
         "sirven como techo de referencia, no como resultado esperable con datos reales.\n"
@@ -122,7 +149,13 @@ def puntuar(_modelo, clave_modelo, flota, consumo, estaciones, telemetria_diaria
 
 
 def pagina_realista():
-    st.markdown("# 🤖 ¿Qué revisar primero?")
+    seccion(
+        "🤖 ¿Qué revisar primero?", nivel=1,
+        ayuda="La pregunta práctica de una auditoría: con un equipo limitado, ¿qué se mira "
+              "primero? Un auditor no revisa todas las alertas, revisa las **N más "
+              "suspiciosas**. Esta página compara cinco maneras de ordenar esa cola y muestra, "
+              "para la mejor, el trabajo concreto que quedaría pendiente con el motivo de cada "
+              "caso.")
     st.markdown(
         "Un equipo de auditoría no revisa cientos de alertas: revisa las **N cargas más sospechosas**. "
         "Esta página compara cinco maneras de ordenar esa revisión y muestra, para la mejor, la cola "
@@ -153,8 +186,16 @@ def pagina_realista():
     legitimos = datos["casos_legitimos"]
     total = len(anomalas)
 
-    st.markdown("## ¿Cuántas cargas podés revisar?")
-    presupuesto = st.slider("Presupuesto de revisión (cargas)", 10, 300, 50, step=10, key="presupuesto")
+    seccion(
+        "¿Cuántas cargas podés revisar?",
+        ayuda="El presupuesto es la restricción real del trabajo: cuántas cargas alcanza a "
+              "revisar una persona o un equipo en el período. Mover el deslizador cambia la "
+              "tabla, las métricas y la cola. La columna que más importa es **casos legítimos "
+              "revisados en vano**: revisar una carga que estaba bien no es solo tiempo "
+              "perdido, es confianza que se gasta con el área que la pidió.")
+    presupuesto = st.slider("Presupuesto de revisión (cargas)", 10, 300, 50, step=10, key="presupuesto",
+                            help="Cuántas cargas alcanza a revisar el equipo en este período. "
+                                 "Es la restricción que define si un método sirve o no.")
     curva = priorizacion.curva_de_esfuerzo(puntajes, ground_truth, legitimos, maximo=300)
     en_presupuesto = curva[curva["revisadas"] == presupuesto].set_index("metodo").loc[priorizacion.METODOS]
 
@@ -177,7 +218,12 @@ def pagina_realista():
         use_container_width=True, hide_index=True,
     )
 
-    st.markdown("### Curva de esfuerzo")
+    seccion(
+        "Curva de esfuerzo", nivel=3,
+        ayuda="Cada curva dice qué fracción de las anomalías se encuentra según cuántas cargas se "
+              "revisan. La línea punteada marca el presupuesto actual. Un método que arranca alto "
+              "y después se aplana está revisando mejor los casos más graves primero; uno que "
+              "arranca bajo no mejora con más tiempo.")
     st.caption("Qué fracción de las anomalías se encuentra según cuántas cargas se revisan, en el orden de cada método.")
     fig = px.line(curva, x="revisadas", y="recall", color="metodo",
                   labels={"revisadas": "Cargas revisadas", "recall": "Anomalías encontradas", "metodo": "Método"})
@@ -185,14 +231,23 @@ def pagina_realista():
     fig.update_layout(yaxis_tickformat=".0%", height=400)
     st.plotly_chart(fig, use_container_width=True)
 
-    st.markdown("### Qué encuentra cada método")
+    seccion(
+        "Qué encuentra cada método", nivel=3,
+        ayuda="El mismo desglose por tipo de anomalía, agora con el presupuesto ya fijado. Sirve "
+              "para ver si a un método se le escapa una categoría concreta: puede ganar en total y "
+              "no detectar nada de un tipo.")
     por_tipo = priorizacion.recall_por_tipo(puntajes, ground_truth, presupuesto)
     fig = px.bar(por_tipo, x="tipo_anomalia", y="recall", color="metodo", barmode="group", range_y=[0, 1.05],
                  labels={"tipo_anomalia": "", "recall": f"Encontradas revisando {presupuesto}", "metodo": "Método"})
     fig.update_layout(yaxis_tickformat=".0%", height=380)
     st.plotly_chart(fig, use_container_width=True)
 
-    st.markdown("## 📋 Cola de revisión")
+    seccion(
+        "📋 Cola de revisión",
+        ayuda="El resultado accionable: la lista ordenada de cargas a revisar, con la "
+              "**prioridad** y el **motivo** por el que se marcaron. El motivo es lo que la "
+              "distingue de un número: es lo que permite que otra persona repita el criterio o "
+              "lo discuta. Cambiá el método de ordenamiento arriba y la cola se recalcula.")
     col1, col2 = st.columns([2, 1])
     with col1:
         metodo = st.selectbox("Ordenar según", priorizacion.METODOS, index=priorizacion.METODOS.index("Combinado"),
@@ -212,13 +267,22 @@ def pagina_realista():
     st.download_button("⬇️ Descargar la cola (CSV)", cola.to_csv(index=False), file_name="cola_de_revision.csv",
                        mime="text/csv")
 
-    st.markdown("## 🚗 Vehículos a auditar")
+    seccion(
+        "🚗 Vehículos a auditar",
+        ayuda="Agrupado por vehículo en vez de por carga. Sirve para el seguimiento: si un mismo "
+              "vehículo aparece muchas veces, el problema no es un evento aislado sino un patrón "
+              "que conviene tratar a nivel del vehículo, con su conductor o su estado.")
     st.caption(f"Vehículos con más cargas entre las {presupuesto} más sospechosas según {metodo}.")
     vehiculos = priorizacion.vehiculos_prioritarios(puntajes, metodo, consumo, cantidad_cargas=presupuesto)
     info = flota.set_index("Matricula")[["Dominio", "TipoVehiculo", "Estado", "DireccionGral"]]
     st.dataframe(vehiculos.join(info, on="vehiculo_id").head(20), use_container_width=True, hide_index=True)
 
-    st.markdown("## 🧾 Facturas a revisar")
+    seccion(
+        "🧾 Facturas a revisar",
+        ayuda="La otra mitad de la auditoría: la facturación del proveedor contra las cargas "
+              "registradas. Acá el problema no es el comportamiento del vehículo sino que lo "
+              "facturado no coincide con lo registrado: líneas que no existen, duplicadas, "
+              "precios inflados o totales que no cuadran con sus líneas.")
     st.caption("Conciliación de cada factura contra sus líneas y de cada línea contra la carga que referencia. "
                "Se ordenan por el importe en juego.")
     facturas = priorizacion.facturas_a_revisar(datos["facturacion"], datos["facturacion_detalle"], alertas)
@@ -230,7 +294,12 @@ def pagina_realista():
         col2.metric("Importe en juego", f"${facturas['importe_en_juego'].sum():,.0f}")
         st.dataframe(facturas, use_container_width=True, hide_index=True)
 
-    st.markdown("## 🔍 Qué mira el modelo supervisado")
+    seccion(
+        "🔍 Qué mira el modelo supervisado",
+        ayuda="Qué variables usa el modelo y cuánto pesan. Esta es la parte que hay que mirar con "
+              "más cuidado: si una sola variable domina, el modelo puede estar aprendiendo un "
+              "truco del generador en vez de una relación real. Es un modelo de árbol, así que "
+              "la importancia no implica causalidad: dice qué usa para separar, no por qué.")
     st.caption(f"Entrenado con {n_entrenamiento:,} cargas de {len(semillas)} períodos simulados anteriores "
                f"({n_anomalas} anomalías confirmadas).")
     importancia = priorizacion.importancia_de_variables(modelo, variables.columns)
@@ -242,7 +311,12 @@ def pagina_realista():
     reglas_i = en_presupuesto.loc["Reglas ingenuas"]
     combinado = en_presupuesto.loc["Combinado"]
     iforest = en_presupuesto.loc["Isolation Forest"]
-    st.markdown("## Lectura")
+    seccion(
+        "Lectura",
+        ayuda="Síntesis de los cinco métodos y, sobre todo, el **límite** del ejercicio: el modelo "
+              "supervisado se entrena y se evalúa con datos del mismo generador, así que mide "
+              "cuánto aporta cada fuente bajo los supuestos del escenario simulado, no el "
+              "desempeño esperable con datos reales.")
     st.markdown(
         f"- Revisando **{presupuesto} cargas**, las reglas ingenuas encuentran {int(reglas_i['encontradas'])} "
         f"anomalías y gastan {int(reglas_i['legitimos_revisados'])} revisiones en casos legítimos; el método "
