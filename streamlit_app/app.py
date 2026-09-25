@@ -200,6 +200,15 @@ with col1:
     - Catálogos de anomalías y casos legítimos
     """)
 
+with col2:
+    st.markdown("""
+    ### 📚 8. Documentación
+    La documentación con valores actuales
+    - Estado actual del proyecto
+    - Bitácora de cambios
+    - Descarga en .md o .zip
+    """)
+
 # Status boxes (computed from the loaded data, not hardcoded)
 st.markdown("---")
 st.markdown("## ✅ Estado de la Generación")

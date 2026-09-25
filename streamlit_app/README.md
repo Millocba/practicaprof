@@ -29,6 +29,7 @@ En la barra lateral se elige el **escenario**, y la elección vale para todas la
 | Análisis por hipótesis | `pages/05_analisis_por_hipotesis.py` | Qué encuentran las reglas en los datos, sin usar el ground truth: calidad de datos y una pestaña por hipótesis del escenario (H1 a H9 en el realista; H1, H2 y H3a en el didáctico) con el antes y después de la regla ingenua a la regla con contexto y los casos concretos |
 | Detección | `pages/06_deteccion.py` | Reglas evaluadas contra el ground truth; en el escenario realista, el origen de cada falso positivo (caso legítimo, otra anomalía o carga normal) y un explorador de errores |
 | Hipótesis | `pages/07_hipotesis.py` | Validación contra el ground truth, siempre en el escenario realista: para cada hipótesis compara la regla ingenua con la regla con contexto y da el veredicto calculado, las falsas alarmas y casos concretos |
+| Documentación | `pages/09_documentacion.py` | Los `.md` del proyecto con variables que toman los valores actuales (`docs/ESTADO_ACTUAL.md`), la bitácora (`docs/BITACORA.md`) más el historial de git, y descarga de un documento o de todos en `.zip` |
 | Modelo de ML | `pages/08_modelo_ml.py` | Realista: qué revisar primero según un presupuesto de revisión, curva de esfuerzo de cinco métodos, cola de revisión con motivos (descargable), vehículos a auditar y facturas a revisar ordenadas por importe en juego. Didáctico: Isolation Forest comparado con las reglas |
 
 ## Datos
@@ -37,6 +38,15 @@ En la barra lateral se elige el **escenario**, y la elección vale para todas la
 - La primera vez que se abre la página de ML en el escenario realista, el modelo supervisado se entrena con tres datasets de otras semillas. Tarda unos 10 segundos y queda en memoria.
 - Los datos se cachean. Después de generar desde la página Generador, la caché se limpia sola.
 - Si en disco hay datos de una versión anterior del generador, sin `ground_truth.csv`, se regeneran automáticamente.
+
+## Documentación viva
+
+Cualquier `.md` de la lista de `utils/documentacion.py` (`DOCUMENTOS`) se muestra en la página **Documentación**. Dentro del texto se pueden usar variables con la forma `{{ nombre }}`, por ejemplo `{{ filas.consumo }}` o `{{ hipotesis.tabla }}`: al mostrarlo o descargarlo se reemplazan por los valores de los datos en uso. La vista **🔣 Variables** lista todas las disponibles.
+
+- Para sumar un documento, agregalo a `DOCUMENTOS`.
+- Para sumar una variable, agregala en `construir_contexto`.
+- Un test verifica que ningún documento quede con variables sin valor.
+- La bitácora (`docs/BITACORA.md`) se actualiza a mano: una fila nueva arriba de todo por cada cambio importante, con el motivo.
 
 ## Desplegar en Streamlit Community Cloud
 

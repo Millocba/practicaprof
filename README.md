@@ -168,6 +168,8 @@ legacy/                         generadores, notebooks y etapa inicial anteriore
 - [Límite de metadatos reales](docs/REAL_DATA_BOUNDARY.md)
 - [Evolución de los generadores](legacy/EVOLUCION.md)
 - [Registro del Sprint 1](docs/sprints/sprint-1/README.md)
+- [Estado actual](docs/ESTADO_ACTUAL.md) (con valores vivos en la página Documentación de la aplicación)
+- [Bitácora](docs/BITACORA.md)
 
 Las personas integrantes conservan la autoridad final sobre las decisiones y sobre `main`. Las IA colaboran mediante ramas y pull requests sujetos a revisión humana.
 
