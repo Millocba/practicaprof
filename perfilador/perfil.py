@@ -16,6 +16,7 @@ import math
 import re
 import unicodedata
 from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -337,6 +338,43 @@ def leer_tablas(archivo, nombre):
         if numeros.notna().mean() >= 0.98:
             df[columna] = pd.to_numeric(df[columna], errors="coerce")
     return {base: df}
+
+
+EXTENSIONES = (".csv", ".xlsx", ".xlsm", ".xls")
+
+
+def patron_de_nombre(nombre):
+    """Nombre de archivo sin sus números: `consumo_2025-09-01` -> `consumo_9999-99-99`."""
+    return re.sub(r"\d", "9", nombre)
+
+
+def tablas_de_rutas(rutas):
+    """Lee archivos o carpetas (recorridas completas) y agrupa los archivos del mismo tipo.
+
+    Los archivos cuyo nombre coincide salvo por los números (uno por día, por mes...) forman
+    una sola tabla con el patrón como nombre, así el perfil no guarda fechas ni otros números de
+    los nombres. Solo lee: no escribe nada junto a los archivos. Devuelve las tablas y un resumen
+    con la cantidad de archivos por tabla y los que no se pudieron leer, por tipo de error.
+    """
+    archivos = []
+    for ruta in map(Path, rutas):
+        if ruta.is_dir():
+            archivos += sorted(a for a in ruta.rglob("*") if a.is_file() and a.suffix.lower() in EXTENSIONES)
+        elif ruta.suffix.lower() in EXTENSIONES:
+            archivos.append(ruta)
+    partes, conteo, errores = {}, {}, {}
+    for archivo in archivos:
+        try:
+            leidas = leer_tablas(archivo, archivo.name)
+        except Exception as error:  # noqa: BLE001 - el mensaje podría incluir un valor
+            errores[type(error).__name__] = errores.get(type(error).__name__, 0) + 1
+            continue
+        for nombre, df in leidas.items():
+            clave = patron_de_nombre(nombre)
+            partes.setdefault(clave, []).append(df)
+            conteo[clave] = conteo.get(clave, 0) + 1
+    tablas = {nombre: pd.concat(dfs, ignore_index=True) if len(dfs) > 1 else dfs[0] for nombre, dfs in partes.items()}
+    return tablas, {"archivos_por_tabla": conteo, "no_leidos_por_error": errores}
 
 
 def perfilar(tablas, origen="fuente"):

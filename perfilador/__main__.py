@@ -1,8 +1,10 @@
 """Perfilador de fuentes, desde la línea de comandos.
 
 Uso:
-    python -m perfilador perfilar archivo1.xlsx archivo2.csv --origen "fuentes reales"
-        Escribe perfiles/pendientes/perfil_AAAA-MM-DD.json. Solo imprime conteos.
+    python -m perfilador perfilar archivo1.xlsx carpeta/ --origen "fuentes reales" [--salida perfil.json]
+        Acepta archivos y carpetas (se recorren completas). Los archivos del mismo tipo (mismo
+        nombre salvo los números) se agrupan en una tabla. Escribe
+        perfiles/pendientes/perfil_AAAA-MM-DD.json o --salida. Solo imprime conteos.
     python -m perfilador aprobar perfiles/pendientes/perfil_X.json --responsable "Nombre" [--notas "..."]
         Registra la revisión manual y lo pasa a perfiles/aprobados/ (se versiona).
     python -m perfilador comparar perfiles/aprobados/perfil_X.json [--escenario realista]
@@ -16,7 +18,7 @@ from datetime import date
 from pathlib import Path
 
 from perfilador.comparar import comparar, informe_markdown, perfil_de_directorio, sugerir_emparejamiento
-from perfilador.perfil import leer_tablas, perfilar
+from perfilador.perfil import perfilar, tablas_de_rutas
 
 RAIZ = Path(__file__).parent.parent
 PENDIENTES = RAIZ / "perfiles" / "pendientes"
@@ -30,13 +32,17 @@ def guardar(perfil, destino):
 
 
 def cmd_perfilar(args):
-    tablas = {}
-    for archivo in args.archivos:
-        tablas.update(leer_tablas(Path(archivo), Path(archivo).name))
+    tablas, lectura = tablas_de_rutas(args.archivos)
+    if not tablas:
+        raise SystemExit("No se encontraron archivos CSV o Excel legibles.")
     perfil = perfilar(tablas, origen=args.origen)
+    perfil["lectura"] = lectura
     destino = Path(args.salida) if args.salida else PENDIENTES / f"perfil_{date.today().isoformat()}.json"
     guardar(perfil, destino)
-    print(f"Perfil de {len(perfil['tablas'])} tablas y {len(perfil['relaciones'])} relaciones en {destino}")
+    print(f"Perfil de {len(perfil['tablas'])} tablas ({sum(lectura['archivos_por_tabla'].values())} archivos) "
+          f"y {len(perfil['relaciones'])} relaciones en {destino}")
+    if lectura["no_leidos_por_error"]:
+        print("Archivos no leídos, por tipo de error:", lectura["no_leidos_por_error"])
     print("Revisalo antes de aprobarlo: python -m perfilador aprobar", destino, '--responsable "Nombre"')
 
 

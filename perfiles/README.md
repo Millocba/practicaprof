@@ -24,6 +24,17 @@ Perfiles **agregados** de fuentes de datos externas: estructura y calidad, sin f
    python -m perfilador perfilar archivo1.xlsx archivo2.csv --origen "fuentes reales"
    ```
    O desde la página **🔬 Perfil de fuentes** con la app corriendo en la máquina local. En la app publicada esa opción está deshabilitada, porque los archivos viajarían a un servidor externo.
+   Se le pueden pasar carpetas: se recorren completas y se leen solo los CSV y Excel. Los archivos del mismo tipo (mismo nombre salvo los números, por ejemplo uno por día) forman una sola tabla cuyo nombre es el patrón (`consumo_9999-99-99`), así el perfil no guarda fechas ni otros números de los nombres.
+
+   **Si los archivos están en un servidor**, el perfilador se ejecuta allí, en una terminal del servicio, y solo sale el perfil:
+   ```bash
+   mkdir -p /tmp/p/perfilador && cd /tmp/p
+   for f in __init__ __main__ perfil comparar; do
+     curl -fsSL https://raw.githubusercontent.com/Millocba/practicaprof/dev-hector/perfilador/$f.py -o perfilador/$f.py
+   done
+   python -m perfilador perfilar /ruta/de/los/archivos --origen "fuentes reales" --salida /tmp/perfil.json
+   ```
+   Necesita Python con `pandas` y `openpyxl`. Solo lee los archivos y escribe el perfil en `/tmp`, fuera de la carpeta de datos. Después se copia el perfil a `perfiles/pendientes/` y se borra `/tmp/p` y `/tmp/perfil.json` del servidor.
 2. **Revisar** el perfil en `pendientes/`: que no incluya nombres, identificadores, lugares ni combinaciones que permitan reconocer una entidad. Si hay dudas, no se aprueba.
 3. **Aprobar**, registrando quién lo revisó:
    ```bash

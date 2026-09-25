@@ -180,3 +180,25 @@ def test_pagina_compara_un_perfil(monkeypatch, perfil):
     at.selectbox(key="perfil_elegido").set_value("Recién generado (sin guardar)").run()
     assert not at.exception
     assert [m.label for m in at.metric][:3] == ["Altas", "Medias", "Bajas"]
+
+
+def test_carpeta_agrupa_archivos_del_mismo_tipo_sin_guardar_sus_nombres(tmp_path, tablas):
+    volumen = tmp_path / "volumen"
+    (volumen / "uploads" / "2025-09").mkdir(parents=True)
+    cargas = tablas["cargas"]
+    for i, dia in enumerate(["2025-09-01", "2025-09-02", "2025-09-03"]):
+        cargas.iloc[i * 400:(i + 1) * 400].to_csv(volumen / "uploads" / "2025-09" / f"consumo_{dia}.csv", index=False)
+    tablas["vehiculos"].to_excel(volumen / "flota.xlsx", index=False)
+    (volumen / "factura.pdf").write_bytes(b"%PDF-1.4")        # se ignora: no es CSV ni Excel
+    (volumen / "roto.xlsx").write_bytes(b"no es un excel")      # se cuenta como no leído
+    salida = tmp_path / "perfil.json"
+    antes = {p: p.stat().st_mtime for p in volumen.rglob("*")}
+    subprocess.run([sys.executable, "-m", "perfilador", "perfilar", str(volumen), "--salida", str(salida)],
+                   cwd=RAIZ, check=True, capture_output=True)
+    perfil = json.loads(salida.read_text(encoding="utf-8"))
+    assert set(perfil["tablas"]) == {"consumo_9999-99-99", "flota"}
+    assert perfil["lectura"]["archivos_por_tabla"] == {"consumo_9999-99-99": 3, "flota": 1}
+    assert sum(perfil["lectura"]["no_leidos_por_error"].values()) == 1
+    assert perfil["tablas"]["consumo_9999-99-99"]["filas_aprox"] == 1200
+    assert "2025-09-01" not in salida.read_text(encoding="utf-8")
+    assert {p: p.stat().st_mtime for p in volumen.rglob("*")} == antes  # no escribe junto a los archivos
