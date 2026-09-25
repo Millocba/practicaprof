@@ -27,14 +27,61 @@ python generator_pipeline_maestro.py --n_flota 500 --seed 7 --output otra/carpet
 
 ## Claves y relaciones
 
-```text
-flota.Matricula ──< consumo.vehiculo_id
-flota.Matricula ──< solicitudes.vehiculo_id
-flota.Dominio   ──< telemetria.Placa
-flota.Dominio   ──< consumo.dominio        (se rompe en las anomalías DOMINIO_INVALIDO)
-consumo (por mes) ──> facturacion.periodo
-consumo.id ──< ground_truth.id_registro
+El generador escribe, junto a los datos, un **`diccionario.json`** con el grano, la clave, las columnas (tipo y descripción) y las relaciones del escenario generado. Es la fuente de verdad de este documento: un test verifica que describa exactamente las columnas de cada archivo, en su orden. La app lo muestra en la página **Datasets**.
+
+Diagrama del escenario realista. Las flechas punteadas no son claves: se resuelven por emparejamiento o por agregación. En naranja, las tablas de evaluación, que no son entradas de las reglas ni de los modelos. El escenario didáctico usa el subconjunto de `flota`, `telemetria`, `consumo`, `solicitudes`, `facturacion` y `ground_truth`.
+
+```mermaid
+flowchart LR
+  consumo -->|"vehiculo_id (N:1)"| flota
+  consumo -->|"dominio (N:1)"| flota
+  consumo -->|"numero_tarjeta (N:1)"| flota
+  consumo -->|"estacion (N:1)"| estaciones
+  solicitudes -->|"vehiculo_id (N:1)"| flota
+  solicitudes -.->|"vehiculo_id + fecha_solicitud + litros_autorizados (1:1)"| consumo
+  telemetria -->|"Placa (N:1)"| flota
+  telemetria_diaria -->|"Placa (N:1)"| telemetria
+  facturacion -->|"proveedor (N:1)"| estaciones
+  facturacion_detalle -.->|"numero_factura (N:1)"| facturacion
+  facturacion_detalle -->|"referencia_consumo (N:1)"| consumo
+  ground_truth -->|"id_registro (N:1)"| consumo
+  ground_truth -->|"id_registro (N:1)"| facturacion
+  ground_truth -->|"id_registro (N:1)"| facturacion_detalle
+  casos_legitimos -->|"id_registro (N:1)"| consumo
+  casos_legitimos -->|"id_registro (N:1)"| facturacion
+  casos_legitimos -->|"id_registro (N:1)"| facturacion_detalle
+  facturacion -.->|"periodo (1:N)"| consumo
+  classDef evaluacion fill:#fdf1dc,stroke:#c9a15a
+  class ground_truth,casos_legitimos evaluacion
 ```
+
+| Tabla | Columna | Se relaciona con | Cardinalidad | Escenarios | Nota |
+|---|---|---|---|---|---|
+| `consumo` | `vehiculo_id` | `flota` (`Matricula`) | N:1 | ambos | — |
+| `consumo` | `dominio` | `flota` (`Dominio`) | N:1 | ambos | se rompe en DOMINIO_INVALIDO |
+| `consumo` | `numero_tarjeta` | `flota` (`NumeroTarjeta`) | N:1 | ambos | — |
+| `consumo` | `estacion` | `estaciones` (`codigo`) | N:1 | realista | — |
+| `solicitudes` | `vehiculo_id` | `flota` (`Matricula`) | N:1 | ambos | — |
+| `solicitudes` | `vehiculo_id + fecha_solicitud + litros_autorizados` | `consumo` (`vehiculo_id + fecha + litros`) | 1:1 | realista | sin clave: se empareja por vehículo, fecha y litros |
+| `telemetria` | `Placa` | `flota` (`Dominio`) | N:1 | ambos | uno por vehículo en el realista |
+| `telemetria_diaria` | `Placa` | `telemetria` (`Placa`) | N:1 | realista | — |
+| `facturacion` | `proveedor` | `estaciones` (`marca`) | N:1 | realista | — |
+| `facturacion_detalle` | `numero_factura` | `facturacion` (`numero_factura`) | N:1 | realista | la suma de las líneas es el total (salvo TOTAL_INFLADO) |
+| `facturacion_detalle` | `referencia_consumo` | `consumo` (`id`) | N:1 | realista | se rompe en LINEA_SIN_CONSUMO; dos líneas en LINEA_DUPLICADA |
+| `ground_truth` | `id_registro` | `consumo / facturacion / facturacion_detalle` (`id`) | N:1 | ambos | según la columna tabla |
+| `casos_legitimos` | `id_registro` | `consumo / facturacion / facturacion_detalle` (`id`) | N:1 | realista | según la columna tabla |
+| `facturacion` | `periodo` | `consumo` (`fecha (mes)`) | 1:N | didáctico | suma de las cargas del mes |
+
+En el escenario didáctico, `ground_truth` solo referencia cargas (`consumo`).
+
+### Tablas maestras y de detalle
+
+Algunas tablas describen la misma entidad con distinto grano; no son duplicados:
+
+- `telemetria` (un dispositivo: IMEI, línea, estado) y `telemetria_diaria` (un dispositivo por día: km y recorrido).
+- `facturacion` (una factura: proveedor, período, total, estado) y `facturacion_detalle` (una línea: qué carga factura, litros, precio).
+
+Hay datos que podrían calcularse desde otra tabla y se guardan igual, porque su diferencia es lo que se audita: el total de la factura frente a la suma de sus líneas (H9), el dominio de la carga frente al del vehículo (H1), el odómetro frente a los km del GPS (H2c y H5), el precio facturado frente al de la carga (H9).
 
 ## flota.csv
 

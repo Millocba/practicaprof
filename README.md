@@ -142,7 +142,7 @@ streamlit run streamlit_app/app.py              # abre la aplicación
 - La aplicación genera los datos por su cuenta si no existen.
 - `datasets/` está excluido de Git: se versionan el generador, las pruebas y la configuración, y los datos se recrean con la semilla.
 
-El detalle de cada archivo, columna y tipo de anomalía está en el [diccionario de datos](docs/DICCIONARIO_DATOS.md).
+Cada corrida del generador escribe también un `diccionario.json` con el grano, las columnas y las relaciones de las tablas generadas. El detalle de cada archivo, las relaciones entre tablas (con diagrama) y los tipos de anomalía están en el [diccionario de datos](docs/DICCIONARIO_DATOS.md).
 
 ## Estructura
 

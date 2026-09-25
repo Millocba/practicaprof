@@ -195,6 +195,242 @@ TASA_SOLICITUDES_SIN_CARGA = 0.08   # solicitudes rechazadas o pendientes que no
 TASAS_CALIDAD_REALISTA = {"DOMINIO_INVALIDO": 0.003, "VALOR_NULO": 0.005, "DUPLICADO": 0.003}
 
 
+# ============================================================================
+# Diccionario de datos y relaciones
+#
+# Fuente única de la descripción de cada archivo: el generador escribe
+# `diccionario.json` con las tablas y relaciones del escenario generado, y un test
+# verifica que describa todas las columnas que se producen.
+# ============================================================================
+
+AMBOS = ("didactico", "realista")
+REALISTA = ("realista",)
+
+# tabla: grano, clave, escenarios y columnas {nombre: (tipo, descripción[, escenarios])}
+TABLAS = {
+    "flota": {
+        "grano": "un vehículo", "clave": "Matricula", "escenarios": AMBOS,
+        "columnas": {
+            "Matricula": ("texto", "Clave del vehículo, VEH-NNNNNN"),
+            "Dominio": ("texto", "Dominio sintético ABNNNNCD, único; no proviene de un padrón"),
+            "Estado": ("categoría", "EN SERVICIO, EN REPARACION, FUERA DE SERVICIO o BAJA"),
+            "DireccionGral": ("categoría", "Dirección ficticia a la que pertenece el vehículo"),
+            "Dependencia": ("categoría", "Dependencia ficticia dentro de la dirección"),
+            "Identificable": ("SI / NO", "Si el vehículo lleva identificación visible"),
+            "TipoVehiculo": ("categoría", "SEDAN, PICK-UP, MOTOCICLETA, CAMIONETA, CAMION, AMBULANCIA, UTILITARIO o BOMBERO"),
+            "Marca": ("categoría", "Marca de un catálogo público general"),
+            "Modelo": ("texto", "Modelo genérico MODEL-AAAA"),
+            "Año": ("entero", "Año del vehículo"),
+            "TipoCombustible": ("categoría", "GASOIL, NAFTA o GLP"),
+            "CapacidadTanque": ("decimal (L)", "Capacidad registrada del tanque"),
+            "NumeroMotor": ("texto", "Número de motor"),
+            "NumeroChasis": ("texto", "Número de chasis"),
+            "NumeroTarjeta": ("texto", "Tarjeta de combustible asignada"),
+            "LimiteSaldo": ("decimal", "Límite de saldo de la tarjeta"),
+            "LimiteLitros": ("decimal (L)", "Límite de litros de la tarjeta"),
+            "SubEstado": ("categoría", "ACTIVO si está EN SERVICIO; si no, INACTIVO"),
+            "FechaEstado": ("fecha", "Último cambio a un estado distinto de EN SERVICIO; vacía si está en servicio",
+                            REALISTA),
+        },
+    },
+    "telemetria": {
+        "grano": "un dispositivo GPS", "clave": "IMEI", "escenarios": AMBOS,
+        "columnas": {
+            "IMEI": ("entero", "Identificador del dispositivo"),
+            "Alias": ("texto", "Alias del dispositivo, DEV-NNNNNN"),
+            "Placa": ("texto", "Dominio del vehículo en el que está instalado"),
+            "MSISDN": ("entero", "Línea sintética del dispositivo"),
+            "Modelo": ("texto", "Modelo del dispositivo"),
+            "Tipo": ("texto", "Siempre GPS"),
+            "Estado": ("categoría", "ONLINE u OFFLINE"),
+            "Bateria": ("decimal (%)", "Nivel de batería"),
+            "UltimaConexion": ("fecha y hora", "Último reporte del dispositivo"),
+            "Latitud": ("decimal", "Última posición: latitud"),
+            "Longitud": ("decimal", "Última posición: longitud"),
+            "Odometro": ("entero (km)", "Odómetro del dispositivo"),
+        },
+    },
+    "telemetria_diaria": {
+        "grano": "un dispositivo y un día", "clave": "Placa + fecha", "escenarios": REALISTA,
+        "columnas": {
+            "Placa": ("texto", "Dominio del vehículo"),
+            "fecha": ("fecha", "Día"),
+            "km_gps": ("decimal (km)", "km recorridos ese día según el GPS"),
+            "lat_inicio": ("decimal", "Latitud al empezar el recorrido del día"),
+            "lon_inicio": ("decimal", "Longitud al empezar el recorrido del día"),
+            "lat_fin": ("decimal", "Latitud al terminar el recorrido del día"),
+            "lon_fin": ("decimal", "Longitud al terminar el recorrido del día"),
+        },
+    },
+    "estaciones": {
+        "grano": "una estación de servicio", "clave": "codigo", "escenarios": REALISTA,
+        "columnas": {
+            "codigo": ("texto", "Código de la estación, EST-NNN"),
+            "marca": ("categoría", "Marca de la estación; es el proveedor que factura"),
+            "ubicacion": ("categoría", "LOCAL (zona de operación) o RUTA"),
+            "latitud": ("decimal", "Latitud"),
+            "longitud": ("decimal", "Longitud"),
+        },
+    },
+    "consumo": {
+        "grano": "una carga de combustible", "clave": "id", "escenarios": AMBOS,
+        "columnas": {
+            "id": ("texto", "Clave de la carga, CONS-NNNNNNNN"),
+            "vehiculo_id": ("texto", "Vehículo que cargó"),
+            "dominio": ("texto", "Dominio informado en la carga; puede no coincidir con la flota"),
+            "fecha": ("fecha", "Fecha de la carga"),
+            "estacion": ("texto", "Estación (marca en el didáctico, código en el realista); puede estar vacía"),
+            "producto": ("categoría", "Combustible cargado"),
+            "litros": ("decimal (L)", "Litros cargados"),
+            "precio_unitario": ("decimal", "Precio por litro"),
+            "importe_total": ("decimal", "litros × precio_unitario"),
+            "numero_tarjeta": ("texto", "Tarjeta de combustible usada"),
+            "conductor": ("texto", "Conductor, CONDUCTOR-N; puede estar vacío"),
+            "odometro": ("entero (km)", "Lectura del odómetro informada en la carga; puede estar vacía"),
+        },
+    },
+    "solicitudes": {
+        "grano": "una solicitud de combustible", "clave": "id", "escenarios": AMBOS,
+        "columnas": {
+            "id": ("texto", "Clave de la solicitud, SOL-NNNNNNNN"),
+            "vehiculo_id": ("texto", "Vehículo solicitante"),
+            "dominio": ("texto", "Dominio del vehículo solicitante"),
+            "fecha_solicitud": ("fecha", "Fecha de la solicitud"),
+            "litros_solicitados": ("decimal (L)", "Litros pedidos"),
+            "litros_autorizados": ("decimal (L)", "Litros autorizados; 0 si fue rechazada o está pendiente"),
+            "estado": ("categoría", "APROBADA, PENDIENTE o RECHAZADA"),
+            "centro_costo": ("texto", "Centro de costo, CC-NNN"),
+            "responsable": ("texto", "Responsable, RESP-N"),
+            "observaciones": ("texto", "Observaciones; puede estar vacía"),
+        },
+    },
+    "facturacion": {
+        "grano": "una factura mensual (de toda la flota en el didáctico; de un proveedor en el realista)",
+        "clave": "numero_factura", "escenarios": AMBOS,
+        "columnas": {
+            "numero_factura": ("texto", "Número de factura"),
+            "proveedor": ("categoría", "Marca de estación que factura", REALISTA),
+            "fecha_factura": ("fecha", "Último día del período"),
+            "periodo": ("texto", "Período facturado, AAAA-MM"),
+            "total_litros": ("decimal (L)", "Litros facturados"),
+            "total_monto": ("decimal", "Importe sin IVA"),
+            "iva": ("decimal", "21% de total_monto"),
+            "monto_total_con_iva": ("decimal", "total_monto × 1,21"),
+            "estado": ("categoría", "PAGADA, PENDIENTE o VENCIDA"),
+            "numero_transacciones": ("entero", "Cantidad de cargas facturadas"),
+        },
+    },
+    "facturacion_detalle": {
+        "grano": "una línea de factura", "clave": "numero_linea", "escenarios": REALISTA,
+        "columnas": {
+            "numero_linea": ("texto", "Clave de la línea, LIN-NNNNNNNN"),
+            "numero_factura": ("texto", "Factura a la que pertenece"),
+            "referencia_consumo": ("texto", "Carga que factura; vacía en los ajustes"),
+            "concepto": ("categoría", "COMBUSTIBLE o AJUSTE"),
+            "fecha": ("fecha", "Fecha de la carga según el proveedor"),
+            "dominio": ("texto", "Dominio según el proveedor"),
+            "litros": ("decimal (L)", "Litros facturados"),
+            "precio_unitario": ("decimal", "Precio por litro facturado"),
+            "importe": ("decimal", "Importe de la línea"),
+            "descripcion": ("texto", "Motivo del ajuste; vacía en las líneas de combustible"),
+        },
+    },
+    "ground_truth": {
+        "grano": "una anomalía inyectada (verdad de referencia: no es entrada de los modelos)",
+        "clave": "tabla + id_registro + tipo_anomalia", "escenarios": AMBOS,
+        "columnas": {
+            "tabla": ("categoría", "Tabla del registro afectado"),
+            "id_registro": ("texto", "Clave del registro afectado en esa tabla"),
+            "vehiculo_id": ("texto", "Vehículo involucrado, si corresponde"),
+            "tipo_anomalia": ("categoría", "Tipo de anomalía (ver CATALOGO_ANOMALIAS)"),
+            "columna": ("texto", "Columna donde se manifiesta"),
+            "hipotesis": ("categoría", "Hipótesis que la anomalía permite contrastar"),
+            "severidad": ("categoría", "ALTA, MEDIA o BAJA"),
+            "descripcion": ("texto", "Detalle legible"),
+        },
+    },
+    "casos_legitimos": {
+        "grano": "un caso legítimo que se parece a una anomalía", "clave": "tabla + id_registro",
+        "escenarios": REALISTA,
+        "columnas": {
+            "tabla": ("categoría", "Tabla del registro"),
+            "id_registro": ("texto", "Clave del registro en esa tabla"),
+            "vehiculo_id": ("texto", "Vehículo involucrado, si corresponde"),
+            "tipo_caso": ("categoría", "Tipo de caso (ver CATALOGO_LEGITIMOS)"),
+            "descripcion": ("texto", "Detalle legible"),
+        },
+    },
+}
+
+# (origen, columna origen, destino, columna destino, cardinalidad, escenarios, nota)
+RELACIONES = [
+    ("consumo", "vehiculo_id", "flota", "Matricula", "N:1", AMBOS, ""),
+    ("consumo", "dominio", "flota", "Dominio", "N:1", AMBOS, "se rompe en DOMINIO_INVALIDO"),
+    ("consumo", "numero_tarjeta", "flota", "NumeroTarjeta", "N:1", AMBOS, ""),
+    ("consumo", "estacion", "estaciones", "codigo", "N:1", REALISTA, ""),
+    ("solicitudes", "vehiculo_id", "flota", "Matricula", "N:1", AMBOS, ""),
+    ("solicitudes", "vehiculo_id + fecha_solicitud + litros_autorizados", "consumo",
+     "vehiculo_id + fecha + litros", "1:1", REALISTA,
+     "sin clave: se empareja por vehículo, fecha y litros"),
+    ("telemetria", "Placa", "flota", "Dominio", "N:1", AMBOS, "uno por vehículo en el realista"),
+    ("telemetria_diaria", "Placa", "telemetria", "Placa", "N:1", REALISTA, ""),
+    ("facturacion", "periodo", "consumo", "fecha (mes)", "1:N", ("didactico",), "suma de las cargas del mes"),
+    ("facturacion", "proveedor", "estaciones", "marca", "N:1", REALISTA, ""),
+    ("facturacion_detalle", "numero_factura", "facturacion", "numero_factura", "N:1", REALISTA,
+     "la suma de las líneas es el total (salvo TOTAL_INFLADO)"),
+    ("facturacion_detalle", "referencia_consumo", "consumo", "id", "N:1", REALISTA,
+     "se rompe en LINEA_SIN_CONSUMO; dos líneas en LINEA_DUPLICADA"),
+    ("ground_truth", "id_registro", "consumo / facturacion / facturacion_detalle", "id", "N:1", AMBOS,
+     "según la columna tabla"),
+    ("casos_legitimos", "id_registro", "consumo / facturacion / facturacion_detalle", "id", "N:1", REALISTA,
+     "según la columna tabla"),
+]
+
+
+def diccionario_de_datos(escenario, columnas_generadas=None):
+    """Tablas y relaciones de un escenario.
+
+    Si se pasa `columnas_generadas` ({tabla: [columnas]}), solo incluye esas tablas y
+    columnas, en su orden: el diccionario describe exactamente lo que se escribió.
+    """
+    tablas = {}
+    for nombre, tabla in TABLAS.items():
+        if escenario not in tabla["escenarios"]:
+            continue
+        if columnas_generadas is not None and nombre not in columnas_generadas:
+            continue
+        definidas = {c: d for c, d in tabla["columnas"].items() if escenario in (d[2] if len(d) > 2 else AMBOS)}
+        orden = columnas_generadas[nombre] if columnas_generadas is not None else list(definidas)
+        tablas[nombre] = {
+            "grano": tabla["grano"], "clave": tabla["clave"],
+            "columnas": [{"nombre": c, "tipo": definidas[c][0], "descripcion": definidas[c][1]}
+                         for c in orden if c in definidas],
+        }
+    relaciones = []
+    for o, co, d, cd, card, escenarios, nota in RELACIONES:
+        # Un destino múltiple ("a / b") conserva solo las tablas del escenario
+        destinos = [t.strip() for t in d.split("/") if t.strip() in tablas]
+        if escenario in escenarios and o in tablas and destinos:
+            relaciones.append({"origen": o, "columna_origen": co, "destino": " / ".join(destinos),
+                               "columna_destino": cd, "cardinalidad": card, "nota": nota})
+    return {"escenario": escenario, "tablas": tablas, "relaciones": relaciones}
+
+
+def diagrama_relaciones(diccionario):
+    """Diagrama de relaciones en formato DOT (Graphviz) a partir del diccionario."""
+    lineas = ['digraph relaciones {', '  rankdir=LR; node [shape=box, style="rounded,filled", '
+              'fillcolor="#eef3fb", fontname="Helvetica"]; edge [fontname="Helvetica", fontsize=9];']
+    for nombre, tabla in diccionario["tablas"].items():
+        color = '#fdf1dc' if nombre in ("ground_truth", "casos_legitimos") else '#eef3fb'
+        lineas.append(f'  "{nombre}" [label="{nombre}\\n({tabla["grano"].split(" (")[0]})", fillcolor="{color}"];')
+    for r in diccionario["relaciones"]:
+        for destino in (d.strip() for d in r["destino"].split("/")):
+            estilo = ', style=dashed' if r["nota"].startswith("sin clave") or "suma" in r["nota"] else ''
+            lineas.append(f'  "{r["origen"]}" -> "{destino}" [label="{r["columna_origen"]} ({r["cardinalidad"]})"{estilo}];')
+    lineas.append("}")
+    return "\n".join(lineas)
+
+
 def distancia_km(lat1, lon1, lat2, lon2):
     """Distancia sobre la superficie terrestre (fórmula del haversine)."""
     from math import asin, cos, radians, sin, sqrt
@@ -1242,6 +1478,16 @@ class GeneradorMaestro:
             self.metadata['casos_legitimos'] = str(legitimos_file)
             self.metadata['casos_legitimos_por_tipo'] = legitimos['tipo_caso'].value_counts().to_dict()
             logger.info(f"  ✓ casos_legitimos.csv guardado ({len(legitimos)} casos)")
+
+        # Diccionario de datos del escenario, con exactamente las columnas escritas
+        columnas = {nombre: list(df.columns) for nombre, df in self.datasets.items()}
+        columnas["ground_truth"] = list(ground_truth.columns)
+        if self.escenario == "realista":
+            columnas["casos_legitimos"] = COLUMNAS_CASOS_LEGITIMOS
+        diccionario_file = self.output_dir / "diccionario.json"
+        with open(diccionario_file, 'w', encoding='utf-8') as f:
+            json.dump(diccionario_de_datos(self.escenario, columnas), f, indent=2, ensure_ascii=False)
+        self.metadata['diccionario'] = str(diccionario_file)
 
         # Guardar metadatos
         metadata_file = self.output_dir / "metadata.json"

@@ -21,9 +21,9 @@ ESCENARIO_POR_DEFECTO = "realista"
 
 # Archivos que debe tener cada escenario; si falta alguno, los datos son de una versión anterior
 ARCHIVOS_REQUERIDOS = {
-    "didactico": ["flota.csv", "consumo.csv", "ground_truth.csv"],
+    "didactico": ["flota.csv", "consumo.csv", "ground_truth.csv", "diccionario.json"],
     "realista": ["flota.csv", "consumo.csv", "ground_truth.csv", "casos_legitimos.csv", "estaciones.csv",
-                 "telemetria_diaria.csv", "facturacion_detalle.csv"],
+                 "telemetria_diaria.csv", "facturacion_detalle.csv", "diccionario.json"],
 }
 
 # Parámetros del dataset que se genera automáticamente si no hay datos
@@ -192,6 +192,16 @@ def load_dataset_deteccion(escenario):
         "facturacion": o_none(load_facturacion(escenario)) if realista else None,
         "facturacion_detalle": o_none(load_facturacion_detalle(escenario)),
     }
+
+
+@st.cache_data
+def load_diccionario(escenario="didactico"):
+    """Diccionario de datos y relaciones que escribió el generador para el escenario."""
+    path = DIRECTORIOS[escenario] / "diccionario.json"
+    if path.exists():
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    return {"tablas": {}, "relaciones": []}
 
 
 @st.cache_data

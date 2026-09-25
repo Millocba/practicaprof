@@ -10,6 +10,7 @@ sys.path.insert(0, str(utils_path))
 
 from data_loader import (
     selector_escenario,
+    load_diccionario,
     load_casos_legitimos,
     load_estaciones,
     load_facturacion_detalle,
@@ -35,21 +36,38 @@ asegurar_datos_maestro(escenario)
 GROUND_TRUTH = "🎯 Ground truth (anomalías inyectadas)"
 LEGITIMOS = "✅ Casos legítimos (parecen anomalías)"
 
-datasets = {
-    "🚗 Flota": load_flota(escenario),
-    "📡 Telemetría": load_telemetria(escenario),
-    "⛽ Consumo": load_consumo_maestro(escenario),
-    "📋 Solicitudes": load_solicitudes(escenario),
-    "💰 Facturación": load_facturacion(escenario),
-    GROUND_TRUTH: load_ground_truth_maestro(escenario),
+# etiqueta: (tabla del diccionario, datos)
+fuentes = {
+    "🚗 Flota": ("flota", load_flota(escenario)),
+    "📡 Telemetría": ("telemetria", load_telemetria(escenario)),
+    "⛽ Consumo": ("consumo", load_consumo_maestro(escenario)),
+    "📋 Solicitudes": ("solicitudes", load_solicitudes(escenario)),
+    "💰 Facturación": ("facturacion", load_facturacion(escenario)),
+    GROUND_TRUTH: ("ground_truth", load_ground_truth_maestro(escenario)),
 }
 if escenario == "realista":
-    datasets.update({
-        "⛽ Estaciones": load_estaciones(escenario),
-        "🧾 Detalle de facturación": load_facturacion_detalle(escenario),
-        "🛰️ Telemetría diaria": load_telemetria_diaria(escenario),
-        LEGITIMOS: load_casos_legitimos(escenario),
+    fuentes.update({
+        "⛽ Estaciones": ("estaciones", load_estaciones(escenario)),
+        "🧾 Detalle de facturación": ("facturacion_detalle", load_facturacion_detalle(escenario)),
+        "🛰️ Telemetría diaria": ("telemetria_diaria", load_telemetria_diaria(escenario)),
+        LEGITIMOS: ("casos_legitimos", load_casos_legitimos(escenario)),
     })
+datasets = {etiqueta: df for etiqueta, (_, df) in fuentes.items()}
+diccionario = load_diccionario(escenario)
+
+with st.expander("🔗 Relaciones entre tablas", expanded=False):
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+    from generator_pipeline_maestro import diagrama_relaciones
+    st.graphviz_chart(diagrama_relaciones(diccionario), use_container_width=True)
+    relaciones = pd.DataFrame(diccionario["relaciones"])
+    if not relaciones.empty:
+        st.dataframe(relaciones.rename(columns={
+            "origen": "Tabla", "columna_origen": "Columna", "destino": "Se relaciona con",
+            "columna_destino": "Columna destino", "cardinalidad": "Cardinalidad", "nota": "Nota"}),
+            use_container_width=True, hide_index=True)
+    st.caption("Las líneas punteadas no son claves: se resuelven por emparejamiento o agregación. "
+               "En naranja, las tablas de evaluación (no son entradas de las reglas ni de los modelos).")
 
 # Dataset selector
 selected_dataset = st.selectbox(
@@ -71,6 +89,13 @@ if selected_dataset == GROUND_TRUTH:
 
 # Get the dataframe
 df = datasets[selected_dataset]
+tabla_diccionario = diccionario["tablas"].get(fuentes[selected_dataset][0])
+if tabla_diccionario:
+    st.caption(f"Grano: **{tabla_diccionario['grano']}** · Clave: `{tabla_diccionario['clave']}`")
+    with st.expander("📖 Diccionario de columnas", expanded=False):
+        st.dataframe(pd.DataFrame(tabla_diccionario["columnas"]).rename(
+            columns={"nombre": "Columna", "tipo": "Tipo", "descripcion": "Descripción"}),
+            use_container_width=True, hide_index=True)
 
 if df.empty:
     st.warning(f"❌ El dataset '{selected_dataset}' está vacío")
