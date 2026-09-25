@@ -26,6 +26,10 @@ Perfiles **agregados** de fuentes de datos externas: estructura y calidad, sin f
    O desde la página **🔬 Perfil de fuentes** con la app corriendo en la máquina local. En la app publicada esa opción está deshabilitada, porque los archivos viajarían a un servidor externo.
    Se le pueden pasar carpetas: se recorren completas y se leen solo los CSV y Excel. Los archivos del mismo tipo (mismo nombre salvo los números, por ejemplo uno por día) forman una sola tabla cuyo nombre es el patrón (`consumo_9999-99-99`), así el perfil no guarda fechas ni otros números de los nombres.
 
+   - Si el nombre es solo un identificador (un UUID), se agrupan los archivos que tienen las mismas columnas, en una tabla `tabla_de_N_columnas`.
+   - Cada grupo se une como **lotes** (cada archivo trae registros distintos: se apilan) o como **versiones** (cada archivo repite casi los mismos registros, como un padrón exportado varias veces: se perfila solo el más reciente, para no multiplicar las filas). El perfil registra cuántos archivos tiene cada tabla y cómo se unieron.
+   - Si un nombre de tabla incluye el de una organización o persona, se reemplaza al generar: `--renombrar "patrón=nombre"`. Editarlo a mano en el JSON obliga a cambiarlo también en las relaciones.
+
    **Si los archivos están en un servidor**, el perfilador se ejecuta allí, en una terminal del servicio, y solo sale el perfil:
    ```bash
    mkdir -p /tmp/p/perfilador && cd /tmp/p

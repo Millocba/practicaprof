@@ -343,26 +343,79 @@ def leer_tablas(archivo, nombre):
 EXTENSIONES = (".csv", ".xlsx", ".xlsm", ".xls")
 
 
+UUID = re.compile(r"[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}", re.IGNORECASE)
+SOLAPAMIENTO_VERSIONES = 0.5    # claves repetidas entre archivos a partir de las que son versiones
+
+
 def patron_de_nombre(nombre):
-    """Nombre de archivo sin sus números: `consumo_2025-09-01` -> `consumo_9999-99-99`."""
-    return re.sub(r"\d", "9", nombre)
+    """Nombre de archivo sin identificadores ni números: `consumo_2025-09-01` -> `consumo_9999-99-99`.
+
+    Un nombre que es solo un identificador (UUID) queda vacío: no dice qué contiene.
+    """
+    sin_uuid = UUID.sub("", nombre)
+    return re.sub(r"\d", "9", sin_uuid).strip(" _-.:()")
 
 
-def tablas_de_rutas(rutas):
+def _clave_comun(dfs):
+    """Columna presente en todos los archivos y única y completa en la mayoría, o None."""
+    comunes = set(dfs[0].columns).intersection(*[set(df.columns) for df in dfs[1:]])
+    for columna in dfs[0].columns:
+        if columna not in comunes:
+            continue
+        unica = [len(df) >= MINIMO_GRUPO and df[columna].notna().all() and df[columna].is_unique for df in dfs]
+        if sum(unica) > len(dfs) / 2:
+            return columna
+    return None
+
+
+def combinar_archivos(partes):
+    """Une los archivos de un mismo tipo. `partes` es una lista de (fecha de modificación, DataFrame).
+
+    - Lotes: cada archivo trae registros distintos (un día, un mes) y se apilan.
+    - Versiones: cada archivo repite casi los mismos registros (el mismo padrón exportado varias
+      veces); apilarlos multiplicaría las filas, así que se perfila solo el más reciente.
+    Se distinguen por cuántas claves de cada archivo aparecen en los demás; sin clave, por la
+    proporción de filas idénticas.
+    """
+    if len(partes) == 1:
+        return partes[0][1], "unico"
+    dfs = [df for _, df in partes]
+    clave = _clave_comun(dfs)
+    if clave is not None:
+        claves = [set(df[clave].dropna().astype(str)) for df in dfs]
+        solapamiento = []
+        for i, propias in enumerate(claves):
+            otras = set().union(*(c for j, c in enumerate(claves) if j != i))
+            solapamiento.append(len(propias & otras) / len(propias) if propias else 0)
+        versiones = float(np.median(solapamiento)) >= SOLAPAMIENTO_VERSIONES
+    else:
+        apiladas = pd.concat(dfs, ignore_index=True)
+        versiones = apiladas.duplicated().mean() >= SOLAPAMIENTO_VERSIONES
+    if versiones:
+        return max(partes, key=lambda p: p[0])[1], "versiones"
+    return pd.concat(dfs, ignore_index=True), "lotes"
+
+
+def tablas_de_rutas(rutas, renombrar=None):
     """Lee archivos o carpetas (recorridas completas) y agrupa los archivos del mismo tipo.
 
-    Los archivos cuyo nombre coincide salvo por los números (uno por día, por mes...) forman
-    una sola tabla con el patrón como nombre, así el perfil no guarda fechas ni otros números de
-    los nombres. Solo lee: no escribe nada junto a los archivos. Devuelve las tablas y un resumen
-    con la cantidad de archivos por tabla y los que no se pudieron leer, por tipo de error.
+    Son del mismo tipo los archivos cuyo nombre coincide salvo por números e identificadores
+    (uno por día, por mes...); si el nombre es solo un identificador, los que tienen las mismas
+    columnas. Cada grupo es una tabla con el patrón como nombre, así el perfil no guarda fechas
+    ni otros números de los nombres; `renombrar` ({patrón: nombre}) permite reemplazarlo. Los
+    grupos se unen como lotes o versiones (ver `combinar_archivos`).
+
+    Solo lee: no escribe nada junto a los archivos. Devuelve las tablas y un resumen con la
+    cantidad de archivos por tabla, cómo se unieron y los que no se pudieron leer, por tipo de error.
     """
+    renombrar = renombrar or {}
     archivos = []
     for ruta in map(Path, rutas):
         if ruta.is_dir():
             archivos += sorted(a for a in ruta.rglob("*") if a.is_file() and a.suffix.lower() in EXTENSIONES)
         elif ruta.suffix.lower() in EXTENSIONES:
             archivos.append(ruta)
-    partes, conteo, errores = {}, {}, {}
+    grupos, errores = {}, {}
     for archivo in archivos:
         try:
             leidas = leer_tablas(archivo, archivo.name)
@@ -370,11 +423,21 @@ def tablas_de_rutas(rutas):
             errores[type(error).__name__] = errores.get(type(error).__name__, 0) + 1
             continue
         for nombre, df in leidas.items():
-            clave = patron_de_nombre(nombre)
-            partes.setdefault(clave, []).append(df)
-            conteo[clave] = conteo.get(clave, 0) + 1
-    tablas = {nombre: pd.concat(dfs, ignore_index=True) if len(dfs) > 1 else dfs[0] for nombre, dfs in partes.items()}
-    return tablas, {"archivos_por_tabla": conteo, "no_leidos_por_error": errores}
+            patron = patron_de_nombre(nombre)
+            clave = patron or ("esquema", tuple(sorted(normalizar_nombre(c) for c in df.columns)))
+            grupos.setdefault(clave, []).append((archivo.stat().st_mtime, df))
+
+    tablas, conteo, combinacion = {}, {}, {}
+    for clave, partes in grupos.items():
+        nombre = clave if isinstance(clave, str) else f"tabla_de_{len(clave[1])}_columnas"
+        nombre = renombrar.get(nombre, nombre)
+        base, n = nombre, 2
+        while nombre in tablas:
+            nombre, n = f"{base}_{n}", n + 1
+        tablas[nombre], combinacion[nombre] = combinar_archivos(partes)
+        conteo[nombre] = len(partes)
+    return tablas, {"archivos_por_tabla": conteo, "combinacion_por_tabla": combinacion,
+                    "no_leidos_por_error": errores}
 
 
 def perfilar(tablas, origen="fuente"):

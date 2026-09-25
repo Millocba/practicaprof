@@ -3,7 +3,9 @@
 Uso:
     python -m perfilador perfilar archivo1.xlsx carpeta/ --origen "fuentes reales" [--salida perfil.json]
         Acepta archivos y carpetas (se recorren completas). Los archivos del mismo tipo (mismo
-        nombre salvo los números) se agrupan en una tabla. Escribe
+        nombre salvo números e identificadores, o las mismas columnas si el nombre es un
+        identificador) se agrupan en una tabla, como lotes o versiones. --renombrar PATRON=NOMBRE
+        reemplaza un nombre de tabla. Escribe
         perfiles/pendientes/perfil_AAAA-MM-DD.json o --salida. Solo imprime conteos.
     python -m perfilador aprobar perfiles/pendientes/perfil_X.json --responsable "Nombre" [--notas "..."]
         Registra la revisión manual y lo pasa a perfiles/aprobados/ (se versiona).
@@ -32,7 +34,8 @@ def guardar(perfil, destino):
 
 
 def cmd_perfilar(args):
-    tablas, lectura = tablas_de_rutas(args.archivos)
+    renombrar = dict(r.split("=", 1) for r in args.renombrar)
+    tablas, lectura = tablas_de_rutas(args.archivos, renombrar)
     if not tablas:
         raise SystemExit("No se encontraron archivos CSV o Excel legibles.")
     perfil = perfilar(tablas, origen=args.origen)
@@ -79,6 +82,8 @@ def main():
     p.add_argument("archivos", nargs="+")
     p.add_argument("--origen", default="fuentes reales")
     p.add_argument("--salida")
+    p.add_argument("--renombrar", action="append", default=[], metavar="PATRON=NOMBRE",
+                   help="reemplaza el nombre de una tabla (por ejemplo, si incluye el de una organización)")
     p.set_defaults(funcion=cmd_perfilar)
     a = sub.add_parser("aprobar", help="registrar la revisión manual de un perfil")
     a.add_argument("perfil")

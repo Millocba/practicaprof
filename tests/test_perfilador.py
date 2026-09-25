@@ -202,3 +202,32 @@ def test_carpeta_agrupa_archivos_del_mismo_tipo_sin_guardar_sus_nombres(tmp_path
     assert perfil["tablas"]["consumo_9999-99-99"]["filas_aprox"] == 1200
     assert "2025-09-01" not in salida.read_text(encoding="utf-8")
     assert {p: p.stat().st_mtime for p in volumen.rglob("*")} == antes  # no escribe junto a los archivos
+
+
+def test_nombres_opacos_se_agrupan_por_columnas_como_lotes_o_versiones(tmp_path, tablas):
+    import os
+    import uuid
+
+    volumen = tmp_path / "volumen"
+    volumen.mkdir()
+    cargas, vehiculos = tablas["cargas"], tablas["vehiculos"]
+    for i in range(3):  # lotes: cada archivo trae cargas distintas
+        cargas.iloc[i * 400:(i + 1) * 400].to_csv(volumen / f"{uuid.uuid4()}.csv", index=False)
+    for i, filas in enumerate([380, 390, 400]):  # versiones: el mismo padrón exportado tres veces
+        ruta = volumen / f"{uuid.uuid4()}.csv"
+        vehiculos.head(filas).to_csv(ruta, index=False)
+        os.utime(ruta, (1_700_000_000 + i, 1_700_000_000 + i))
+    cargas.head(100).to_csv(volumen / "reporte ORGANIZACION_FICTICIA 01-02.csv", index=False)
+    salida = tmp_path / "perfil.json"
+    subprocess.run([sys.executable, "-m", "perfilador", "perfilar", str(volumen), "--salida", str(salida),
+                    "--renombrar", "reporte ORGANIZACION_FICTICIA 99-99=reporte_de_cargas"],
+                   cwd=RAIZ, check=True, capture_output=True)
+    perfil = json.loads(salida.read_text(encoding="utf-8"))
+    lectura = perfil["lectura"]
+    assert lectura["archivos_por_tabla"] == {"tabla_de_5_columnas": 3, "tabla_de_6_columnas": 3,
+                                             "reporte_de_cargas": 1}
+    assert lectura["combinacion_por_tabla"]["tabla_de_5_columnas"] == "lotes"
+    assert lectura["combinacion_por_tabla"]["tabla_de_6_columnas"] == "versiones"
+    assert perfil["tablas"]["tabla_de_5_columnas"]["filas_aprox"] == 1200
+    assert perfil["tablas"]["tabla_de_6_columnas"]["filas_aprox"] == 400  # la versión más reciente
+    assert "ORGANIZACION_FICTICIA" not in salida.read_text(encoding="utf-8")
