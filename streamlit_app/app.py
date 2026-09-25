@@ -189,6 +189,17 @@ with col3:
     - Vehículos a auditar
     """)
 
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.markdown("""
+    ### 📖 7. Diccionario de datos
+    Qué contiene cada tabla
+    - Grano, clave y columnas
+    - Diagrama de relaciones
+    - Catálogos de anomalías y casos legítimos
+    """)
+
 # Status boxes (computed from the loaded data, not hardcoded)
 st.markdown("---")
 st.markdown("## ✅ Estado de la Generación")

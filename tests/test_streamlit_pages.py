@@ -71,6 +71,14 @@ def test_analisis_ofrece_cada_hipotesis_del_catalogo_y_todas_abren(escenario):
         assert at.markdown[0] is not None and any(m.value.startswith(f"## {codigo} ") for m in at.markdown)
 
 
+@pytest.mark.parametrize("escenario", ESCENARIOS)
+def test_diccionario_describe_cada_tabla_generada(escenario, discos_vacios):
+    at = abrir("pages/03_diccionario_de_datos.py", escenario)
+    tablas = {f.stem for f in discos_vacios[escenario].glob("*.csv")}
+    assert {o.split(" — ")[0] for o in at.selectbox(key="tabla_diccionario").options} == tablas
+    assert len(at.get("graphviz_chart")) == 1
+
+
 def test_hipotesis_muestra_un_veredicto_por_hipotesis():
     at = abrir("pages/07_hipotesis.py", "realista")
     assert any("Se sostiene" in e.label or "No se sostiene" in e.label for e in at.expander)

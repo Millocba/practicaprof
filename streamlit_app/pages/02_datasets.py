@@ -55,19 +55,8 @@ if escenario == "realista":
 datasets = {etiqueta: df for etiqueta, (_, df) in fuentes.items()}
 diccionario = load_diccionario(escenario)
 
-with st.expander("🔗 Relaciones entre tablas", expanded=False):
-    import sys as _sys
-    _sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-    from generator_pipeline_maestro import diagrama_relaciones
-    st.graphviz_chart(diagrama_relaciones(diccionario), use_container_width=True)
-    relaciones = pd.DataFrame(diccionario["relaciones"])
-    if not relaciones.empty:
-        st.dataframe(relaciones.rename(columns={
-            "origen": "Tabla", "columna_origen": "Columna", "destino": "Se relaciona con",
-            "columna_destino": "Columna destino", "cardinalidad": "Cardinalidad", "nota": "Nota"}),
-            use_container_width=True, hide_index=True)
-    st.caption("Las líneas punteadas no son claves: se resuelven por emparejamiento o agregación. "
-               "En naranja, las tablas de evaluación (no son entradas de las reglas ni de los modelos).")
+st.caption("📖 El diccionario completo y el diagrama de relaciones entre tablas están en la página "
+           "**Diccionario de datos** (menú lateral).")
 
 # Dataset selector
 selected_dataset = st.selectbox(

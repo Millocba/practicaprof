@@ -24,7 +24,8 @@ En la barra lateral se elige el **escenario**, y la elección vale para todas la
 |---|---|---|
 | Inicio | `app.py` | KPIs (vehículos, transacciones, vinculación consumo ↔ flota, facturación), estado de la generación y resumen de datasets |
 | Generador | `pages/01_generador.py` | Genera un dataset nuevo con otra cantidad de vehículos o semilla; **🔄 Refrescar** recarga los datos |
-| Datasets | `pages/02_datasets.py` | Explorar, filtrar y exportar cada tabla; muestra el grano, la clave y el diccionario de columnas de la tabla elegida, y el diagrama de relaciones del escenario |
+| Datasets | `pages/02_datasets.py` | Explorar, filtrar y exportar cada tabla; muestra el grano, la clave y el diccionario de columnas de la tabla elegida |
+| Diccionario de datos | `pages/03_diccionario_de_datos.py` | Tablas (rol, grano, clave, filas), diagrama y tabla de relaciones, columnas de cada tabla (descargable en JSON) y catálogos de anomalías y casos legítimos del escenario, a partir del `diccionario.json` del generador |
 | Análisis por hipótesis | `pages/05_analisis_por_hipotesis.py` | Qué encuentran las reglas en los datos, sin usar el ground truth: calidad de datos y una pestaña por hipótesis del escenario (H1 a H9 en el realista; H1, H2 y H3a en el didáctico) con el antes y después de la regla ingenua a la regla con contexto y los casos concretos |
 | Detección | `pages/06_deteccion.py` | Reglas evaluadas contra el ground truth; en el escenario realista, el origen de cada falso positivo (caso legítimo, otra anomalía o carga normal) y un explorador de errores |
 | Hipótesis | `pages/07_hipotesis.py` | Validación contra el ground truth, siempre en el escenario realista: para cada hipótesis compara la regla ingenua con la regla con contexto y da el veredicto calculado, las falsas alarmas y casos concretos |
