@@ -6,6 +6,7 @@ Registro de los cambios importantes y del **por qué** de cada uno. El detalle t
 
 | Fecha | Cambio | Por qué | Decidió |
 |---|---|---|---|
+| 2026-09-25 | Perfilador de fuentes y página Perfil de fuentes | Saber qué le falta al generador frente a fuentes externas sin traer sus datos: solo estructura y calidad agregadas, con revisión manual antes de versionar | Equipo |
 | 2026-09-25 | Página de documentación con variables vivas y esta bitácora | Tener el contexto vigente de la documentación dentro de la aplicación y poder descargarlo | Equipo |
 | 2026-09-24 | Diccionario de datos generado por el generador (`diccionario.json`) y página Diccionario de datos | Que la descripción de tablas y relaciones no se desactualice: un test la compara con lo que se genera | Equipo |
 | 2026-09-24 | Página de análisis unificada con el catálogo de hipótesis (H1 a H9) | Las páginas de análisis e hipótesis usaban reglas distintas y se contradecían | Equipo |

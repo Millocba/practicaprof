@@ -142,6 +142,8 @@ streamlit run streamlit_app/app.py              # abre la aplicación
 - La aplicación genera los datos por su cuenta si no existen.
 - `datasets/` está excluido de Git: se versionan el generador, las pruebas y la configuración, y los datos se recrean con la semilla.
 
+Para mejorar el generador a partir de fuentes externas sin traer sus datos al proyecto, el [perfilador](perfiles/README.md) describe su estructura y calidad (tipos, formatos, faltantes, relaciones) de forma agregada y la compara con los datos sintéticos: `python -m perfilador perfilar archivo.xlsx`.
+
 Cada corrida del generador escribe también un `diccionario.json` con el grano, las columnas y las relaciones de las tablas generadas. El detalle de cada archivo, las relaciones entre tablas (con diagrama) y los tipos de anomalía están en el [diccionario de datos](docs/DICCIONARIO_DATOS.md).
 
 ## Estructura
@@ -149,6 +151,8 @@ Cada corrida del generador escribe también un `diccionario.json` con el grano, 
 ```text
 generator_pipeline_maestro.py   generador oficial
 deteccion/                      reglas, hipótesis, modelos de ML, priorización y evaluación
+perfilador/                     perfil agregado de fuentes y comparación con los datos sintéticos
+perfiles/                       perfiles aprobados e informes de brechas
 streamlit_app/                  aplicación (páginas y carga de datos)
 tests/                          tests del generador, la detección y la app
 docs/                           gobierno, arquitectura, diccionario, sprints y análisis

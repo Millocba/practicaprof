@@ -209,6 +209,15 @@ with col2:
     - Descarga en .md o .zip
     """)
 
+with col3:
+    st.markdown("""
+    ### 🔬 9. Perfil de fuentes
+    Qué le falta al generador
+    - Estructura y calidad, sin guardar datos
+    - Comparación con los datos sintéticos
+    - Informe de brechas con sugerencias
+    """)
+
 # Status boxes (computed from the loaded data, not hardcoded)
 st.markdown("---")
 st.markdown("## ✅ Estado de la Generación")

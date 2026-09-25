@@ -69,3 +69,6 @@ notebooks/
 .tmp/
 *.bak
 archive/
+
+# Perfiles de fuentes sin revisar (solo se versionan los aprobados)
+perfiles/pendientes/
