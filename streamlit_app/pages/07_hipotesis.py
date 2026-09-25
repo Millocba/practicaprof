@@ -10,6 +10,7 @@ APP_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(APP_DIR / "utils"))
 sys.path.insert(0, str(APP_DIR.parent))
 
+from ayudas import seccion  # noqa: E402
 from data_loader import (  # noqa: E402
     asegurar_datos_maestro,
     load_dataset_deteccion,
@@ -20,7 +21,14 @@ from deteccion.reglas import ejecutar_reglas  # noqa: E402
 
 st.set_page_config(page_title="Hipótesis", page_icon="🧪", layout="wide")
 
-st.markdown("# 🧪 Hipótesis: ¿cuánto aporta el contexto?")
+seccion(
+    "🧪 Hipótesis: ¿cuánto aporta el contexto?", nivel=1,
+    ayuda="La pregunta de fondo del proyecto: ¿alcanza con una regla simple o hace falta "
+          "informarla con el contexto? Cada hipótesis enfrenta la regla que se le ocurriría a "
+          "cualquiera contra una que cruza fuentes, y se **sostiene** si la segunda mejora el F1 "
+          "en al menos 0,10. El veredicto se calcula con los datos, no está escrito a mano. Esta "
+          "es la página donde la detección se valida de verdad: es la única que compara contra "
+          "las anomalías inyectadas y además mide las falsas alarmas sobre casos legítimos.")
 st.markdown(
     "Cada hipótesis compara una **regla ingenua** (la primera que se le ocurriría a cualquiera) "
     "con una **regla con contexto** (historial del vehículo, estado de la flota, GPS, solicitudes, detalle "
@@ -86,7 +94,14 @@ fig.update_layout(height=360)
 st.plotly_chart(fig, use_container_width=True)
 
 # Detalle por hipótesis
-st.markdown("## Detalle por hipótesis")
+seccion(
+    "Detalle por hipótesis",
+    ayuda="Una por hipótesis, en un panel desplegable que ya viene con su veredicto. Dentro hay "
+          "dos cosas distintas que conviene no mezclar: la **tabla de desempeño** dice cuántos "
+          "aciertos y cuántos errores tuvo cada regla, y los **ejemplos** de abajo muestran los "
+          "casos concretos que encontró. Los casos legítimos que la regla ingenua marca son los "
+          "interesantes: muestran por qué un umbral sin contexto confunde lo raro con lo "
+          "sospechoso.")
 formato = {"precision": "{:.0%}", "recall": "{:.0%}", "f1": "{:.2f}"}
 columnas_consumo = ["id", "vehiculo_id", "fecha", "estacion", "litros", "odometro"]
 caso_legitimo = legitimos.drop_duplicates("id_registro").set_index("id_registro")
@@ -160,7 +175,12 @@ for h in HIPOTESIS:
                 consumo[columnas_consumo], left_on="id_registro", right_on="id")
             st.dataframe(ejemplos[["detalle"] + columnas_consumo], use_container_width=True, hide_index=True)
 
-st.markdown("## Relación con las hipótesis del proyecto")
+seccion(
+    "Relación con las hipótesis del proyecto",
+    ayuda="Cierra el círculo: estas nueve hipótesis son la evidencia de las ideas que el README "
+          "plantea al principio, y cada una está sostenida o no con números de acá. Leé el "
+          "**límite** del final antes de citar cualquier resultado: todo se midió contra un "
+          "generador que también produjo los casos legítimos.")
 st.markdown(
     "- *Integrar fuentes permite detectar situaciones invisibles en análisis aislados*: H6, H7, H8 y H9 "
     "(estado de la flota, GPS, solicitudes y detalle de facturación).\n"

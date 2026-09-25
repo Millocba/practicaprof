@@ -15,6 +15,7 @@ APP_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(APP_DIR / "utils"))
 sys.path.insert(0, str(APP_DIR.parent))
 
+from ayudas import seccion  # noqa: E402
 from data_loader import (  # noqa: E402
     NOMBRES_ESCENARIO,
     asegurar_datos_maestro,
@@ -28,7 +29,14 @@ from deteccion.reglas import CAMPOS_OBLIGATORIOS, ejecutar_reglas  # noqa: E402
 
 st.set_page_config(page_title="Análisis por hipótesis", page_icon="🔍", layout="wide")
 
-st.markdown("# 🔍 Análisis por hipótesis")
+seccion(
+    "🔍 Análisis por hipótesis", nivel=1,
+    ayuda="Recorre las hipótesis una por una y muestra qué encuentra cada regla en los datos, con "
+          "los casos concretos. Arriba hay tres vistas: un resumen de todas, la calidad del "
+          "registro, y el detalle de una hipótesis. Ojo con una distinción importante: esta "
+          "página **no mira la verdad de referencia**, muestra lo que vería un auditor sin saber "
+          "qué se inyectó. Si un caso listado acá fuera un falso positivo, esta página no lo "
+          "puede saber; eso se verifica en la página Hipótesis.")
 st.markdown(
     "Qué encuentran las reglas en los datos, hipótesis por hipótesis. Para cada una se muestra cuánto "
     "marca la **regla ingenua** y cuánto queda con la **regla con contexto**, con los casos concretos. "
@@ -94,7 +102,13 @@ fecha_de_carga = pd.to_datetime(consumo.set_index("id")["fecha"])
 # ============================================================================
 
 def mostrar_resumen():
-    st.markdown("## Resumen")
+    seccion(
+        "Resumen",
+        ayuda="Las nueve hipótesis en una tabla: qué dice cada una, cuántas alertas produce la "
+              "regla ingenua y cuántas quedan con la regla que usa más contexto. Sirve para "
+              "elegir por dónde empezar. La última columna avisa si el conteo va en **facturas** "
+              "o en **registros**, porque no es lo mismo: una factura con tres líneas "
+              "irregulares es un solo documento que revisar.")
     filas = []
     for h in catalogo:
         ingenua, contexto = h["reglas"][0][0], h["reglas"][-1][0]
@@ -126,7 +140,12 @@ def mostrar_resumen():
 
 
 def mostrar_calidad():
-    st.markdown("## Calidad de datos")
+    seccion(
+        "Calidad de datos",
+        ayuda="Defectos del registro que conviene arreglar **antes** de sacar conclusiones sobre "
+              "el comportamiento de consumo. Si hay cargas duplicadas o dominios sin vincular, "
+              "cualquier promedio o umbral que se calcule encima va a estar mal. Es un paso "
+              "previo, no un resultado del análisis.")
     st.markdown("Defectos del registro que conviene resolver antes de analizar el comportamiento.")
     col1, col2, col3 = st.columns(3)
     col1.metric("Cargas duplicadas", len(ids_de(["duplicado_exacto"])))
@@ -136,10 +155,19 @@ def mostrar_calidad():
     nulos = pd.DataFrame([{"Campo": campo, "Vacíos": len(ids_de([f"nulo_{campo}"])),
                            "% de las cargas": len(ids_de([f"nulo_{campo}"])) / len(consumo)}
                           for campo in CAMPOS_OBLIGATORIOS])
-    st.markdown("### Campos obligatorios vacíos")
+    seccion(
+        "Campos obligatorios vacíos", nivel=3,
+        ayuda="Porcentaje de cargas a las que les falta cada campo. No todos los vacíos son "
+              "anomalías: el `conductor` puede no venir en todas las cargas según cómo se captura "
+              "el dato, y el generador lo inyecta como defecto de calidad con una tasa baja. Lo "
+              "que importa es la proporción, no el caso individual.")
     st.dataframe(nulos.style.format({"% de las cargas": "{:.2%}"}), use_container_width=True, hide_index=True)
 
-    st.markdown("### Cargas duplicadas (ejemplos)")
+    seccion(
+        "Cargas duplicadas (ejemplos)", nivel=3,
+        ayuda="Cargas exactamente repetidas con un identificador nuevo. No son dos operaciones: "
+              "es la misma operación registrada dos veces. Contarlas como dos infla el volumen de "
+              "litros, así que hay que identificarlas y descartarlas antes de cualquier total.")
     duplicadas = alertas[alertas["regla"] == "duplicado_exacto"]
     if duplicadas.empty:
         st.success("✅ No hay cargas duplicadas.")
@@ -149,7 +177,13 @@ def mostrar_calidad():
 
 
 def mostrar_hipotesis(h):
-    st.markdown(f"## {h['codigo']} — {h['titulo']}")
+    seccion(
+        f"{h['codigo']} — {h['titulo']}",
+        ayuda="Una hipótesis a la vez. Lo que se muestra es lo que marcó la regla con más "
+              "contexto: los indicadores de arriba dicen cuántos registros cayeron y cuántos "
+              "vehículos o facturas implica, y la tabla del final trae los casos concretos con "
+              "sus datos. Para saber si esos casos eran anomalías reales o falsos positivos, "
+              "hay que ir a la página Hipótesis: acá no se usa la verdad de referencia.")
     st.markdown(f"**Hipótesis.** {h['enunciado']}")
     st.caption(f"Contexto que usa: {h['contexto']}.")
     por_factura = h.get("nivel") == "factura"
@@ -174,7 +208,12 @@ def mostrar_hipotesis(h):
 
     # Antes y después: de la regla ingenua a la regla con contexto
     if len(h["reglas"]) > 1:
-        st.markdown("### Antes y después")
+        seccion(
+            "Antes y después", nivel=3,
+            ayuda="El camino de la regla ingenua a la regla con contexto, paso por paso. Cada fila "
+                  "agrega un dato: primero un criterio simple, después el historial del vehículo, "
+                  "luego el GPS, la fecha de estado, la solicitud. Lo que se busca no es marcar "
+                  "menos, es marcar menos cosas que están bien.")
         pasos = pd.DataFrame([{"Regla": describir_regla(regla), "Criterio": descripcion,
                                "Marcadas": len(ids_de(reglas_de(regla), por_factura))}
                               for regla, descripcion in h["reglas"]])
@@ -192,7 +231,12 @@ def mostrar_hipotesis(h):
 
     # H1: vinculación de cada fuente con la flota
     if h["codigo"] == "H1":
-        st.markdown("### Vinculación de cada fuente con la flota")
+        seccion(
+            "Vinculación de cada fuente con la flota", nivel=3,
+            ayuda="Cuánto se parece cada fuente al dominio real del vehículo, para contrastar una "
+                  "con otra. Es el fundamento de H1: la misma anomalía de vinculación puede "
+                  "aparecer solo en el consumo y no en la telemetría, y esa diferencia es la que "
+                  "permite detectarla sin adivinar.")
         dominios = set(flota["Dominio"])
         fuentes = [("⛽ Consumo → flota", consumo["dominio"]),
                    ("📡 Telemetría → flota", telemetria["Placa"] if not telemetria.empty else pd.Series(dtype=str)),
@@ -205,7 +249,12 @@ def mostrar_hipotesis(h):
                      use_container_width=True, hide_index=True)
 
     # Hallazgos
-    st.markdown("### Hallazgos")
+    seccion(
+        "Hallazgos", nivel=3,
+        ayuda="Los registros marcados, con el gráfico de cómo se reparten en el tiempo y la tabla "
+              "de casos. El gráfico sirve para ver si un problema se concentra en un mes, lo que "
+              "suele indicar que cambió el proceso de carga y no el comportamiento de los "
+              "conductores.")
     if hallazgos.empty:
         st.success("✅ Las reglas no encontraron casos en estos datos.")
         return

@@ -14,6 +14,7 @@ import sys
 utils_path = Path(__file__).parent / "utils"
 sys.path.insert(0, str(utils_path))
 
+from ayudas import seccion
 from data_loader import (
     NOMBRES_ESCENARIO,
     selector_escenario,
@@ -56,7 +57,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Title and introduction
-st.markdown("# 📊 Pipeline Maestro de Datos Sintéticos")
+seccion(
+    "📊 Pipeline Maestro de Datos Sintéticos", nivel=1,
+    ayuda="Portada del proyecto. Resume en qué estado está el pipeline y guía a las ocho páginas "
+          "que lo componen. Todo lo que se ve acá se calcula desde los archivos generados, no está "
+          "escrito a mano: si cambia el generador, esta pantalla cambia sola. Es el lugar para "
+          "empezar si llegaste hace un rato y querés saber por dónde seguir.")
 st.markdown("**Sistema integral para gestión, visualización y análisis del dataset integrado**")
 
 # Load data (same source as the Generador and Análisis pages)
@@ -73,7 +79,13 @@ metadata = load_maestro_metadata(escenario)
 hay_datos = not flota.empty and not consumo.empty
 
 # Main metrics
-st.markdown("## 📈 Estado General del Pipeline")
+seccion(
+    "📈 Estado General del Pipeline",
+    ayuda="Cuatro cifras para saber si los datos están en orden. **Vinculación consumo ↔ flota** "
+          "es la que hay que mirar: dice qué porcentaje de las cargas tiene un dominio que "
+          "existe en la flota. Si baja del 100% no es necesariamente un error, porque el "
+          "escenario realista inyecta dominios inválidos a propósito, pero conviene saber "
+          "cuántos son antes de cruzar datos.")
 
 if not hay_datos:
     st.warning(
@@ -129,8 +141,12 @@ except Exception as e:
 
 # Info section
 st.markdown("---")
-st.markdown("## ℹ️ Navegación")
-
+seccion(
+    "ℹ️ Navegación",
+    ayuda="Las ocho páginas y para qué sirve cada una. No es un orden obligatorio:_generador y "
+          "datasets son de preparación, y las cinco últimas son de análisis. Si querés entender "
+          "el método de punta a punta, seguí el orden en que están; si ya sabés qué buscás, "
+          "entrá directo por donde corresponda.")
 col1, col2, col3 = st.columns(3)
 
 with col1:
@@ -211,8 +227,12 @@ with col2:
 
 # Status boxes (computed from the loaded data, not hardcoded)
 st.markdown("---")
-st.markdown("## ✅ Estado de la Generación")
-
+seccion(
+    "✅ Estado de la Generación",
+    ayuda="De dónde salieron los archivos que está usando la app. La **semilla** y la **fecha** "
+          "sirven para reproducir: con la misma semilla, el generador devuelve los mismos datos. "
+          "Si regenerás con otra semilla, cambiás todos los números de análisis y las conclusiones "
+          "de la bitácora quedan desactualizadas.")
 col1, col2 = st.columns(2)
 
 with col1:
@@ -259,8 +279,12 @@ with col2:
 
 # Datasets overview
 st.markdown("---")
-st.markdown("## 📂 Resumen de Datasets")
-
+seccion(
+    "📂 Resumen de Datasets",
+    ayuda="Inventario archivo por archivo: cuántas filas, cuántas columnas y cuánto pesan. Los "
+          "**valores faltantes** no son necesariamente errores: el generador deja algunos campos "
+          "vacíos a propósito para que las reglas de calidad tengan qué detectar, así que un "
+          "número alto acá es parte del diseño y no una falla.")
 try:
     datasets_info = get_maestro_datasets_info(escenario)
     if not datasets_info.empty:
