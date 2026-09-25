@@ -197,3 +197,55 @@ def contrastar_hipotesis(alertas, ground_truth, casos_legitimos, facturacion_det
             "recall_contexto": contexto["recall"],
         })
     return pd.DataFrame(filas), pd.DataFrame(veredictos)
+
+
+# ============================================================================
+# Catálogo único para la app
+#
+# Las hipótesis de HIPOTESIS se contrastan contra el ground truth (escenario
+# realista). Las de HIPOTESIS_DESCRIPTIVAS completan el catálogo: H1 aplica a
+# ambos escenarios y H2 y H3a son las versiones del escenario didáctico, donde
+# no hay casos legítimos con los que contrastar.
+# ============================================================================
+
+HIPOTESIS_DESCRIPTIVAS = {
+    "H1": {
+        "codigo": "H1",
+        "titulo": "Vinculación con la flota",
+        "enunciado": "Las cargas, los dispositivos y las solicitudes deben vincularse con un vehículo de "
+                     "la flota por su dominio; un dominio sin vínculo impide cualquier otro control.",
+        "tipos": ["DOMINIO_INVALIDO"],
+        "reglas": [("dominio_sin_vinculo", "dominio que no existe en la flota")],
+        "contexto": "catálogo de la flota",
+    },
+    "H2": {
+        "codigo": "H2",
+        "titulo": "Odómetro",
+        "enunciado": "Un odómetro que retrocede o salta más de lo habitual para el vehículo indica una "
+                     "lectura adulterada.",
+        "tipos": ["ODOMETRO_REGRESIVO", "ODOMETRO_SALTO"],
+        "reglas": [("salto_umbral_fijo", ">500 km en ≤7 días"),
+                   (["odometro_disminuye", "salto_historial_vehiculo"], "retroceso o salto sobre el ritmo habitual")],
+        "contexto": "historial de lecturas del vehículo",
+    },
+    "H3a": {
+        "codigo": "H3a",
+        "titulo": "Exceso volumétrico",
+        "enunciado": "Cargar más litros que la capacidad del tanque indica combustible que no llegó al vehículo.",
+        "tipos": ["EXCESO_VOLUMETRICO"],
+        "reglas": [("litros_mayor_a_tanque", "litros > tanque registrado")],
+        "contexto": "capacidad registrada del tanque",
+    },
+}
+
+
+def hipotesis_del_escenario(escenario):
+    """Hipótesis que aplican a un escenario, en el orden en que se presentan."""
+    if escenario == "realista":
+        return [HIPOTESIS_DESCRIPTIVAS["H1"]] + HIPOTESIS
+    return [HIPOTESIS_DESCRIPTIVAS[c] for c in ["H1", "H2", "H3a"]]
+
+
+def reglas_de(regla):
+    """Nombres de reglas de una entrada de `reglas` (str, lista o None)."""
+    return _nombres(regla)

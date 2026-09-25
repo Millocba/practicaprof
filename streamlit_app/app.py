@@ -153,11 +153,11 @@ with col2:
 
 with col3:
     st.markdown("""
-    ### 🔍 3. Análisis Maestro
-    Valida las hipótesis H1 a H3a
-    - Vinculaciones entre entidades
-    - Anomalías de odómetro
-    - Ejemplos antes y después
+    ### 🔍 3. Análisis por hipótesis
+    Qué encuentran las reglas en los datos
+    - Calidad de datos y vinculación
+    - Una pestaña por hipótesis (H1 a H9)
+    - Antes y después: regla ingenua vs. con contexto
     """)
 
 col1, col2, col3 = st.columns(3)

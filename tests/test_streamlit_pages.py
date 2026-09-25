@@ -11,6 +11,7 @@ from streamlit.testing.v1 import AppTest
 
 APP_DIR = Path(__file__).parent.parent / "streamlit_app"
 sys.path.insert(0, str(APP_DIR / "utils"))
+sys.path.insert(0, str(APP_DIR.parent))
 import data_loader  # noqa: E402
 
 PAGINAS = sorted(["app.py"] + [f"pages/{p.name}" for p in (APP_DIR / "pages").glob("*.py")])
@@ -53,6 +54,14 @@ def test_la_pagina_principal_muestra_kpis_con_datos():
     valores = {m.label: m.value for m in at.metric}
     assert valores["Vehículos"] == "200"
     assert valores["Transacciones de consumo"] != "—"
+
+
+@pytest.mark.parametrize("escenario", ESCENARIOS)
+def test_analisis_tiene_una_pestana_por_hipotesis_del_catalogo(escenario):
+    from deteccion.hipotesis import hipotesis_del_escenario
+    at = abrir("pages/05_analisis_por_hipotesis.py", escenario)
+    codigos = [t.label.split(" · ")[0] for t in at.tabs][2:]
+    assert codigos == [h["codigo"] for h in hipotesis_del_escenario(escenario)]
 
 
 def test_hipotesis_muestra_un_veredicto_por_hipotesis():

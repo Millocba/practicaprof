@@ -25,9 +25,9 @@ En la barra lateral se elige el **escenario**, y la elección vale para todas la
 | Inicio | `app.py` | KPIs (vehículos, transacciones, vinculación consumo ↔ flota, facturación), estado de la generación y resumen de datasets |
 | Generador | `pages/01_generador.py` | Genera un dataset nuevo con otra cantidad de vehículos o semilla; **🔄 Refrescar** recarga los datos |
 | Datasets | `pages/02_datasets.py` | Explorar, filtrar y exportar cada entidad y el ground truth |
-| Análisis Maestro | `pages/05_analisis_maestro.py` | Validación de las hipótesis H1 a H3a con ejemplos |
+| Análisis por hipótesis | `pages/05_analisis_por_hipotesis.py` | Qué encuentran las reglas en los datos, sin usar el ground truth: calidad de datos y una pestaña por hipótesis del escenario (H1 a H9 en el realista; H1, H2 y H3a en el didáctico) con el antes y después de la regla ingenua a la regla con contexto y los casos concretos |
 | Detección | `pages/06_deteccion.py` | Reglas evaluadas contra el ground truth; en el escenario realista, el origen de cada falso positivo (caso legítimo, otra anomalía o carga normal) y un explorador de errores |
-| Hipótesis | `pages/07_hipotesis.py` | Siempre usa el escenario realista. Para cada hipótesis compara la regla ingenua con la regla con contexto y da el veredicto calculado, las falsas alarmas y casos concretos |
+| Hipótesis | `pages/07_hipotesis.py` | Validación contra el ground truth, siempre en el escenario realista: para cada hipótesis compara la regla ingenua con la regla con contexto y da el veredicto calculado, las falsas alarmas y casos concretos |
 | Modelo de ML | `pages/08_modelo_ml.py` | Realista: qué revisar primero según un presupuesto de revisión, curva de esfuerzo de cinco métodos, cola de revisión con motivos (descargable), vehículos a auditar y facturas a revisar ordenadas por importe en juego. Didáctico: Isolation Forest comparado con las reglas |
 
 ## Datos
