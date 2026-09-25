@@ -57,11 +57,18 @@ def test_la_pagina_principal_muestra_kpis_con_datos():
 
 
 @pytest.mark.parametrize("escenario", ESCENARIOS)
-def test_analisis_tiene_una_pestana_por_hipotesis_del_catalogo(escenario):
+def test_analisis_ofrece_cada_hipotesis_del_catalogo_y_todas_abren(escenario):
     from deteccion.hipotesis import hipotesis_del_escenario
     at = abrir("pages/05_analisis_por_hipotesis.py", escenario)
-    codigos = [t.label.split(" · ")[0] for t in at.tabs][2:]
-    assert codigos == [h["codigo"] for h in hipotesis_del_escenario(escenario)]
+    at.radio(key="vista_analisis").set_value("🔍 Por hipótesis").run()
+    selector = at.selectbox(key="hipotesis_analisis")
+    codigos = [h["codigo"] for h in hipotesis_del_escenario(escenario)]
+    assert list(selector.options) == [f"{c} · {h['titulo']}" for c, h in
+                                      zip(codigos, hipotesis_del_escenario(escenario))]
+    for codigo in codigos:
+        at.selectbox(key="hipotesis_analisis").set_value(codigo).run()
+        assert not at.exception, (codigo, [e.value for e in at.exception])
+        assert at.markdown[0] is not None and any(m.value.startswith(f"## {codigo} ") for m in at.markdown)
 
 
 def test_hipotesis_muestra_un_veredicto_por_hipotesis():

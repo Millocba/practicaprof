@@ -90,14 +90,10 @@ vehiculo_de_carga = consumo.set_index("id")["vehiculo_id"]
 fecha_de_carga = pd.to_datetime(consumo.set_index("id")["fecha"])
 
 # ============================================================================
-# Pestañas
+# Vistas
 # ============================================================================
 
-etiquetas = ["📋 Resumen", "🧹 Calidad de datos"] + [f"{h['codigo']} · {h['titulo']}" for h in catalogo]
-pestanas = st.tabs(etiquetas)
-
-# ---------------------------------------------------------------- Resumen
-with pestanas[0]:
+def mostrar_resumen():
     st.markdown("## Resumen")
     filas = []
     for h in catalogo:
@@ -108,15 +104,16 @@ with pestanas[0]:
         filas.append({
             "Hipótesis": h["codigo"], "Tema": h["titulo"],
             "Regla ingenua": describir_regla(ingenua) if len(h["reglas"]) > 1 else "—",
-            "Marcadas (ingenua)": n_ingenua if len(h["reglas"]) > 1 else float("nan"),
+            "Marcadas (ingenua)": f"{n_ingenua:,}" if len(h["reglas"]) > 1 else "—",
             "Regla con contexto": describir_regla(contexto), "Marcadas (con contexto)": n_contexto,
             "Unidad": "facturas" if h.get("nivel") == "factura" else "registros",
         })
     resumen = pd.DataFrame(filas)
-    st.dataframe(resumen.style.format({"Marcadas (ingenua)": "{:.0f}"}, na_rep="—"),
-                 use_container_width=True, hide_index=True)
+    st.dataframe(resumen, use_container_width=True, hide_index=True)
 
-    grafico = resumen.dropna(subset=["Marcadas (ingenua)"]).melt(
+    comparables = resumen[resumen["Regla ingenua"] != "—"].assign(
+        **{"Marcadas (ingenua)": lambda d: d["Marcadas (ingenua)"].str.replace(",", "").astype(int)})
+    grafico = comparables.melt(
         id_vars="Hipótesis", value_vars=["Marcadas (ingenua)", "Marcadas (con contexto)"],
         var_name="Regla", value_name="Registros marcados")
     if not grafico.empty:
@@ -126,8 +123,9 @@ with pestanas[0]:
         st.caption("Escala logarítmica. Que la regla con contexto marque menos no garantiza que acierte más: "
                    "eso se valida en la página Hipótesis.")
 
-# ---------------------------------------------------------------- Calidad de datos
-with pestanas[1]:
+
+
+def mostrar_calidad():
     st.markdown("## Calidad de datos")
     st.markdown("Defectos del registro que conviene resolver antes de analizar el comportamiento.")
     col1, col2, col3 = st.columns(3)
@@ -148,79 +146,99 @@ with pestanas[1]:
     else:
         st.dataframe(tabla_de_hallazgos(duplicadas).head(20), use_container_width=True, hide_index=True)
 
-# ---------------------------------------------------------------- Una pestaña por hipótesis
-for pestana, h in zip(pestanas[2:], catalogo):
-    with pestana:
-        st.markdown(f"## {h['codigo']} — {h['titulo']}")
-        st.markdown(f"**Hipótesis.** {h['enunciado']}")
-        st.caption(f"Contexto que usa: {h['contexto']}.")
-        por_factura = h.get("nivel") == "factura"
-        reglas_contexto = reglas_de(h["reglas"][-1][0])
-        hallazgos = alertas[alertas["regla"].isin(reglas_contexto)]
-        ids = set(hallazgos["id_registro"])
 
-        # Indicadores
-        col1, col2, col3 = st.columns(3)
+
+def mostrar_hipotesis(h):
+    st.markdown(f"## {h['codigo']} — {h['titulo']}")
+    st.markdown(f"**Hipótesis.** {h['enunciado']}")
+    st.caption(f"Contexto que usa: {h['contexto']}.")
+    por_factura = h.get("nivel") == "factura"
+    reglas_contexto = reglas_de(h["reglas"][-1][0])
+    hallazgos = alertas[alertas["regla"].isin(reglas_contexto)]
+    ids = set(hallazgos["id_registro"])
+
+    # Indicadores
+    col1, col2, col3 = st.columns(3)
+    if por_factura:
+        factura_de = dict(zip(detalle_factura["numero_linea"], detalle_factura["numero_factura"]))
+        facturas_marcadas = {factura_de.get(i, i) for i in ids}
+        importe = detalle_factura.set_index("numero_linea")["importe"]
+        col1.metric("Facturas con hallazgos", f"{len(facturas_marcadas)} de {len(facturas)}")
+        col2.metric("Líneas irregulares", len(ids & set(importe.index)))
+        col3.metric("Importe de esas líneas", f"${importe.reindex(list(ids & set(importe.index))).sum():,.0f}")
+    else:
+        vehiculos = {vehiculo_de_carga.get(i) for i in ids} - {None}
+        col1.metric("Cargas marcadas", f"{len(ids):,}")
+        col2.metric("% de las cargas", f"{len(ids) / len(consumo):.2%}")
+        col3.metric("Vehículos involucrados", len(vehiculos))
+
+    # Antes y después: de la regla ingenua a la regla con contexto
+    if len(h["reglas"]) > 1:
+        st.markdown("### Antes y después")
+        pasos = pd.DataFrame([{"Regla": describir_regla(regla), "Criterio": descripcion,
+                               "Marcadas": len(ids_de(reglas_de(regla), por_factura))}
+                              for regla, descripcion in h["reglas"]])
         if por_factura:
-            factura_de = dict(zip(detalle_factura["numero_linea"], detalle_factura["numero_factura"]))
-            facturas_marcadas = {factura_de.get(i, i) for i in ids}
-            importe = detalle_factura.set_index("numero_linea")["importe"]
-            col1.metric("Facturas con hallazgos", f"{len(facturas_marcadas)} de {len(facturas)}")
-            col2.metric("Líneas irregulares", len(ids & set(importe.index)))
-            col3.metric("Importe de esas líneas", f"${importe.reindex(list(ids & set(importe.index))).sum():,.0f}")
-        else:
-            vehiculos = {vehiculo_de_carga.get(i) for i in ids} - {None}
-            col1.metric("Cargas marcadas", f"{len(ids):,}")
-            col2.metric("% de las cargas", f"{len(ids) / len(consumo):.2%}")
-            col3.metric("Vehículos involucrados", len(vehiculos))
+            st.caption("Contado en facturas: una línea irregular cuenta como su factura.")
+        st.dataframe(pasos, use_container_width=True, hide_index=True)
+        antes, despues = pasos["Marcadas"].iloc[0], pasos["Marcadas"].iloc[-1]
+        unidad = "facturas" if por_factura else "registros"
+        if antes > despues:
+            st.markdown(f"Con contexto se descartan **{antes - despues:,}** de las **{antes:,}** {unidad} que "
+                        f"marcaría la regla ingenua ({(antes - despues) / antes:.0%}).")
+        elif antes < despues:
+            st.markdown(f"La regla ingenua marca **{antes:,}** {unidad} y la regla con contexto **{despues:,}**: "
+                        "el contexto permite ver casos que la ingenua no alcanza.")
 
-        # Antes y después: de la regla ingenua a la regla con contexto
-        if len(h["reglas"]) > 1:
-            st.markdown("### Antes y después")
-            pasos = pd.DataFrame([{"Regla": describir_regla(regla), "Criterio": descripcion,
-                                   "Marcadas": len(ids_de(reglas_de(regla), por_factura))}
-                                  for regla, descripcion in h["reglas"]])
-            if por_factura:
-                st.caption("Contado en facturas: una línea irregular cuenta como su factura.")
-            st.dataframe(pasos, use_container_width=True, hide_index=True)
-            antes, despues = pasos["Marcadas"].iloc[0], pasos["Marcadas"].iloc[-1]
-            unidad = "facturas" if por_factura else "registros"
-            if antes > despues:
-                st.markdown(f"Con contexto se descartan **{antes - despues:,}** de las **{antes:,}** {unidad} que "
-                            f"marcaría la regla ingenua ({(antes - despues) / antes:.0%}).")
-            elif antes < despues:
-                st.markdown(f"La regla ingenua marca **{antes:,}** {unidad} y la regla con contexto **{despues:,}**: "
-                            "el contexto permite ver casos que la ingenua no alcanza.")
-
-        # H1: vinculación de cada fuente con la flota
-        if h["codigo"] == "H1":
-            st.markdown("### Vinculación de cada fuente con la flota")
-            dominios = set(flota["Dominio"])
-            fuentes = [("⛽ Consumo → flota", consumo["dominio"]),
-                       ("📡 Telemetría → flota", telemetria["Placa"] if not telemetria.empty else pd.Series(dtype=str)),
-                       ("📋 Solicitudes → flota", solicitudes["dominio"] if not solicitudes.empty else pd.Series(dtype=str))]
-            vinculos = pd.DataFrame([{"Fuente": nombre, "Registros": len(serie),
-                                      "Vinculados": int(serie.isin(dominios).sum()),
-                                      "% vinculado": serie.isin(dominios).mean() if len(serie) else float("nan")}
-                                     for nombre, serie in fuentes])
-            st.dataframe(vinculos.style.format({"% vinculado": "{:.1%}"}, na_rep="—"),
-                         use_container_width=True, hide_index=True)
-
-        # Hallazgos
-        st.markdown("### Hallazgos")
-        if hallazgos.empty:
-            st.success("✅ Las reglas no encontraron casos en estos datos.")
-            continue
-        if por_factura:
-            por_regla = hallazgos.groupby("regla")["id_registro"].nunique().reset_index(name="Hallazgos")
-            fig = px.bar(por_regla, x="regla", y="Hallazgos", text_auto=True, height=320, labels={"regla": ""})
-        else:
-            en_el_tiempo = hallazgos.assign(mes=hallazgos["id_registro"].map(fecha_de_carga).dt.to_period("M")
-                                            .astype(str)).dropna(subset=["mes"])
-            por_mes = en_el_tiempo.groupby(["mes", "regla"])["id_registro"].nunique().reset_index(name="Cargas")
-            fig = px.bar(por_mes, x="mes", y="Cargas", color="regla", height=320, labels={"mes": ""})
-        st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(tabla_de_hallazgos(hallazgos.drop_duplicates("id_registro")).head(100),
+    # H1: vinculación de cada fuente con la flota
+    if h["codigo"] == "H1":
+        st.markdown("### Vinculación de cada fuente con la flota")
+        dominios = set(flota["Dominio"])
+        fuentes = [("⛽ Consumo → flota", consumo["dominio"]),
+                   ("📡 Telemetría → flota", telemetria["Placa"] if not telemetria.empty else pd.Series(dtype=str)),
+                   ("📋 Solicitudes → flota", solicitudes["dominio"] if not solicitudes.empty else pd.Series(dtype=str))]
+        vinculos = pd.DataFrame([{"Fuente": nombre, "Registros": len(serie),
+                                  "Vinculados": int(serie.isin(dominios).sum()),
+                                  "% vinculado": serie.isin(dominios).mean() if len(serie) else float("nan")}
+                                 for nombre, serie in fuentes])
+        st.dataframe(vinculos.style.format({"% vinculado": "{:.1%}"}, na_rep="—"),
                      use_container_width=True, hide_index=True)
-        if len(ids) > 100:
-            st.caption(f"Se muestran 100 de {len(ids):,} registros.")
+
+    # Hallazgos
+    st.markdown("### Hallazgos")
+    if hallazgos.empty:
+        st.success("✅ Las reglas no encontraron casos en estos datos.")
+        return
+    if por_factura:
+        por_regla = hallazgos.groupby("regla")["id_registro"].nunique().reset_index(name="Hallazgos")
+        fig = px.bar(por_regla, x="regla", y="Hallazgos", text_auto=True, height=320, labels={"regla": ""})
+    else:
+        en_el_tiempo = hallazgos.assign(mes=hallazgos["id_registro"].map(fecha_de_carga).dt.to_period("M")
+                                        .astype(str)).dropna(subset=["mes"])
+        por_mes = en_el_tiempo.groupby(["mes", "regla"])["id_registro"].nunique().reset_index(name="Cargas")
+        fig = px.bar(por_mes, x="mes", y="Cargas", color="regla", height=320, labels={"mes": ""})
+    st.plotly_chart(fig, use_container_width=True)
+    st.dataframe(tabla_de_hallazgos(hallazgos.drop_duplicates("id_registro")).head(100),
+                 use_container_width=True, hide_index=True)
+    if len(ids) > 100:
+        st.caption(f"Se muestran 100 de {len(ids):,} registros.")
+
+
+# ============================================================================
+# Navegación: una vista a la vez (las pestañas no entraban en la pantalla)
+# ============================================================================
+
+VISTAS = ["📋 Resumen", "🧹 Calidad de datos", "🔍 Por hipótesis"]
+vista = st.radio("Vista", VISTAS, horizontal=True, key="vista_analisis", label_visibility="collapsed")
+st.markdown("---")
+
+if vista == VISTAS[0]:
+    mostrar_resumen()
+    st.info("💡 Para ver los hallazgos de una hipótesis, elegí **🔍 Por hipótesis** arriba.")
+elif vista == VISTAS[1]:
+    mostrar_calidad()
+else:
+    por_codigo = {h["codigo"]: h for h in catalogo}
+    codigo = st.selectbox("Hipótesis", list(por_codigo), key="hipotesis_analisis",
+                          format_func=lambda c: f"{c} · {por_codigo[c]['titulo']}")
+    mostrar_hipotesis(por_codigo[codigo])
