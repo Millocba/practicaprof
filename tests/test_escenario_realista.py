@@ -11,7 +11,7 @@ from deteccion import priorizacion
 from deteccion.datos import cargar_dataset
 from deteccion.hipotesis import HIPOTESIS, contrastar_hipotesis
 from deteccion.modelo import ids_con_anomalia_de_comportamiento
-from deteccion.reglas import ejecutar_reglas
+from deteccion.reglas import detectar_carga_sin_autorizacion, ejecutar_reglas, leer_fecha, normalizar_dominio
 from generator_pipeline_maestro import (
     CATALOGO_LEGITIMOS,
     PERFILES_VEHICULO,
@@ -121,7 +121,7 @@ def test_cada_carga_limpia_tiene_su_solicitud_aprobada_previa(dataset):
     consumo, solicitudes = dataset["consumo"].copy(), dataset["solicitudes"].copy()
     etiquetadas = set(dataset["ground_truth"]["id_registro"]) | set(dataset["casos_legitimos"]["id_registro"])
     consumo["fecha"] = pd.to_datetime(consumo["fecha"])
-    solicitudes["fecha_solicitud"] = pd.to_datetime(solicitudes["fecha_solicitud"])
+    solicitudes["fecha_solicitud"] = leer_fecha(solicitudes["fecha_solicitud"])
     limpias = consumo[~consumo["id"].isin(etiquetadas)]
     pares = limpias.merge(solicitudes[solicitudes["estado"] == "APROBADA"], on="vehiculo_id", suffixes=("", "_sol"))
     dias = (pares["fecha"] - pares["fecha_solicitud"]).dt.days
@@ -150,6 +150,33 @@ def test_cada_carga_real_se_factura_al_menos_una_vez(dataset):
     gt = dataset["ground_truth"]
     reales = set(dataset["consumo"]["id"]) - set(gt.loc[gt["tipo_anomalia"] == "DUPLICADO", "id_registro"])
     assert reales <= set(dataset["facturacion_detalle"]["referencia_consumo"])
+
+
+def test_dominios_con_otro_formato_corresponden_a_su_vehiculo(dataset):
+    legitimos = dataset["casos_legitimos"]
+    con_formato = legitimos[legitimos["tipo_caso"] == "DOMINIO_CON_FORMATO"]
+    consumo = dataset["consumo"].set_index("id").loc[con_formato["id_registro"]]
+    assert 0.01 < len(con_formato) / len(dataset["consumo"]) < 0.03
+    dominio_real = dataset["flota"].set_index("Matricula")["Dominio"]
+    assert (normalizar_dominio(consumo["dominio"]).values == consumo["vehiculo_id"].map(dominio_real).values).all()
+    assert not consumo["dominio"].isin(dominio_real).any()  # tal como llegan, no vinculan
+    assert not set(con_formato["id_registro"]) & set(dataset["ground_truth"]["id_registro"])
+
+
+def test_fechas_de_solicitud_en_dos_formatos_se_leen_todas(dataset):
+    fechas = dataset["solicitudes"]["fecha_solicitud"]
+    otro_formato = fechas.str.fullmatch(r"\d{2}/\d{2}/\d{4}")
+    assert 0.1 < otro_formato.mean() < 0.2
+    assert (otro_formato | fechas.str.fullmatch(r"\d{4}-\d{2}-\d{2}")).all()
+    assert leer_fecha(fechas).notna().all()
+
+
+def test_h8_no_depende_del_formato_de_las_fechas(dataset):
+    solicitudes = dataset["solicitudes"]
+    iso = solicitudes.assign(fecha_solicitud=leer_fecha(solicitudes["fecha_solicitud"]).dt.strftime("%Y-%m-%d"))
+    mezcladas = detectar_carga_sin_autorizacion(dataset["consumo"], solicitudes, aceptar_posterior=True)
+    uniformes = detectar_carga_sin_autorizacion(dataset["consumo"], iso, aceptar_posterior=True)
+    assert set(mezcladas["id_registro"]) == set(uniformes["id_registro"])
 
 
 # --- Reglas e hipótesis -----------------------------------------------------

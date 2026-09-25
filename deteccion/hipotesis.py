@@ -16,6 +16,17 @@ MEJORA_MINIMA_F1 = 0.10
 # una línea irregular cuenta como una factura con problemas.
 HIPOTESIS = [
     {
+        "codigo": "H1",
+        "titulo": "Vinculación con la flota",
+        "enunciado": "Buscar el dominio tal como llega confunde un dominio escrito con espacios, guiones o "
+                     "minúsculas con uno inexistente; normalizarlo antes de vincular deja solo los "
+                     "dominios que no corresponden a ningún vehículo.",
+        "tipos": ["DOMINIO_INVALIDO"],
+        "reglas": [("dominio_sin_vinculo", "dominio tal como llega"),
+                   ("dominio_sin_vinculo_normalizado", "dominio normalizado")],
+        "contexto": "normalización del dominio",
+    },
+    {
         "codigo": "H2b",
         "titulo": "Retrocesos de odómetro",
         "enunciado": "Los retrocesos por un odómetro nuevo o por un error de tipeo generan falsas "
@@ -203,9 +214,8 @@ def contrastar_hipotesis(alertas, ground_truth, casos_legitimos, facturacion_det
 # Catálogo único para la app
 #
 # Las hipótesis de HIPOTESIS se contrastan contra el ground truth (escenario
-# realista). Las de HIPOTESIS_DESCRIPTIVAS completan el catálogo: H1 aplica a
-# ambos escenarios y H2 y H3a son las versiones del escenario didáctico, donde
-# no hay casos legítimos con los que contrastar.
+# realista). Las de HIPOTESIS_DESCRIPTIVAS son las versiones del escenario
+# didáctico (H1, H2 y H3a), donde no hay casos legítimos con los que contrastar.
 # ============================================================================
 
 HIPOTESIS_DESCRIPTIVAS = {
@@ -242,7 +252,7 @@ HIPOTESIS_DESCRIPTIVAS = {
 def hipotesis_del_escenario(escenario):
     """Hipótesis que aplican a un escenario, en el orden en que se presentan."""
     if escenario == "realista":
-        return [HIPOTESIS_DESCRIPTIVAS["H1"]] + HIPOTESIS
+        return HIPOTESIS
     return [HIPOTESIS_DESCRIPTIVAS[c] for c in ["H1", "H2", "H3a"]]
 
 

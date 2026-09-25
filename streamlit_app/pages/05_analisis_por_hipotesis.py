@@ -24,7 +24,7 @@ from data_loader import (  # noqa: E402
     selector_escenario,
 )
 from deteccion.hipotesis import describir_regla, hipotesis_del_escenario, reglas_de  # noqa: E402
-from deteccion.reglas import CAMPOS_OBLIGATORIOS, ejecutar_reglas  # noqa: E402
+from deteccion.reglas import CAMPOS_OBLIGATORIOS, ejecutar_reglas, normalizar_dominio  # noqa: E402
 
 st.set_page_config(page_title="Análisis por hipótesis", page_icon="🔍", layout="wide")
 
@@ -194,15 +194,19 @@ def mostrar_hipotesis(h):
     if h["codigo"] == "H1":
         st.markdown("### Vinculación de cada fuente con la flota")
         dominios = set(flota["Dominio"])
+        normalizados = set(normalizar_dominio(flota["Dominio"]))
         fuentes = [("⛽ Consumo → flota", consumo["dominio"]),
                    ("📡 Telemetría → flota", telemetria["Placa"] if not telemetria.empty else pd.Series(dtype=str)),
                    ("📋 Solicitudes → flota", solicitudes["dominio"] if not solicitudes.empty else pd.Series(dtype=str))]
         vinculos = pd.DataFrame([{"Fuente": nombre, "Registros": len(serie),
-                                  "Vinculados": int(serie.isin(dominios).sum()),
-                                  "% vinculado": serie.isin(dominios).mean() if len(serie) else float("nan")}
+                                  "% vinculado tal como llega": serie.isin(dominios).mean() if len(serie) else float("nan"),
+                                  "% vinculado normalizado": (normalizar_dominio(serie).isin(normalizados).mean()
+                                                              if len(serie) else float("nan"))}
                                  for nombre, serie in fuentes])
-        st.dataframe(vinculos.style.format({"% vinculado": "{:.1%}"}, na_rep="—"),
+        st.dataframe(vinculos.style.format({"% vinculado tal como llega": "{:.1%}",
+                                            "% vinculado normalizado": "{:.1%}"}, na_rep="—"),
                      use_container_width=True, hide_index=True)
+        st.caption("Normalizado: en mayúsculas y sin espacios, guiones ni puntos.")
 
     # Hallazgos
     st.markdown("### Hallazgos")

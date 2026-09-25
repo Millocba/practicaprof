@@ -95,6 +95,7 @@ CATALOGO_LEGITIMOS = {
     "TOLERANCIA_MEDICION": "la carga supera lo autorizado dentro de la tolerancia de medición del surtidor",
     "DESFASE_DE_CORTE": "la carga del último día del mes se factura en el período siguiente",
     "AJUSTE_DOCUMENTADO": "la factura incluye un ajuste documentado (bonificación o recargo)",
+    "DOMINIO_CON_FORMATO": "el dominio se registró con espacios, guiones o minúsculas; normalizado es el del vehículo",
 }
 
 COLUMNAS_CASOS_LEGITIMOS = ["tabla", "id_registro", "vehiculo_id", "tipo_caso", "descripcion"]
@@ -193,6 +194,17 @@ EVENTOS_REALISTA = {
 PROB_DESFASE_DE_CORTE = 0.5         # cargas del último día del mes facturadas al mes siguiente
 TASA_SOLICITUDES_SIN_CARGA = 0.08   # solicitudes rechazadas o pendientes que no terminan en carga
 TASAS_CALIDAD_REALISTA = {"DOMINIO_INVALIDO": 0.003, "VALOR_NULO": 0.005, "DUPLICADO": 0.003}
+
+# Formatos de origen (realista): cómo llegan los datos de cada fuente, sin ser anomalías.
+# Se aplican al final con un generador aleatorio propio, para no alterar el resto del escenario.
+TASA_DOMINIO_CON_FORMATO = 0.02     # cargas con el dominio escrito de otra forma (H1)
+TASA_FECHA_OTRO_FORMATO = 0.15      # solicitudes con la fecha en DD/MM/AAAA en lugar de AAAA-MM-DD
+FORMATOS_DOMINIO = [
+    lambda d: d.lower(),                                  # ab0001cd
+    lambda d: f"{d[:2]} {d[2:-2]} {d[-2:]}",              # AB 0001 CD
+    lambda d: f"{d[:2]}-{d[2:-2]}-{d[-2:]}",              # AB-0001-CD
+    lambda d: f"{d} ",                                    # espacio al final
+]
 
 
 # ============================================================================
@@ -295,7 +307,8 @@ TABLAS = {
             "id": ("texto", "Clave de la solicitud, SOL-NNNNNNNN"),
             "vehiculo_id": ("texto", "Vehículo solicitante"),
             "dominio": ("texto", "Dominio del vehículo solicitante"),
-            "fecha_solicitud": ("fecha", "Fecha de la solicitud"),
+            "fecha_solicitud": ("fecha", "Fecha de la solicitud, AAAA-MM-DD; en el escenario realista, "
+                                         "una parte llega como DD/MM/AAAA"),
             "litros_solicitados": ("decimal (L)", "Litros pedidos"),
             "litros_autorizados": ("decimal (L)", "Litros autorizados; 0 si fue rechazada o está pendiente"),
             "estado": ("categoría", "APROBADA, PENDIENTE o RECHAZADA"),
@@ -1502,6 +1515,41 @@ class GeneradorMaestro:
         logger.info(f"✓ Metadatos guardados en {metadata_file}")
         return archivos
 
+    def aplicar_formatos_de_origen(self):
+        """Realista: dominios escritos de otra forma y fechas en dos formatos.
+
+        No son anomalías sino cómo llegan los datos de cada fuente. Un dominio con espacios,
+        guiones o minúsculas corresponde igual al vehículo: es un caso legítimo que la
+        vinculación exacta confunde con un dominio inválido (H1). Las fechas de solicitudes
+        en DD/MM/AAAA obligan a interpretar cada formato por separado (H8).
+
+        Usa un generador aleatorio propio y se aplica al final, así el resto del escenario
+        queda igual que sin estos formatos.
+        """
+        rng = random.Random(self.seed + 1_000_003)
+        consumo = self.datasets['consumo']
+        etiquetadas = ({a["id_registro"] for a in self.anomalias}
+                       | {c["id_registro"] for c in self.casos_legitimos})
+        # Tampoco la carga original de un duplicado: con otro dominio, la copia ya no sería idéntica
+        repetidas = consumo.duplicated(subset=[c for c in consumo.columns if c != "id"], keep=False)
+        candidatas = [i for i, id_, rep in zip(consumo.index, consumo["id"], repetidas)
+                      if id_ not in etiquetadas and not rep]
+        elegidas = sorted(rng.sample(candidatas, round(len(consumo) * TASA_DOMINIO_CON_FORMATO)))
+        for i in elegidas:
+            original = consumo.at[i, "dominio"]
+            escrito = rng.choice(FORMATOS_DOMINIO)(original)
+            consumo.at[i, "dominio"] = escrito
+            self._registrar_legitimo(consumo.at[i, "id"], consumo.at[i, "vehiculo_id"], "DOMINIO_CON_FORMATO",
+                                     f"{original} registrado como '{escrito}'")
+
+        solicitudes = self.datasets['solicitudes']
+        fechas = pd.to_datetime(solicitudes["fecha_solicitud"])
+        otro_formato = [rng.random() < TASA_FECHA_OTRO_FORMATO for _ in range(len(solicitudes))]
+        solicitudes["fecha_solicitud"] = [f.strftime("%d/%m/%Y") if otro else f.strftime("%Y-%m-%d")
+                                          for f, otro in zip(fechas, otro_formato)]
+        logger.info(f"✓ Formatos de origen: {len(elegidas)} dominios con otro formato, "
+                    f"{sum(otro_formato)} fechas de solicitud en DD/MM/AAAA")
+
     def ejecutar(self):
         """Ejecuta todo el pipeline"""
         logger.info("=" * 60)
@@ -1520,6 +1568,7 @@ class GeneradorMaestro:
             if self.escenario == "realista":
                 self.generar_solicitudes_realista()
                 self.generar_facturacion_realista()
+                self.aplicar_formatos_de_origen()
             else:
                 self.generar_solicitudes()
                 self.generar_facturacion()

@@ -13,7 +13,9 @@ import sys
 # Add utils to path
 utils_path = Path(__file__).parent / "utils"
 sys.path.insert(0, str(utils_path))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from deteccion.reglas import normalizar_dominio  # noqa: E402
 from data_loader import (
     NOMBRES_ESCENARIO,
     selector_escenario,
@@ -109,8 +111,10 @@ try:
         if hay_datos and {"dominio"} <= set(consumo.columns) and {"Dominio"} <= set(flota.columns):
             vinculadas = consumo["dominio"].isin(flota["Dominio"]).sum()
             pct = vinculadas / len(consumo) * 100
+            normalizadas = normalizar_dominio(consumo["dominio"]).isin(set(normalizar_dominio(flota["Dominio"]))).sum()
             st.metric("Vinculación consumo ↔ flota", f"{pct:.1f}%")
-            st.caption(f"{vinculadas:,} de {len(consumo):,} transacciones")
+            st.caption(f"{vinculadas:,} de {len(consumo):,} transacciones; "
+                       f"{normalizadas / len(consumo):.1%} al normalizar el dominio")
         else:
             st.metric("Vinculación consumo ↔ flota", "—")
             st.caption("sin datos")

@@ -82,7 +82,7 @@ def test_diccionario_describe_cada_tabla_generada(escenario, discos_vacios):
 def test_hipotesis_muestra_un_veredicto_por_hipotesis():
     at = abrir("pages/07_hipotesis.py", "realista")
     assert any("Se sostiene" in e.label or "No se sostiene" in e.label for e in at.expander)
-    assert len([e for e in at.expander if e.label.startswith(("✅", "❌"))]) == 9
+    assert len([e for e in at.expander if e.label.startswith(("✅", "❌"))]) == 10  # H1 a H9, con H2b, H2c y H3b
 
 
 def test_modelo_ml_realista_arma_la_cola_de_revision():

@@ -87,12 +87,13 @@ Promedio de 5 semillas, 200 vehículos cada una.
 - En los saltos de odómetro (H2), comparar con el historial del propio vehículo detecta el 100% de los casos, contra el 25% de un umbral fijo.
 - Isolation Forest encuentra todas las anomalías de odómetro, pero solo el 76% de los excesos volumétricos: los vehículos con exceso forman un grupo denso que deja de parecer atípico.
 
-**Escenario realista: hipótesis.** Cada una compara una regla ingenua con una regla con contexto; se sostiene si el F1 mejora al menos 0,10. Las 9 se sostienen en las 5 semillas.
+**Escenario realista: hipótesis.** Cada una compara una regla ingenua con una regla con contexto; se sostiene si el F1 mejora al menos 0,10. Las 10 se sostienen en las 5 semillas.
 
 | | Hipótesis | F1 ingenua → con contexto | Falsas alarmas por casos legítimos |
 |---|---|---|---|
+| H1 | Normalizar el dominio (mayúsculas, sin espacios ni guiones) antes de vincular con la flota deja solo los dominios que no corresponden a ningún vehículo | 0,23 → 1,00 | 521 → 0 |
 | H2b | Distinguir un odómetro nuevo o un error de tipeo elimina las falsas alarmas de retroceso, sin perder adulteraciones leves | 0,67 → 1,00 | 20 → 0 |
-| H2c | Un salto sobre el ritmo habitual se confirma descartando errores de tipeo y cruzando con el GPS | 0,01 (umbral fijo) · 0,55 (historial) → 1,00 | 67 · 15 → 0 |
+| H2c | Un salto sobre el ritmo habitual se confirma descartando errores de tipeo y cruzando con el GPS | 0,01 (umbral fijo) · 0,55 (historial) → 1,00 | 103 · 15 → 0 |
 | H3b | Solo el exceso volumétrico que aparece después indica un problema; el que existe desde el inicio es un tanque no registrado | 0,20 → 1,00 | 208 → 0 |
 | H4 | El fraccionamiento evade el control por transacción; lo revela la suma del día y el recorrido separa los viajes largos | 0,00 (por carga) · 0,84 (por día) → 0,99 | 22 → 0 |
 | H5 | Una carga sin recorrido que la justifique solo se ve con el rendimiento km/L frente al habitual | 0,00 → 0,61 | 0 → 0 |
@@ -103,6 +104,7 @@ Promedio de 5 semillas, 200 vehículos cada una.
 
 - En H5 el GPS no mejora al odómetro, porque en esos vehículos el odómetro no está adulterado. La mayoría de sus falsos positivos son otras anomalías que también cargan sin recorrido (vehículos inactivos, cargas lejos, fraccionamiento).
 - El umbral fijo de saltos es inutilizable con uso realista: genera unas 400 falsas alarmas por dataset, porque un camión recorre 500 km en pocos días.
+- En H1, el 2% de las cargas trae el dominio escrito de otra forma (`ab0001cd`, `AB 0001 CD`, `AB-0001-CD`): la vinculación exacta las confunde con dominios inválidos. Las solicitudes, además, traen la fecha en dos formatos (`AAAA-MM-DD` y `DD/MM/AAAA`), que se interpretan por separado: con un único formato inferido, unas 300 fechas por dataset se leerían con día y mes invertidos.
 - Las solicitudes no traen el número de carga: se emparejan por vehículo con una asignación óptima (método húngaro) por fecha y litros. Con un emparejamiento simple, una solicitud "se la llevaba" otra carga cercana y H8 no se sostenía.
 - La comparación de totales mensuales (H9) solo detecta 69% de las facturas con irregularidades: un sobreprecio o una línea de más cambian menos del 1% del total, mientras que los desfases de corte y los ajustes documentados sí superan ese umbral.
 

@@ -67,8 +67,32 @@ def detectar_nulos(consumo):
     return pd.concat(partes, ignore_index=True)
 
 
-def detectar_dominio_invalido(consumo, flota):
-    """H1: el dominio de la transacción no corresponde a ningún vehículo de la flota."""
+def normalizar_dominio(serie):
+    """Dominio en mayúsculas y sin espacios, guiones ni puntos: `ab-0001 cd` -> `AB0001CD`."""
+    return serie.astype("string").str.upper().str.replace(r"[\s\-_.]", "", regex=True)
+
+
+def leer_fecha(serie):
+    """Fechas escritas como AAAA-MM-DD o DD/MM/AAAA, cada formato interpretado por separado.
+
+    Con un solo formato inferido, `05/03/2024` podría leerse como 3 de mayo: se leen las ISO
+    con su formato y las demás como día/mes/año.
+    """
+    texto = serie.astype("string").str.strip()
+    iso = pd.to_datetime(texto, format="%Y-%m-%d", errors="coerce")
+    return iso.fillna(pd.to_datetime(texto, format="%d/%m/%Y", errors="coerce"))
+
+
+def detectar_dominio_invalido(consumo, flota, normalizado=False):
+    """H1: el dominio de la transacción no corresponde a ningún vehículo de la flota.
+
+    Con `normalizado`, se compara después de quitar espacios, guiones y minúsculas: un dominio
+    escrito de otra forma sigue siendo el del vehículo.
+    """
+    if normalizado:
+        sin_vinculo = consumo[~normalizar_dominio(consumo["dominio"]).isin(set(normalizar_dominio(flota["Dominio"])))]
+        return _alertas(sin_vinculo, "DOMINIO_INVALIDO", "dominio_sin_vinculo_normalizado",
+                        lambda d: "dominio " + d["dominio"].astype(str) + " no existe en la flota ni normalizado")
     sin_vinculo = consumo[~consumo["dominio"].isin(flota["Dominio"])]
     return _alertas(sin_vinculo, "DOMINIO_INVALIDO", "dominio_sin_vinculo",
                     lambda d: "dominio " + d["dominio"].astype(str) + " no existe en la flota")
@@ -445,7 +469,7 @@ def emparejar_solicitudes(consumo, solicitudes, excluir_ids=(), dias_antes=VENTA
     cargas["fecha"] = pd.to_datetime(cargas["fecha"])
     aprobadas = solicitudes[solicitudes["estado"] == "APROBADA"][
         ["id", "vehiculo_id", "fecha_solicitud", "litros_autorizados"]].rename(columns={"id": "solicitud_id"})
-    aprobadas["fecha_solicitud"] = pd.to_datetime(aprobadas["fecha_solicitud"])
+    aprobadas["fecha_solicitud"] = leer_fecha(aprobadas["fecha_solicitud"])
     por_vehiculo = dict(tuple(aprobadas.groupby("vehiculo_id")))
 
     filas = []
@@ -474,7 +498,7 @@ def emparejar_solicitudes(consumo, solicitudes, excluir_ids=(), dias_antes=VENTA
 def _tipo_sin_autorizacion(consumo, solicitudes, sin_solicitud, dias_antes, dias_despues):
     """CARGA_CON_SOLICITUD_RECHAZADA si hubo una solicitud rechazada en la ventana; si no, SIN_SOLICITUD."""
     rechazadas = solicitudes[solicitudes["estado"] == "RECHAZADA"][["vehiculo_id", "fecha_solicitud"]].copy()
-    rechazadas["fecha_solicitud"] = pd.to_datetime(rechazadas["fecha_solicitud"])
+    rechazadas["fecha_solicitud"] = leer_fecha(rechazadas["fecha_solicitud"])
     cargas = consumo[consumo["id"].isin(sin_solicitud)][["id", "vehiculo_id", "fecha"]].copy()
     cargas["fecha"] = pd.to_datetime(cargas["fecha"])
     pares = cargas.merge(rechazadas, on="vehiculo_id")
@@ -596,6 +620,7 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
                               gps_diario=telemetria_diaria)
         intervalos = gps_por_intervalo(dias) if telemetria_diaria is not None else None
         partes += [
+            detectar_dominio_invalido(consumo, flota, normalizado=True),
             detectar_retroceso_con_contexto(secuencia),
             detectar_salto_con_contexto(secuencia, intervalos),
             detectar_exceso_sin_antecedente(consumo, flota),

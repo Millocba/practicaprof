@@ -196,7 +196,7 @@ Las siguientes incoherencias **no son anomalías inyectadas** y no figuran en el
 - `litros_autorizados` puede superar a `litros_solicitados`, porque ambos se generan por separado.
 - El odómetro de telemetría no se relaciona con el de consumo.
 - Hay una sola factura por mes para toda la flota; no se inyectan anomalías de facturación.
-- La telemetría siempre apunta a dominios válidos, así que la vinculación de dispositivos (H1) es del 100%.
+- La telemetría siempre apunta a dominios válidos, así que la vinculación de dispositivos (H1) es del 100%. En el escenario realista, el 2% de las cargas trae el dominio con otro formato (ver *Formatos de origen*).
 
 ## Escenario realista
 
@@ -291,6 +291,7 @@ Cargas que una regla ingenua marcaría como anomalía pero no lo son. No están 
 | `TOLERANCIA_MEDICION` | 10 cargas | La carga supera lo autorizado entre 1% y 3%, dentro de la tolerancia del surtidor |
 | `DESFASE_DE_CORTE` | 50% de las cargas del último día de cada mes (línea de factura) | Se facturan en la factura del mes siguiente |
 | `AJUSTE_DOCUMENTADO` | 4 facturas | La factura incluye una línea AJUSTE (bonificación o recargo de 2% a 5%) |
+| `DOMINIO_CON_FORMATO` | 2% de las cargas | El dominio llega en minúsculas, con espacios o guiones, o con un espacio al final (`ab0001cd`, `AB 0001 CD`, `AB-0001-CD`); normalizado es el del vehículo |
 
 La columna `tabla` indica a qué tabla pertenece `id_registro`: `consumo`, `facturacion` o `facturacion_detalle`.
 
@@ -316,4 +317,11 @@ Incluye las del escenario didáctico, con otra forma de inyección, y cinco tipo
 | `LINEA_SIN_CONSUMO` | H9 | 6 líneas (`tabla` = facturacion_detalle) | Se factura una carga que no existe en el registro |
 | `LINEA_DUPLICADA` | H9 | 5 líneas | Una carga se factura dos veces |
 | `SOBREPRECIO` | H9 | 6 líneas | El precio por litro facturado supera en 8% a 20% el de la carga |
+
+### Formatos de origen del escenario realista
+
+No son anomalías: es cómo llegan los datos de cada fuente. Se aplican al final de la generación con un generador aleatorio propio, así el resto del escenario no cambia.
+
+- **Dominios con otro formato** en `consumo` (2% de las cargas, caso legítimo `DOMINIO_CON_FORMATO`). La vinculación exacta los confunde con dominios inválidos; normalizados (mayúsculas, sin espacios, guiones ni puntos) vinculan con su vehículo. Es lo que contrasta H1.
+- **Fechas en dos formatos** en `solicitudes.fecha_solicitud`: el 85% en `AAAA-MM-DD` y el 15% en `DD/MM/AAAA`. Hay que interpretar cada formato por separado (`deteccion.reglas.leer_fecha`): con un único formato inferido, una fecha como `05/03/2024` puede leerse como 3 de mayo.
 
