@@ -11,6 +11,7 @@ sys.path.insert(0, str(APP_DIR / "utils"))
 sys.path.insert(0, str(APP_DIR.parent))
 
 import documentacion  # noqa: E402
+from ayudas import seccion  # noqa: E402
 from data_loader import (  # noqa: E402
     NOMBRES_ESCENARIO,
     asegurar_datos_maestro,
@@ -24,7 +25,12 @@ from deteccion.reglas import ejecutar_reglas  # noqa: E402
 
 st.set_page_config(page_title="Documentación", page_icon="📚", layout="wide")
 
-st.markdown("# 📚 Documentación")
+seccion(
+    "📚 Documentación", nivel=1,
+    ayuda="La documentación del proyecto escrita en archivos `.md`, que se muestra acá con los "
+          "**números del escenario que está cargado ahora**. No es una copia estática: si "
+          "generaste los datos con otra semilla, los valores que aparecen en el texto cambian "
+          "solos. Sirve para leer el estado del proyecto y la bitácora sin salir de la app.")
 st.markdown(
     "La documentación del proyecto con los **valores actuales**: las variables de cada documento "
     "(`{{ nombre }}`) se completan con los datos en uso. Incluye la **bitácora** de cambios y se puede "
@@ -110,7 +116,13 @@ elif vista == VISTAS[1]:
     st.download_button("⬇️ Descargar la bitácora", texto, file_name="BITACORA.md", mime="text/markdown",
                        key="descargar_bitacora")
     mostrar(texto)
-    st.markdown("## Historial de commits")
+    seccion(
+        "Historial de commits",
+        ayuda="Se lee del historial real de git, no de un archivo: los últimos 60 cambios con su "
+              "tipo según el prefijo del mensaje (feat, fix, docs, test). Filtrá por tipo para "
+              "ver solo lo que te interesa. Si aparece un aviso de que no está disponible, es "
+              "que la app se está corriendo sin el repositorio, por ejemplo en un despliegue "
+              "que no incluye el historial.")
     st.caption("Leído en vivo de git: cada cambio del código, con su tipo (feat, fix, docs, test…).")
     commits = documentacion.historial_git(60)
     if commits.empty:
