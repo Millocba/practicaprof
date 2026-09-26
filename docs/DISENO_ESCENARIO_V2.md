@@ -6,7 +6,7 @@
 
 Hoy el escenario realista modela solicitudes con litros autorizados y una factura por proveedor y mes. El circuito real es otro:
 
-1. Cada vehículo tiene una **tarjeta** asignada a un **contrato** con un **tope mensual en pesos** (no hay límite en litros). Cada carga descuenta del saldo del mes; si se agota, **el suministro se corta** para todas las tarjetas del contrato hasta que alguien **transfiere saldo a mano** desde otro contrato, generalmente el que más saldo tiene.
+1. Cada vehículo tiene una **tarjeta** asignada a un **contrato** con un **tope mensual en pesos** (no hay límite en litros). Cada carga descuenta del saldo del mes; si se agota, **el suministro se corta** para todas las tarjetas del contrato. Para evitarlo, se sigue cada contrato **proyectando el consumo promedio diario a fin de mes**: si la proyección supera el saldo, se **transfiere saldo a mano antes del corte** desde otro contrato, generalmente el que más saldo tiene.
 2. También hay **tarjetas personales**, asociadas a una persona y no a un vehículo. Igual requieren una solicitud en el registro interno, que indica la unidad y hasta cuánto se puede cargar en ella, así que aparecen tanto en el registro interno como en el reporte del proveedor.
 3. El **registro interno** anota cada pedido de combustible y su rendición (ticket, rendido, anulado). No comparte ningún identificador con el **reporte del proveedor**: se cruzan por dominio y horario.
 4. El proveedor factura **por contrato**: una deuda con el monto, un PDF con el detalle y un reporte de consumo por factura. Los tres montos deben coincidir.
@@ -42,12 +42,13 @@ La base separa los datos maestros, que cambian poco y se versionan con vigencia,
 
 **Contratos y cupo.** Seis contratos con topes desiguales en pesos (uno concentra cerca del 40% del cupo, otro menos del 2%), escalados para que la flota ejecute alrededor del 90% del total en un mes normal; algunos contratos se agotan antes de fin de mes y otros sobran. La simulación diaria descuenta cada carga del saldo del contrato de la tarjeta:
 
-- **Corte:** con el saldo agotado, las cargas de las tarjetas del contrato no se realizan; los vehículos postergan la carga.
-- **Transferencia:** después de un retraso de horas a un par de días hábiles, se transfiere saldo desde el contrato con más saldo disponible (caso legítimo `TRANSFERENCIA_DE_SALDO`, registrado en `transferencia_saldo`).
-- Los comportamientos que el corte induce, como anomalías:
+- **Seguimiento:** cada día hábil se calcula, por contrato, el consumo promedio diario del mes y se proyecta a fin de mes. Si la proyección supera el saldo (con un margen), se **transfiere** la diferencia desde el contrato con más saldo proyectado sobrante (caso legítimo `TRANSFERENCIA_DE_SALDO`, registrado en `transferencia_saldo`). La transferencia se hace con un retraso de cero a dos días hábiles.
+- **Corte:** si la transferencia llega tarde o un pico de consumo le gana a la proyección, el saldo se agota y las cargas de las tarjetas del contrato no se realizan hasta que llega la transferencia; los vehículos postergan la carga (caso legítimo `CORTE_DE_SUMINISTRO`, días sin suministro en `saldo_contrato`).
+- Los comportamientos irregulares, como anomalías:
   - `CARGA_CON_CUPO_AGOTADO`: carga registrada con el saldo en cero, que el corte debería haber impedido;
   - `TARJETA_DE_OTRO_CONTRATO`: durante el corte, el vehículo carga con una tarjeta de otro contrato o de otro vehículo;
-  - `TRANSFERENCIA_SIN_NECESIDAD`: transferencia a un contrato que todavía tenía saldo, o desde uno que queda sin saldo para su propio consumo.
+  - `TRANSFERENCIA_SIN_NECESIDAD`: transferencia que la proyección no justifica (el contrato de destino alcanzaba), o que deja al contrato de origen por debajo de su propia proyección;
+  - `CONSUMO_ANTICIPADO`: un contrato consume en pocos días mucho más que su promedio para forzar una transferencia.
 - `CONTINGENCIA` (legítimo si tiene respaldo en el registro interno, anomalía si no): carga manual fuera del circuito normal.
 
 **Tarjetas personales.** Una parte de las tarjetas es personal. La carga figura en el reporte con la persona (código sintético) en lugar del dominio; la solicitud del registro interno indica la unidad y el límite. Casos:
@@ -86,7 +87,7 @@ Se mantienen las irregularidades de línea actuales (sin carga, duplicada, sobre
 |---|---|---|
 | **H8 (reformulada).** Cruzar el registro interno con el reporte detecta cargas sin respaldo, rendiciones sin carga y anuladas que se facturan | Emparejamiento voraz por dominio y día, sin tolerancia de horario ni de litros; las cargas con tarjeta personal no tienen dominio y quedan como "sin solicitud" | Asignación óptima por dominio, o por persona en las tarjetas personales, con tolerancia de horario y litros, excluyendo estaciones ajenas y pendientes |
 | **H9 (ampliada).** La conciliación triple deuda–PDF–consumo por contrato detecta sobre y subfacturación que el total mensual no ve | Total del mes contra consumo del mes | Deuda contra consumo, PDF contra deuda y cada línea contra su carga |
-| **H10 (nueva).** El corte por cupo agotado induce irregularidades que solo se ven siguiendo el saldo de cada contrato | Ejecución mensual de cada contrato contra su tope | Saldo diario con las transferencias: cargas durante el corte, tarjetas de otro contrato, transferencias sin necesidad y contingencias sin respaldo |
+| **H10 (nueva).** Las irregularidades del cupo solo se ven siguiendo el saldo diario de cada contrato y su proyección | Ejecución mensual de cada contrato contra su tope | Saldo diario con la proyección a fin de mes y las transferencias: transferencias que la proyección no justifica, consumo anticipado, cargas durante el corte, tarjetas de otro contrato |
 
 La regla ingenua de H8 reproduce el cruce típico de un sistema operativo (voraz, sin tolerancias); la con contexto es el aporte metodológico del proyecto.
 
@@ -110,10 +111,10 @@ Cada paso es un commit con tests y con las hipótesis verificadas en cinco semil
 ## Decisiones tomadas
 
 - El tope es solo en pesos.
-- Al agotarse un contrato se corta el suministro; se transfiere saldo a mano desde otro contrato, generalmente el de más saldo.
+- Al agotarse un contrato se corta el suministro. Para evitarlo se proyecta el consumo promedio diario a fin de mes y, si no alcanza, se transfiere saldo a mano antes del corte, generalmente desde el contrato con más saldo.
 - Las tarjetas personales se modelan: requieren solicitud con la unidad y el límite, y aparecen en el registro interno y en el reporte.
 
 ## Decisiones abiertas
 
-- Retraso típico entre el corte y la transferencia, y cuántas transferencias hay por mes (a calibrar con el perfil si es posible).
+- Margen de la proyección con el que se decide transferir, retraso típico de la transferencia y cuántas hay por mes (a calibrar con el perfil si es posible).
 - Proporción de tarjetas personales y de cargas en contingencia (a calibrar con el perfil).
