@@ -205,7 +205,8 @@ def perfilar_columna(nombre, serie):
             perfil["total_aprox"] = dos_cifras(float(numeros.sum()))
         return perfil
 
-    if pd.api.types.is_bool_dtype(serie):
+    # Booleanos, incluidos los guardados como 0/1 (es_contingencia, es_combustible)
+    if pd.api.types.is_bool_dtype(serie) or (pd.api.types.is_numeric_dtype(serie) and set(presentes.unique()) <= {0, 1}):
         perfil["tipo"] = "booleano"
         perfil["verdaderos_pct"] = pct(int(presentes.astype(bool).sum()), n)
         return perfil

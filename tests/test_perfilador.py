@@ -410,3 +410,8 @@ def test_control_telemetria_vs_estado():
     assert control["por_estado"]["FUERA DE SERVICIO"]["sin_dispositivo"] == 30
     texto = json.dumps(control, ensure_ascii=False)
     assert "ZZ0" not in texto and "1190" not in texto
+
+
+def test_columnas_cero_uno_son_booleanas():
+    c = perfilar_columna("es_contingencia", pd.Series([0] * 97 + [1] * 3))
+    assert c["tipo"] == "booleano" and c["verdaderos_pct"] == 3.0 and "numerico" not in c
