@@ -119,10 +119,10 @@ La regla ingenua de H8 reproduce el cruce típico de un sistema operativo (voraz
 ## Orden de implementación
 
 1. Aprobar este diseño y el perfil de las fuentes; ajustar proporciones con el informe de brechas.
-2. Contratos, tarjetas y cupo en el generador, con sus tests.
+2. Contratos, tarjetas y cupo en el generador, con sus tests. **Hecho** (junto con H10).
 3. Registro interno y H8 reformulada.
 4. Facturación por contrato y H9 ampliada.
-5. H10.
+5. Telemetría y bajas (H11).
 6. Base de datos: migraciones y carga desde los CSV.
 
 Cada paso es un commit con tests y con las hipótesis verificadas en cinco semillas.

@@ -28,7 +28,7 @@ from deteccion.modelo import (
     entrenar_isolation_forest,
     ids_con_anomalia_de_comportamiento,
 )
-from deteccion.reglas import ejecutar_reglas
+from deteccion.reglas import reglas_del_dataset
 
 REGLAS_INGENUAS = ["litros_mayor_a_tanque", "odometro_disminuye", "salto_historial_vehiculo",
                    "fraccionamiento_diario", "rendimiento_bajo_odometro", "carga_lejos_de_base",
@@ -47,9 +47,7 @@ SEMILLAS_ENTRENAMIENTO = [1001, 1002, 1003]
 def _variables_y_reglas(dataset):
     variables = construir_variables(dataset["flota"], dataset["consumo"], dataset.get("estaciones"),
                                     dataset.get("telemetria_diaria"), dataset.get("solicitudes"))
-    alertas = ejecutar_reglas(dataset["flota"], dataset["consumo"], dataset.get("estaciones"),
-                              dataset.get("telemetria_diaria"), dataset.get("solicitudes"),
-                              dataset.get("facturacion"), dataset.get("facturacion_detalle"))
+    alertas = reglas_del_dataset(dataset)
     return variables, alertas
 
 

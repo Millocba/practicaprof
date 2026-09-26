@@ -126,6 +126,20 @@ HIPOTESIS = [
         "contexto": "detalle de facturación",
         "nivel": "factura",
     },
+    {
+        "codigo": "H10",
+        "titulo": "Cupo de los contratos",
+        "enunciado": "Comparar el consumo del mes con el tope marca como problema cada transferencia de saldo "
+                     "legítima y no ve las innecesarias; seguir el saldo diario con la proyección a fin de mes "
+                     "separa las transferencias justificadas de las que no, y encuentra las cargas con el saldo "
+                     "agotado.",
+        "tipos": ["CARGA_CON_CUPO_AGOTADO", "TRANSFERENCIA_SIN_NECESIDAD"],
+        "reglas": [("ejecucion_supera_tope", "consumo del mes contra el tope"),
+                   (["carga_con_saldo_agotado", "transferencia_no_justificada"],
+                    "saldo diario con transferencias y proyección a fin de mes")],
+        "contexto": "tope, transferencias y saldo diario de cada contrato",
+        "nivel": "contrato_mes",
+    },
 ]
 
 

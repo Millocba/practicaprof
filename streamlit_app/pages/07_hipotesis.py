@@ -41,9 +41,9 @@ st.caption("Esta página siempre usa el escenario **Realista**: las hipótesis t
 
 @st.cache_data
 def calcular(flota, consumo, ground_truth, legitimos, estaciones, telemetria_diaria, solicitudes,
-             facturacion, facturacion_detalle):
+             facturacion, facturacion_detalle, contratos=None, transferencias=None):
     alertas = ejecutar_reglas(flota, consumo, estaciones, telemetria_diaria, solicitudes, facturacion,
-                              facturacion_detalle)
+                              facturacion_detalle, contratos=contratos, transferencias=transferencias)
     detalle, veredictos = contrastar_hipotesis(alertas, ground_truth, legitimos, facturacion_detalle)
     return alertas, detalle, veredictos
 
@@ -51,7 +51,8 @@ def calcular(flota, consumo, ground_truth, legitimos, estaciones, telemetria_dia
 alertas, detalle, veredictos = calcular(datos["flota"], datos["consumo"], datos["ground_truth"],
                                         datos["casos_legitimos"], datos["estaciones"],
                                         datos["telemetria_diaria"], datos["solicitudes"],
-                                        datos["facturacion"], datos["facturacion_detalle"])
+                                        datos["facturacion"], datos["facturacion_detalle"],
+                                        datos["contratos"], datos["transferencias"])
 consumo = datos["consumo"]
 legitimos = datos["casos_legitimos"]
 ground_truth = datos["ground_truth"]

@@ -11,7 +11,7 @@ from deteccion import priorizacion
 from deteccion.datos import cargar_dataset
 from deteccion.hipotesis import HIPOTESIS, contrastar_hipotesis
 from deteccion.modelo import ids_con_anomalia_de_comportamiento
-from deteccion.reglas import detectar_carga_sin_autorizacion, ejecutar_reglas, leer_fecha, normalizar_dominio
+from deteccion.reglas import detectar_carga_sin_autorizacion, leer_fecha, normalizar_dominio, reglas_del_dataset
 from generator_pipeline_maestro import (
     CATALOGO_LEGITIMOS,
     PERFILES_VEHICULO,
@@ -20,7 +20,7 @@ from generator_pipeline_maestro import (
 )
 
 ARCHIVOS = ["flota", "estaciones", "telemetria", "telemetria_diaria", "consumo", "solicitudes",
-            "facturacion", "facturacion_detalle", "ground_truth", "casos_legitimos"]
+            "facturacion", "facturacion_detalle", "contratos", "transferencias", "ground_truth", "casos_legitimos"]
 
 
 def generar(directorio, seed=42, n_flota=200):
@@ -36,8 +36,7 @@ def dataset(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def alertas(dataset):
-    return ejecutar_reglas(dataset["flota"], dataset["consumo"], dataset["estaciones"], dataset["telemetria_diaria"],
-                           dataset["solicitudes"], dataset["facturacion"], dataset["facturacion_detalle"])
+    return reglas_del_dataset(dataset)
 
 
 def _contraste(dataset, alertas):
@@ -63,7 +62,9 @@ def test_estan_todos_los_tipos_de_anomalia_y_de_caso_legitimo(dataset):
 def test_etiquetas_referencian_registros_existentes_y_no_se_superponen(dataset):
     ids = {"consumo": set(dataset["consumo"]["id"]),
            "facturacion": set(dataset["facturacion"]["numero_factura"]),
-           "facturacion_detalle": set(dataset["facturacion_detalle"]["numero_linea"])}
+           "facturacion_detalle": set(dataset["facturacion_detalle"]["numero_linea"]),
+           "contrato_mes": {f"CTO-{c}|{m}" for c, m in zip(dataset["consumo"]["contrato"],
+                                                           pd.to_datetime(dataset["consumo"]["fecha"]).dt.to_period("M"))}}
     for tabla_etiquetas in [dataset["ground_truth"], dataset["casos_legitimos"]]:
         for tabla, grupo in tabla_etiquetas.groupby("tabla"):
             assert set(grupo["id_registro"]) <= ids[tabla], tabla
@@ -164,6 +165,21 @@ def test_flota_calibrada_con_la_fuente(dataset):
     # Formatos públicos, siempre marcados como sintéticos (empiezan con Z, serie no asignada)
     assert flota["Dominio"].str.fullmatch(r"Z[A-Z]\d{3}[A-Z]{2}|ZZ[A-Z]\d{3}|Z\d{3}[A-Z]{3}").all()
     assert flota["Dominio"].is_unique
+
+
+def test_contratos_tarjetas_y_cupo(dataset):
+    flota, consumo, contratos = dataset["flota"], dataset["consumo"], dataset["contratos"]
+    transferencias = dataset["transferencias"]
+    assert list(contratos["indice"]) == [1, 2, 3, 4, 5, 6]
+    assert set(flota["NumeroContrato"]) <= set(contratos["indice"])
+    assert (consumo["contrato"] == consumo["vehiculo_id"].map(flota.set_index("Matricula")["NumeroContrato"])).all()
+    assert (flota["Cupo"] == flota["CapacidadTanque"]).all() and (flota["LimiteLitros"] > flota["CapacidadTanque"]).all()
+    # Ejecución media del cupo total cercana a la de la fuente (~93%) y transferencias entre contratos distintos
+    mes = pd.to_datetime(consumo["fecha"]).dt.to_period("M")
+    ejecucion = (consumo.groupby(mes)["importe_total"].sum() / contratos["limite_mensual"].sum()).iloc[:-1]
+    assert 0.75 < ejecucion.mean() < 1.0
+    assert (transferencias["contrato_origen"] != transferencias["contrato_destino"]).all()
+    assert (transferencias["monto"] > 0).all()
 
 
 def test_dominios_con_otro_formato_corresponden_a_su_vehiculo(dataset):

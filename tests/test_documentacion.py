@@ -13,7 +13,7 @@ sys.path.insert(0, str(RAIZ / "streamlit_app" / "utils"))
 import documentacion  # noqa: E402
 from deteccion.datos import cargar_dataset  # noqa: E402
 from deteccion.hipotesis import contrastar_hipotesis  # noqa: E402
-from deteccion.reglas import ejecutar_reglas  # noqa: E402
+from deteccion.reglas import reglas_del_dataset  # noqa: E402
 from generator_pipeline_maestro import GeneradorMaestro  # noqa: E402
 
 
@@ -44,8 +44,7 @@ def contexto(request, tmp_path_factory):
     datos = cargar_dataset(d)
     veredictos = None
     if datos["casos_legitimos"] is not None:
-        alertas = ejecutar_reglas(datos["flota"], datos["consumo"], datos["estaciones"], datos["telemetria_diaria"],
-                                  datos["solicitudes"], datos["facturacion"], datos["facturacion_detalle"])
+        alertas = reglas_del_dataset(datos)
         _, veredictos = contrastar_hipotesis(alertas, datos["ground_truth"], datos["casos_legitimos"],
                                              datos["facturacion_detalle"])
     metadata = json.loads((d / "metadata.json").read_text(encoding="utf-8"))

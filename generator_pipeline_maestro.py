@@ -75,6 +75,8 @@ CATALOGO_ANOMALIAS = {
     "LINEA_SIN_CONSUMO": ("H9", "ALTA"),
     "LINEA_DUPLICADA": ("H9", "ALTA"),
     "SOBREPRECIO": ("H9", "MEDIA"),
+    "CARGA_CON_CUPO_AGOTADO": ("H10", "ALTA"),
+    "TRANSFERENCIA_SIN_NECESIDAD": ("H10", "MEDIA"),
 }
 
 ESCENARIOS = ("didactico", "realista")
@@ -97,9 +99,22 @@ CATALOGO_LEGITIMOS = {
     "DESFASE_DE_CORTE": "la carga del último día del mes se factura en el período siguiente",
     "AJUSTE_DOCUMENTADO": "la factura incluye un ajuste documentado (bonificación o recargo)",
     "DOMINIO_CON_FORMATO": "el dominio se registró con espacios, guiones o minúsculas; normalizado es el del vehículo",
+    "TRANSFERENCIA_DE_SALDO": "el contrato recibió saldo de otro porque la proyección del mes no alcanzaba",
 }
 
 COLUMNAS_CASOS_LEGITIMOS = ["tabla", "id_registro", "vehiculo_id", "tipo_caso", "descripcion"]
+
+# Contratos del escenario realista: seis, con topes mensuales en pesos. Los vehículos se reparten
+# como el consumo de la fuente y cada tope es el consumo del mes de mayor uso del contrato por un
+# factor: los dos grandes quedan cortos y reciben transferencias preventivas de los que sobran; en
+# total el cupo alcanza cualquier mes (ejecución media cercana al 90%)
+REPARTO_CONTRATOS = [0.492, 0.237, 0.091, 0.082, 0.075, 0.023]
+FACTOR_TOPE_CONTRATO = [0.9, 0.92, 1.2, 1.25, 1.2, 1.3]
+MARGEN_PROYECCION = 1.05            # se transfiere si la proyección a fin de mes supera el saldo en este margen
+DIA_INICIO_SEGUIMIENTO = 5          # antes, el promedio del mes no es confiable (salvo que no alcance el día)
+DIAS_PESO_HISTORICO = 7             # la proyección combina el mes con 7 días del promedio histórico
+DIAS_DE_SEGUIMIENTO = (0, 3)        # el saldo se revisa a mano los lunes y los jueves
+RESERVA_DONANTE = 1.2               # el contrato que cede conserva un 20% más que su propia proyección
 
 # Anomalías que siguen presentes en una fila duplicada (las de odómetro no: la copia
 # repite fecha y lectura, así que no hay cambio que detectar)
@@ -207,6 +222,8 @@ EVENTOS_REALISTA = {
     "LINEA_SIN_CONSUMO": 6,
     "LINEA_DUPLICADA": 5,
     "SOBREPRECIO": 6,
+    "CARGA_CON_CUPO_AGOTADO": 1,    # contratos-mes en los que una transferencia llega tarde y se carga sin saldo
+    "TRANSFERENCIA_SIN_NECESIDAD": 2,  # transferencias que la proyección no justifica
     "AJUSTE_DOCUMENTADO": 4,        # legítimos: facturas con un ajuste
 }
 PROB_DESFASE_DE_CORTE = 0.5         # cargas del último día del mes facturadas al mes siguiente
@@ -275,8 +292,10 @@ TABLAS = {
             "NumeroMotor": ("texto", "Número de motor"),
             "NumeroChasis": ("texto", "Número de chasis"),
             "NumeroTarjeta": ("texto", "Tarjeta de combustible asignada"),
-            "LimiteSaldo": ("decimal", "Límite de saldo de la tarjeta"),
-            "LimiteLitros": ("decimal (L)", "Límite de litros de la tarjeta"),
+            "LimiteSaldo": ("decimal", "Límite de saldo de la tarjeta (realista: mensual, fijado al registrarla)"),
+            "LimiteLitros": ("decimal (L)", "Límite de litros de la tarjeta (realista: mensual, fijado al registrarla)"),
+            "NumeroContrato": ("entero", "Contrato al que pertenece la tarjeta, 1 a 6", REALISTA),
+            "Cupo": ("decimal (L)", "Litros por carga de la tarjeta: la capacidad del tanque", REALISTA),
             "SubEstado": ("categoría", "Didáctico: ACTIVO o INACTIVO. Realista: motivo de fuera de servicio o "
                                        "etapa del trámite de baja; vacío si está en servicio"),
             "FechaEstado": ("fecha", "Último cambio a un estado distinto de EN SERVICIO; vacía si está en servicio",
@@ -337,6 +356,7 @@ TABLAS = {
             "numero_tarjeta": ("texto", "Tarjeta de combustible usada"),
             "conductor": ("texto", "Conductor, CONDUCTOR-N; puede estar vacío"),
             "odometro": ("entero (km)", "Lectura del odómetro informada en la carga; puede estar vacía"),
+            "contrato": ("entero", "Contrato de la tarjeta, 1 a 6: descuenta del saldo del mes", REALISTA),
         },
     },
     "solicitudes": {
@@ -353,6 +373,25 @@ TABLAS = {
             "centro_costo": ("texto", "Centro de costo, CC-NNN"),
             "responsable": ("texto", "Responsable, RESP-N"),
             "observaciones": ("texto", "Observaciones; puede estar vacía"),
+        },
+    },
+    "contratos": {
+        "grano": "un contrato de abastecimiento", "clave": "indice", "escenarios": REALISTA,
+        "columnas": {
+            "indice": ("entero", "Número de contrato en la flota, 1 a 6"),
+            "numero": ("texto", "Número del contrato, CTO-NNNNNN"),
+            "etiqueta": ("texto", "Nombre del contrato"),
+            "limite_mensual": ("decimal", "Tope mensual en pesos; se renueva cada mes"),
+        },
+    },
+    "transferencias": {
+        "grano": "una transferencia de saldo entre contratos", "clave": "id", "escenarios": REALISTA,
+        "columnas": {
+            "id": ("texto", "Clave de la transferencia, TRF-NNNNNN"),
+            "fecha": ("fecha", "Día en que se acredita, antes de las cargas del día"),
+            "contrato_origen": ("entero", "Contrato que cede saldo"),
+            "contrato_destino": ("entero", "Contrato que recibe saldo"),
+            "monto": ("decimal", "Pesos transferidos"),
         },
     },
     "facturacion": {
@@ -419,6 +458,10 @@ RELACIONES = [
     ("consumo", "dominio", "flota", "Dominio", "N:1", AMBOS, "se rompe en DOMINIO_INVALIDO"),
     ("consumo", "numero_tarjeta", "flota", "NumeroTarjeta", "N:1", AMBOS, ""),
     ("consumo", "estacion", "estaciones", "codigo", "N:1", REALISTA, ""),
+    ("consumo", "contrato", "contratos", "indice", "N:1", REALISTA, "cada carga descuenta del saldo del mes"),
+    ("flota", "NumeroContrato", "contratos", "indice", "N:1", REALISTA, ""),
+    ("transferencias", "contrato_origen", "contratos", "indice", "N:1", REALISTA, ""),
+    ("transferencias", "contrato_destino", "contratos", "indice", "N:1", REALISTA, ""),
     ("solicitudes", "vehiculo_id", "flota", "Matricula", "N:1", AMBOS, ""),
     ("solicitudes", "vehiculo_id + fecha_solicitud + litros_autorizados", "consumo",
      "vehiculo_id + fecha + litros", "1:1", REALISTA,
@@ -432,9 +475,9 @@ RELACIONES = [
     ("facturacion_detalle", "referencia_consumo", "consumo", "id", "N:1", REALISTA,
      "se rompe en LINEA_SIN_CONSUMO; dos líneas en LINEA_DUPLICADA"),
     ("ground_truth", "id_registro", "consumo / facturacion / facturacion_detalle", "id", "N:1", AMBOS,
-     "según la columna tabla"),
+     "según la columna tabla; en tabla contrato_mes, el id es CTO-N|AAAA-MM"),
     ("casos_legitimos", "id_registro", "consumo / facturacion / facturacion_detalle", "id", "N:1", REALISTA,
-     "según la columna tabla"),
+     "según la columna tabla; en tabla contrato_mes, el id es CTO-N|AAAA-MM"),
 ]
 
 
@@ -859,8 +902,8 @@ class GeneradorMaestro:
     def _cantidad(self, clave):
         return max(1, round(EVENTOS_REALISTA[clave] * self.n_flota / 200))
 
-    def _registrar_legitimo(self, id_registro, vehiculo_id, tipo, descripcion):
-        self.casos_legitimos.append({"tabla": "consumo", "id_registro": id_registro,
+    def _registrar_legitimo(self, id_registro, vehiculo_id, tipo, descripcion, tabla="consumo"):
+        self.casos_legitimos.append({"tabla": tabla, "id_registro": id_registro,
                                      "vehiculo_id": vehiculo_id, "tipo_caso": tipo,
                                      "descripcion": descripcion})
 
@@ -1598,6 +1641,184 @@ class GeneradorMaestro:
         logger.info(f"✓ Formatos de origen: {len(elegidas)} dominios con otro formato, "
                     f"{sum(otro_formato)} fechas de solicitud en DD/MM/AAAA")
 
+    def generar_contratos_realista(self):
+        """CONTRATOS y TRANSFERENCIAS: cupo mensual por contrato y transferencias preventivas.
+
+        Cada tarjeta pertenece a un contrato con un tope mensual en pesos; cada carga descuenta del
+        saldo del mes. Los lunes y jueves, desde el quinto día del mes, se proyecta el consumo promedio
+        diario a fin de mes: si supera el saldo (con margen), se transfiere la diferencia desde el
+        contrato con más saldo sobrante (caso legítimo TRANSFERENCIA_DE_SALDO). Si un día no
+        alcanzara, se transfiere en el momento. Así el saldo no se agota, salvo en las anomalías:
+
+        - TRANSFERENCIA_SIN_NECESIDAD: transferencia a un contrato cuya proyección alcanzaba.
+        - CARGA_CON_CUPO_AGOTADO: una transferencia legítima llega tarde y se carga sin saldo.
+
+        Usa un generador aleatorio propio y se aplica al final: el resto del escenario no cambia.
+        """
+        rng = random.Random(self.seed + 2_000_003)
+        flota, consumo = self.datasets["flota"], self.datasets["consumo"]
+        indices = list(range(1, len(REPARTO_CONTRATOS) + 1))
+        contrato_de = {m: rng.choices(indices, weights=REPARTO_CONTRATOS)[0] for m in flota["Matricula"]}
+        flota["NumeroContrato"] = flota["Matricula"].map(contrato_de)
+        flota["Cupo"] = flota["CapacidadTanque"]
+        flota["LimiteLitros"] = [round(c * rng.uniform(15, 35)) for c in flota["CapacidadTanque"]]
+        precio_medio = consumo["precio_unitario"].mean()
+        flota["LimiteSaldo"] = [round(ll * precio_medio * rng.uniform(1.0, 1.3), -1) for ll in flota["LimiteLitros"]]
+        consumo["contrato"] = consumo["vehiculo_id"].map(contrato_de).astype("Int64")
+
+        fechas = pd.to_datetime(consumo["fecha"])
+        meses = sorted(fechas.dt.to_period("M").unique())
+        por_dia = consumo.assign(dia=fechas.dt.normalize()).groupby(["contrato", "dia"])["importe_total"].sum()
+        por_mes = consumo.assign(mes=fechas.dt.to_period("M")).groupby(["contrato", "mes"])["importe_total"].sum()
+        completos = [m for m in meses if m != meses[-1]] or meses
+
+        def del_mes(c, m):
+            return float(por_mes.get((c, m), 0.0))
+
+        medio = {c: sum(del_mes(c, m) for m in completos) / len(completos) for c in indices}
+        maximo = {c: max(del_mes(c, m) for m in completos) for c in indices}
+        limites = {c: max(10.0, round(maximo[c] * FACTOR_TOPE_CONTRATO[c - 1], -1)) for c in indices}
+        self.datasets["contratos"] = pd.DataFrame({
+            "indice": indices, "numero": [f"CTO-{100000 + c:06d}" for c in indices],
+            "etiqueta": [f"CONTRATO {c}" for c in indices], "limite_mensual": [limites[c] for c in indices]})
+
+        def del_dia(c, dia):
+            return float(por_dia.get((c, dia), 0.0))
+
+        def clave(c, mes):
+            return f"CTO-{c}|{mes}"
+
+        # Transferencias innecesarias, decididas antes: a principio de mes, a los contratos-mes con
+        # más holgura (los de menor ejecución entre los contratos que sobran)
+        holgados = sorted(((c, m) for m in completos for c in indices
+                           if FACTOR_TOPE_CONTRATO[c - 1] > 1 and del_mes(c, m) > 0),
+                          key=lambda cm: del_mes(*cm) / limites[cm[0]])
+        innecesarias = []
+        for c, m in holgados[:self._cantidad("TRANSFERENCIA_SIN_NECESIDAD")]:
+            donante = max((d for d in indices if d != c), key=lambda d: limites[d] - del_mes(d, m))
+            dia = m.start_time + timedelta(days=rng.randint(6, 9))
+            innecesarias.append({"fecha": dia, "contrato_origen": donante, "contrato_destino": c,
+                                 "monto": round(limites[c] * rng.uniform(0.15, 0.3), -1)})
+
+        transferencias = list(innecesarias)
+        for m in meses:
+            dias = pd.date_range(m.start_time, m.end_time.normalize(), freq="D")
+            saldo = dict(limites)
+            consumido = {c: 0.0 for c in indices}
+            for n_dia, dia in enumerate(dias, 1):
+                for tr in [tr for tr in transferencias if tr["fecha"] == dia]:
+                    saldo[tr["contrato_origen"]] -= tr["monto"]
+                    saldo[tr["contrato_destino"]] += tr["monto"]
+                restantes = len(dias) - n_dia + 1
+
+                def proyeccion(c, conservadora=False):
+                    """Consumo que falta hasta fin de mes: promedio del mes combinado con el histórico
+                    del contrato (a principio de mes hay pocas cargas). Para ceder saldo se toma el
+                    mayor de los dos, así el donante no queda corto."""
+                    historico = medio[c] / len(dias)
+                    diario = (consumido[c] + historico * DIAS_PESO_HISTORICO) / (n_dia - 1 + DIAS_PESO_HISTORICO)
+                    return max(diario, historico) * restantes if conservadora else diario * restantes
+
+                for c in indices:
+                    hoy = del_dia(c, dia)
+                    en_seguimiento = dia.weekday() in DIAS_DE_SEGUIMIENTO and n_dia > DIA_INICIO_SEGUIMIENTO
+                    if (en_seguimiento and proyeccion(c) * MARGEN_PROYECCION > saldo[c]) or hoy > saldo[c]:
+                        # Se cubre el resto del mes con holgura, desde el contrato al que más le sobra
+                        # según su propia proyección; nunca se lo deja por debajo de ella
+                        necesidad = max(proyeccion(c) * MARGEN_PROYECCION, hoy) - saldo[c]
+                        sobrante = {d: saldo[d] - proyeccion(d, conservadora=True) * RESERVA_DONANTE
+                                    for d in indices if d != c}
+                        donante = max(sobrante, key=sobrante.get)
+                        monto = round(min(necesidad * 1.3, sobrante[donante]), -1)
+                        if monto <= 0:
+                            if hoy <= saldo[c]:
+                                continue
+                            # Hoy no alcanza y a nadie le sobra: cede el que más saldo conserva después de
+                            # sus propias cargas del día
+                            donante = max((d for d in indices if d != c), key=lambda d: saldo[d] - del_dia(d, dia))
+                            monto = round(hoy - saldo[c], -1) + 10
+                        transferencias.append({"fecha": dia, "contrato_origen": donante, "contrato_destino": c,
+                                               "monto": monto})
+                        saldo[donante] -= monto
+                        saldo[c] += monto
+                for c in indices:
+                    hoy = del_dia(c, dia)
+                    saldo[c] -= hoy
+                    consumido[c] += hoy
+
+        transferencias.sort(key=lambda tr: (tr["fecha"], tr["contrato_destino"]))
+        for i, tr in enumerate(transferencias, 1):
+            tr["id"] = f"TRF-{i:06d}"
+        es_innecesaria = {tr["id"] for tr in innecesarias}
+        legitimas = [tr for tr in transferencias if tr["id"] not in es_innecesaria]
+
+        # Una transferencia legítima llega tarde: el contrato carga sin saldo hasta que se acredita
+        agotados = set()
+        # Nadie revisa el saldo de un contrato ajustado durante un mes: todas sus transferencias
+        # llegan de uno a tres días después de que el saldo se agota, y en esos días se carga igual
+        candidatas = sorted({(tr["contrato_destino"], tr["fecha"].to_period("M")) for tr in legitimas
+                             if FACTOR_TOPE_CONTRATO[tr["contrato_destino"] - 1] < 1})
+        rng.shuffle(candidatas)
+        for c, mes in candidatas:
+            if len(agotados) >= self._cantidad("CARGA_CON_CUPO_AGOTADO"):
+                break
+            del_contrato = [tr for tr in legitimas if tr["contrato_destino"] == c and tr["fecha"].to_period("M") == mes]
+            originales = [tr["fecha"] for tr in del_contrato]
+            otras = [tr for tr in transferencias if tr not in del_contrato]
+            agotado = self._dia_de_saldo_agotado(c, mes, limites, otras, por_dia)
+            if agotado is None:
+                continue
+            llegada = min(agotado + timedelta(days=rng.randint(1, 3)), mes.end_time.normalize())
+            for tr in del_contrato:
+                tr["fecha"] = llegada
+            if self._cargas_sin_saldo(c, mes, limites, transferencias, por_dia):
+                agotados.add(clave(c, mes))
+            else:
+                for tr, fecha in zip(del_contrato, originales):
+                    tr["fecha"] = fecha
+        for c_m in sorted(agotados):
+            self._registrar_anomalia("contrato_mes", c_m, None, "CARGA_CON_CUPO_AGOTADO", "saldo",
+                                     "una transferencia llegó tarde y se cargó con el saldo agotado")
+        for tr in innecesarias:
+            self._registrar_anomalia("contrato_mes", clave(tr["contrato_destino"], tr["fecha"].to_period("M")), None,
+                                     "TRANSFERENCIA_SIN_NECESIDAD", "transferencias",
+                                     f"{tr['id']}: la proyección del mes alcanzaba")
+        # Un contrato-mes con una anomalía no es además un caso legítimo, aunque reciba transferencias
+        anomalos = agotados | {clave(tr["contrato_destino"], tr["fecha"].to_period("M")) for tr in innecesarias}
+        for c_m in sorted({clave(tr["contrato_destino"], tr["fecha"].to_period("M")) for tr in legitimas} - anomalos):
+            self._registrar_legitimo(c_m, None, "TRANSFERENCIA_DE_SALDO", CATALOGO_LEGITIMOS["TRANSFERENCIA_DE_SALDO"],
+                                     tabla="contrato_mes")
+
+        df = pd.DataFrame(sorted(transferencias, key=lambda tr: tr["id"]))[
+            ["id", "fecha", "contrato_origen", "contrato_destino", "monto"]]
+        df["fecha"] = pd.to_datetime(df["fecha"]).dt.date
+        self.datasets["transferencias"] = df
+        self.metadata['generadores_ejecutados'] += ['contratos', 'transferencias']
+        logger.info(f"✓ CONTRATOS: {len(indices)} contratos y {len(df)} transferencias "
+                    f"({len(innecesarias)} innecesarias, {len(agotados)} contratos-mes con el saldo agotado)")
+
+    @staticmethod
+    def _dia_de_saldo_agotado(contrato, mes, limites, transferencias, por_dia):
+        """Primer día del mes que el contrato empieza sin saldo y carga, o None."""
+        saldo = limites[contrato]
+        for dia in pd.date_range(mes.start_time, mes.end_time.normalize(), freq="D"):
+            for tr in transferencias:
+                if tr["fecha"] == dia:
+                    if tr["contrato_destino"] == contrato:
+                        saldo += tr["monto"]
+                    if tr["contrato_origen"] == contrato:
+                        saldo -= tr["monto"]
+            hoy = float(por_dia.get((contrato, dia), 0.0))
+            if saldo <= 0 and hoy > 0:
+                return dia
+            saldo -= hoy
+        return None
+
+    @classmethod
+    def _cargas_sin_saldo(cls, contrato, mes, limites, transferencias, por_dia):
+        """Si algún día del mes el contrato empieza con el saldo en cero o menos y carga igual."""
+        return cls._dia_de_saldo_agotado(contrato, mes, limites, transferencias, por_dia) is not None
+
     def ejecutar(self):
         """Ejecuta todo el pipeline"""
         logger.info("=" * 60)
@@ -1617,6 +1838,7 @@ class GeneradorMaestro:
                 self.generar_solicitudes_realista()
                 self.generar_facturacion_realista()
                 self.aplicar_formatos_de_origen()
+                self.generar_contratos_realista()
             else:
                 self.generar_solicitudes()
                 self.generar_facturacion()

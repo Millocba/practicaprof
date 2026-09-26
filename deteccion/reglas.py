@@ -36,6 +36,9 @@ TOLERANCIA_AUTORIZADO = 0.05   # exceso sobre lo autorizado atribuible a la medi
 DIFERENCIA_CONCILIACION = 0.01  # diferencia relativa entre consumo del mes y total facturado
 DIFERENCIA_ENCABEZADO = 0.005   # diferencia relativa entre el total de la factura y sus líneas
 TOLERANCIA_PRECIO = 0.02        # diferencia de precio por litro entre la factura y la carga
+MARGEN_PROYECCION = 1.05        # una transferencia se justifica si la proyección supera el saldo con este margen
+HOLGURA_TRANSFERENCIA = 0.9     # es injustificada si la proyección no llega a este tanto del saldo
+DIAS_PESO_HISTORICO = 7         # la proyección combina el mes con 7 días del promedio histórico del contrato
 
 
 def _alertas(df, tipo, regla, detalle):
@@ -588,14 +591,100 @@ def detectar_irregularidades_de_linea(consumo, facturacion_detalle):
     ], ignore_index=True)
 
 
+def clave_contrato_mes(contrato, mes):
+    return f"CTO-{contrato}|{mes}"
+
+
+def _saldos_por_contrato_mes(consumo, contratos, transferencias):
+    """Por contrato y mes: saldo al empezar cada día, saldo para cargar (con las transferencias del
+    día, que se acreditan antes de las cargas), consumo del día y transferencias recibidas. Es lo que se ve en los datos: el tope,
+    las transferencias y las cargas de cada contrato."""
+    fechas = pd.to_datetime(consumo["fecha"])
+    por_dia = consumo.assign(dia=fechas.dt.normalize()).groupby(["contrato", "dia"])["importe_total"].sum()
+    por_mes = consumo.assign(mes=fechas.dt.to_period("M")).groupby(["contrato", "mes"])["importe_total"].sum()
+    meses = sorted(fechas.dt.to_period("M").unique())
+    completos = [m for m in meses if m != meses[-1]] or meses
+    tr = transferencias.assign(dia=pd.to_datetime(transferencias["fecha"]).dt.normalize())
+    limite = contratos.set_index("indice")["limite_mensual"]
+    for c in limite.index:
+        medio = sum(float(por_mes.get((c, m), 0.0)) for m in completos) / len(completos)
+        for m in meses:
+            dias = pd.date_range(m.start_time, m.end_time.normalize(), freq="D")
+            saldo, consumido = float(limite[c]), 0.0
+            filas = []
+            for n_dia, dia in enumerate(dias, 1):
+                del_dia = tr[tr["dia"] == dia]
+                recibidas = del_dia[del_dia["contrato_destino"] == c]
+                cedidas = del_dia[del_dia["contrato_origen"] == c]
+                historico = medio / len(dias)
+                diario = (consumido + historico * DIAS_PESO_HISTORICO) / (n_dia - 1 + DIAS_PESO_HISTORICO)
+                hoy = float(por_dia.get((c, dia), 0.0))
+                filas.append({"dia": dia, "saldo_inicio": saldo, "consumo": hoy,
+                              "proyeccion": diario * (len(dias) - n_dia + 1), "recibidas": recibidas,
+                              "cedido": float(cedidas["monto"].sum()),
+                              "saldo_para_cargar": saldo + recibidas["monto"].sum() - cedidas["monto"].sum()})
+                saldo += recibidas["monto"].sum() - cedidas["monto"].sum() - hoy
+                consumido += hoy
+            yield c, m, filas
+
+
+def detectar_ejecucion_supera_tope(consumo, contratos):
+    """H10 (ingenua): el consumo del mes del contrato supera su tope."""
+    mes = pd.to_datetime(consumo["fecha"]).dt.to_period("M")
+    ejecucion = consumo.assign(mes=mes).groupby(["contrato", "mes"])["importe_total"].sum().reset_index()
+    ejecucion["tope"] = ejecucion["contrato"].map(contratos.set_index("indice")["limite_mensual"])
+    marcadas = ejecucion[ejecucion["importe_total"] > ejecucion["tope"]].assign(
+        id=lambda d: [clave_contrato_mes(c, m) for c, m in zip(d["contrato"], d["mes"])],
+        pct=lambda d: (100 * d["importe_total"] / d["tope"]).round(0))
+    return _alertas(marcadas, "CARGA_CON_CUPO_AGOTADO", "ejecucion_supera_tope",
+                    lambda d: "consumo del mes " + d["pct"].astype(int).astype(str) + "% del tope")
+
+
+def detectar_irregularidades_de_cupo(consumo, contratos, transferencias):
+    """H10: cargas con el saldo agotado y transferencias que la proyección no justifica.
+
+    Sigue el saldo diario de cada contrato: tope del mes, transferencias y cargas. Un día que
+    empieza con el saldo en cero o menos y tiene cargas es una carga que el corte debió impedir.
+    Una transferencia se justifica si la proyección del consumo a fin de mes (promedio del mes
+    combinado con el histórico) supera el saldo; es injustificada si no llega ni al 90% del saldo.
+    """
+    agotadas, injustificadas = [], []
+    for c, m, filas in _saldos_por_contrato_mes(consumo, contratos, transferencias):
+        sin_saldo = [f for f in filas if f["saldo_para_cargar"] <= 0 and f["consumo"] > 0]
+        if sin_saldo:
+            agotadas.append({"id": clave_contrato_mes(c, m), "dias": len(sin_saldo)})
+        for f in filas:
+            # Se juzga con el saldo que le quedaba después de lo que el propio contrato cedió ese día
+            disponible = f["saldo_inicio"] - f["cedido"]
+            for _, tr in f["recibidas"].iterrows():
+                necesaria = f["proyeccion"] * MARGEN_PROYECCION
+                if necesaria < HOLGURA_TRANSFERENCIA * disponible and f["consumo"] <= disponible:
+                    injustificadas.append({"id": clave_contrato_mes(c, m), "transferencia": tr["id"]})
+    agotadas = pd.DataFrame(agotadas, columns=["id", "dias"])
+    injustificadas = pd.DataFrame(injustificadas, columns=["id", "transferencia"]).drop_duplicates("id")
+    return pd.concat([
+        _alertas(agotadas, "CARGA_CON_CUPO_AGOTADO", "carga_con_saldo_agotado",
+                 lambda d: d["dias"].astype(str) + " días con cargas y el saldo agotado"),
+        _alertas(injustificadas, "TRANSFERENCIA_SIN_NECESIDAD", "transferencia_no_justificada",
+                 lambda d: d["transferencia"] + ": la proyección del mes alcanzaba"),
+    ], ignore_index=True)
+
+
 def gps_por_intervalo(dias):
     """Por transacción: km del GPS desde el día de carga anterior y si la cobertura fue completa."""
     filas = dias.explode("ids")[["ids", "km_gps", "completo"]].rename(columns={"ids": "id"})
     return filas.drop_duplicates("id").set_index("id")
 
 
+def reglas_del_dataset(datos):
+    """Aplica `ejecutar_reglas` a un dataset {tabla: DataFrame o None} como el de `cargar_dataset`."""
+    return ejecutar_reglas(datos["flota"], datos["consumo"], datos.get("estaciones"), datos.get("telemetria_diaria"),
+                           datos.get("solicitudes"), datos.get("facturacion"), datos.get("facturacion_detalle"),
+                           contratos=datos.get("contratos"), transferencias=datos.get("transferencias"))
+
+
 def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, solicitudes=None,
-                    facturacion=None, facturacion_detalle=None):
+                    facturacion=None, facturacion_detalle=None, contratos=None, transferencias=None):
     """Aplica todas las reglas disponibles y devuelve las alertas concatenadas.
 
     Las reglas con contexto se agregan cuando existen las fuentes que necesitan: fecha
@@ -650,5 +739,10 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
             ]
             if estaciones is not None:
                 partes.append(detectar_conciliacion_mensual(consumo, estaciones, facturacion, excluir))
+        if contratos is not None and transferencias is not None and "contrato" in consumo.columns:
+            partes += [
+                detectar_ejecucion_supera_tope(consumo, contratos),
+                detectar_irregularidades_de_cupo(consumo, contratos, transferencias),
+            ]
 
     return pd.concat([p for p in partes if not p.empty], ignore_index=True)[COLUMNAS_ALERTA]

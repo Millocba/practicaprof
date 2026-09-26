@@ -216,8 +216,10 @@ Cada vehículo se simula día por día desde un perfil propio que no forma parte
 | `solicitudes.csv` | una solicitud de combustible | ~3.700 (una por carga, más rechazadas y pendientes) |
 | `facturacion.csv` | una factura mensual de un proveedor | 45 (5 proveedores × 9 meses) |
 | `facturacion_detalle.csv` | una línea de factura | ~3.400 (una por carga facturada, más ajustes) |
+| `contratos.csv` | un contrato de abastecimiento | 6, con su tope mensual en pesos |
+| `transferencias.csv` | una transferencia de saldo entre contratos | ~50 (unas 5 por mes) |
 | `ground_truth.csv` | una anomalía inyectada | ~125 |
-| `casos_legitimos.csv` | un caso legítimo que parece anomalía | ~170 |
+| `casos_legitimos.csv` | un caso legítimo que parece anomalía | ~200 |
 
 ### Diferencias con el escenario didáctico
 
@@ -295,7 +297,8 @@ Cargas que una regla ingenua marcaría como anomalía pero no lo son. No están 
 | `TOLERANCIA_MEDICION` | 10 cargas | La carga supera lo autorizado entre 1% y 3%, dentro de la tolerancia del surtidor |
 | `DESFASE_DE_CORTE` | 50% de las cargas del último día de cada mes (línea de factura) | Se facturan en la factura del mes siguiente |
 | `AJUSTE_DOCUMENTADO` | 4 facturas | La factura incluye una línea AJUSTE (bonificación o recargo de 2% a 5%) |
-| `DOMINIO_CON_FORMATO` | 2% de las cargas | El dominio llega en minúsculas, con espacios o guiones, o con un espacio al final (`ab0001cd`, `AB 0001 CD`, `AB-0001-CD`); normalizado es el del vehículo |
+| `DOMINIO_CON_FORMATO` | 0,5% de las cargas | El dominio llega en minúsculas, con espacios o guiones, o con un espacio al final (`za123bc`, `ZA 123 BC`, `ZA-123-BC`); normalizado es el del vehículo |
+| `TRANSFERENCIA_DE_SALDO` | ~25 contratos-mes (`tabla` = contrato_mes) | El contrato recibió saldo porque la proyección del mes no alcanzaba |
 
 La columna `tabla` indica a qué tabla pertenece `id_registro`: `consumo`, `facturacion` o `facturacion_detalle`.
 
@@ -321,6 +324,18 @@ Incluye las del escenario didáctico, con otra forma de inyección, y cinco tipo
 | `LINEA_SIN_CONSUMO` | H9 | 6 líneas (`tabla` = facturacion_detalle) | Se factura una carga que no existe en el registro |
 | `LINEA_DUPLICADA` | H9 | 5 líneas | Una carga se factura dos veces |
 | `SOBREPRECIO` | H9 | 6 líneas | El precio por litro facturado supera en 8% a 20% el de la carga |
+| `CARGA_CON_CUPO_AGOTADO` | H10 | 1 contrato-mes (`tabla` = contrato_mes, id `CTO-N|AAAA-MM`) | Nadie revisa el saldo de un contrato ajustado: sus transferencias del mes llegan de 1 a 3 días después de que se agota, y esos días se carga igual |
+| `TRANSFERENCIA_SIN_NECESIDAD` | H10 | 2 contratos-mes | Transferencia a principio de mes a un contrato con holgura, que la proyección no justificaba |
+
+### Contratos, cupo y transferencias (escenario realista)
+
+Cada tarjeta pertenece a uno de seis contratos (`flota.NumeroContrato`, `consumo.contrato`). Los vehículos se reparten como el consumo de la fuente (49%, 24%, 9%, 8%, 7,5% y 2%) y cada contrato tiene un tope mensual en pesos: el consumo de su mes de mayor uso por un factor (0,9 en los dos grandes, que quedan cortos; 1,2 a 1,3 en los demás). La ejecución media del cupo total es cercana al 90%. Cada carga descuenta del saldo del mes.
+
+Los lunes y jueves, desde el quinto día del mes, se proyecta el consumo a fin de mes (promedio del mes combinado con el histórico del contrato). Si la proyección supera el saldo en un 5%, se transfiere la diferencia con holgura desde el contrato al que más le sobra, que conserva un 20% por encima de su propia proyección. Si un día no alcanzara, se transfiere en el momento. Las transferencias se acreditan antes de las cargas del día.
+
+La fuente real prevé una tabla de crédito por contrato pero no tiene transferencias registradas: la frecuencia y el margen son supuestos de este diseño. Las anomalías y los casos legítimos de H10 se evalúan por contrato y mes (`tabla` = contrato_mes).
+
+`flota.Cupo` son los litros por carga de la tarjeta (la capacidad del tanque); `LimiteLitros` y `LimiteSaldo`, los límites mensuales de la tarjeta, fijados al registrarla.
 
 ### Formatos de origen del escenario realista
 

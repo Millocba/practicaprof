@@ -14,7 +14,7 @@ import pandas as pd
 
 from deteccion.datos import cargar_dataset
 from deteccion.evaluacion import evaluar_por_regla, evaluar_por_tipo
-from deteccion.reglas import ejecutar_reglas
+from deteccion.reglas import reglas_del_dataset
 
 RAIZ = Path(__file__).parent.parent
 DIRECTORIOS = {"didactico": RAIZ / "datasets" / "synthetics_maestro",
@@ -37,8 +37,7 @@ def main():
 
     datos = cargar_dataset(carpeta)
     flota, consumo, ground_truth = datos["flota"], datos["consumo"], datos["ground_truth"]
-    alertas = ejecutar_reglas(flota, consumo, datos["estaciones"], datos["telemetria_diaria"],
-                              datos["solicitudes"], datos["facturacion"], datos["facturacion_detalle"])
+    alertas = reglas_del_dataset(datos)
     por_tipo = evaluar_por_tipo(alertas, ground_truth)
     por_regla = evaluar_por_regla(alertas, ground_truth)
 
