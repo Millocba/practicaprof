@@ -152,11 +152,25 @@ def test_cada_carga_real_se_factura_al_menos_una_vez(dataset):
     assert reales <= set(dataset["facturacion_detalle"]["referencia_consumo"])
 
 
+def test_flota_calibrada_con_la_fuente(dataset):
+    import re
+
+    flota, telemetria = dataset["flota"], dataset["telemetria"]
+    estados = flota["Estado"].value_counts(normalize=True)
+    assert set(estados.index) == {"EN SERVICIO", "FUERA DE SERVICIO", "TRAMITE EN BAJA"}
+    assert 0.4 < estados["EN SERVICIO"] < 0.65 and 0.2 < estados["TRAMITE EN BAJA"] < 0.5
+    con_gps = flota["Dominio"].isin(telemetria["Placa"]).groupby(flota["Estado"]).mean()
+    assert con_gps["EN SERVICIO"] > 0.65 and con_gps["TRAMITE EN BAJA"] < 0.15
+    # Formatos públicos, siempre marcados como sintéticos (empiezan con Z, serie no asignada)
+    assert flota["Dominio"].str.fullmatch(r"Z[A-Z]\d{3}[A-Z]{2}|ZZ[A-Z]\d{3}|Z\d{3}[A-Z]{3}").all()
+    assert flota["Dominio"].is_unique
+
+
 def test_dominios_con_otro_formato_corresponden_a_su_vehiculo(dataset):
     legitimos = dataset["casos_legitimos"]
     con_formato = legitimos[legitimos["tipo_caso"] == "DOMINIO_CON_FORMATO"]
     consumo = dataset["consumo"].set_index("id").loc[con_formato["id_registro"]]
-    assert 0.01 < len(con_formato) / len(dataset["consumo"]) < 0.03
+    assert 0.002 < len(con_formato) / len(dataset["consumo"]) < 0.01  # calibrado con la fuente: ~0,5%
     dominio_real = dataset["flota"].set_index("Matricula")["Dominio"]
     assert (normalizar_dominio(consumo["dominio"]).values == consumo["vehiculo_id"].map(dominio_real).values).all()
     assert not consumo["dominio"].isin(dominio_real).any()  # tal como llegan, no vinculan

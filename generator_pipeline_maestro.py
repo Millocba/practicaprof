@@ -17,6 +17,7 @@ import logging
 from pathlib import Path
 from datetime import datetime, timedelta
 import random
+import re
 
 import pandas as pd
 
@@ -145,13 +146,31 @@ PERFILES_VEHICULO = {
     "CAMION": ((150, 300), (2.5, 4), (60, 150)),
     "BOMBERO": ((150, 250), (2, 3.5), (10, 40)),
 }
-# 75% en servicio, 10% en reparación, 5% fuera de servicio, 10% de baja
-ESTADOS_REALISTA = ["EN SERVICIO"] * 15 + ["EN REPARACION"] * 2 + ["FUERA DE SERVICIO"] + ["BAJA"] * 2
-PRODUCTOS_POR_COMBUSTIBLE = {
-    "GASOIL": ["GASOIL", "INFINIA DIESEL"],
-    "NAFTA": ["NAFTA", "SUPER", "INFINIA"],
-    "GLP": ["GLP"],
+# Composición de la flota del escenario realista, calibrada con el perfil agregado de la fuente
+# (perfiles/): estados, tipos, combustible y telemetría por estado
+ESTADOS_REALISTA = {"EN SERVICIO": 0.515, "FUERA DE SERVICIO": 0.127, "TRAMITE EN BAJA": 0.358}
+SUBESTADOS_REALISTA = {
+    "EN SERVICIO": {None: 1.0},
+    "FUERA DE SERVICIO": {"PROBLEMA DE MOTOR": 0.35, "OTROS PROBLEMAS MECANICOS": 0.28, "PROBLEMA DE BATERIA": 0.2,
+                          "SINIESTRO": 0.1, "PROBLEMAS ELECTRICOS": 0.07},
+    "TRAMITE EN BAJA": {"TRAMITE NO INICIADO EN EL DPTO. TRANSPORTE": 0.5,
+                        "TRAMITE INICIADO EN EL DPTO. TRANSPORTE": 0.5},
 }
+# Parte de los vehículos fuera de servicio o en baja cambió de estado durante la ventana (cargan
+# hasta esa fecha); el resto ya estaba así antes y no carga
+PROB_CAMBIO_EN_VENTANA = {"FUERA DE SERVICIO": 0.4, "TRAMITE EN BAJA": 0.15}
+TIPOS_REALISTA = {"SEDAN": 0.37, "PICK-UP": 0.36, "MOTOCICLETA": 0.25, "UTILITARIO": 0.01, "CAMION": 0.01}
+PROB_NAFTA_POR_TIPO = {"SEDAN": 0.8, "PICK-UP": 0.2, "MOTOCICLETA": 1.0, "UTILITARIO": 0.0, "CAMION": 0.0}
+PRODUCTOS_REALISTA = {"GASOIL": {"INFINIA DIESEL": 0.99, "GASOIL": 0.01}, "NAFTA": {"INFINIA": 0.99, "SUPER": 0.01}}
+MARCAS_REALISTA = {
+    "MOTOCICLETA": {"KAWASAKI": 0.45, "HONDA": 0.4, "YAMAHA": 0.15},
+    "SEDAN": {"FIAT": 0.4, "CHEVROLET": 0.25, "RENAULT": 0.15, "VOLKSWAGEN": 0.1, "TOYOTA": 0.1},
+    "PICK-UP": {"NISSAN": 0.55, "TOYOTA": 0.2, "FORD": 0.15, "CHEVROLET": 0.1},
+    "UTILITARIO": {"RENAULT": 0.5, "FIAT": 0.5},
+    "CAMION": {"IVECO": 0.6, "FORD": 0.4},
+}
+TELEMETRIA_POR_ESTADO = {"EN SERVICIO": 0.80, "FUERA DE SERVICIO": 0.47, "TRAMITE EN BAJA": 0.043}
+PROB_IDENTIFICABLE_REALISTA = 0.8
 PRECIO_BASE = {"GASOIL": 2.0, "INFINIA DIESEL": 2.4, "NAFTA": 2.1, "SUPER": 2.3, "INFINIA": 2.6, "GLP": 1.2}
 AUMENTO_MENSUAL_PRECIO = 0.02
 
@@ -159,7 +178,6 @@ ZONA_BASE = {"lat": (-34.9, -34.4), "lon": (-58.8, -58.2)}
 N_ESTACIONES_LOCALES = 40
 N_RUTAS = 5
 FRACCIONES_RUTA = [0.25, 0.45, 0.65, 0.85, 1.0]  # una estación en cada tramo de la ruta
-COBERTURA_GPS = 0.88            # vehículos con dispositivo
 TASA_DIAS_SIN_SENAL = 0.03      # días en que el dispositivo no reporta
 PROB_DIA_SIN_USO = 0.25
 PROB_CARGA_PARCIAL = 0.25
@@ -197,14 +215,32 @@ TASAS_CALIDAD_REALISTA = {"DOMINIO_INVALIDO": 0.003, "VALOR_NULO": 0.005, "DUPLI
 
 # Formatos de origen (realista): cómo llegan los datos de cada fuente, sin ser anomalías.
 # Se aplican al final con un generador aleatorio propio, para no alterar el resto del escenario.
-TASA_DOMINIO_CON_FORMATO = 0.02     # cargas con el dominio escrito de otra forma (H1)
+TASA_DOMINIO_CON_FORMATO = 0.005    # cargas con el dominio escrito de otra forma (H1): la fuente gana
+                                    # alrededor de medio punto de vinculación al normalizar
 TASA_FECHA_OTRO_FORMATO = 0.15      # solicitudes con la fecha en DD/MM/AAAA en lugar de AAAA-MM-DD
+_CORTES_DOMINIO = r"(?<=[A-Z])(?=\d)|(?<=\d)(?=[A-Z])"   # entre letras y números
 FORMATOS_DOMINIO = [
-    lambda d: d.lower(),                                  # ab0001cd
-    lambda d: f"{d[:2]} {d[2:-2]} {d[-2:]}",              # AB 0001 CD
-    lambda d: f"{d[:2]}-{d[2:-2]}-{d[-2:]}",              # AB-0001-CD
+    lambda d: d.lower(),                                  # za123bc
+    lambda d: re.sub(_CORTES_DOMINIO, " ", d),            # ZA 123 BC
+    lambda d: re.sub(_CORTES_DOMINIO, "-", d),            # ZA-123-BC
     lambda d: f"{d} ",                                    # espacio al final
 ]
+
+
+def dominio_sintetico(i, tipo, anio):
+    """Dominio con un formato público pero marcado como sintético: siempre empieza con Z, una serie
+    no asignada. Autos desde 2016 AA999AA, anteriores AAA999; motos A999AAA."""
+    letras = "ABCDEFGHJKLMNPRSTUVWXY"
+
+    def letra(k):
+        return letras[k % len(letras)]
+
+    numero = f"{i % 1000:03d}"
+    if tipo == "MOTOCICLETA":
+        return f"Z{numero}{letra(i // 1000)}{letra(i // 7)}{letra(i // 3)}"
+    if anio >= 2016:
+        return f"Z{letra(i // 1000)}{numero}{letra(i // 7)}{letra(i // 3)}"
+    return f"ZZ{letra(i // 1000)}{numero}"
 
 
 # ============================================================================
@@ -225,7 +261,8 @@ TABLAS = {
         "columnas": {
             "Matricula": ("texto", "Clave del vehículo, VEH-NNNNNN"),
             "Dominio": ("texto", "Dominio sintético ABNNNNCD, único; no proviene de un padrón"),
-            "Estado": ("categoría", "EN SERVICIO, EN REPARACION, FUERA DE SERVICIO o BAJA"),
+            "Estado": ("categoría", "EN SERVICIO, FUERA DE SERVICIO o de baja: BAJA y EN REPARACION en el "
+                                    "escenario didáctico, TRAMITE EN BAJA en el realista"),
             "DireccionGral": ("categoría", "Dirección ficticia a la que pertenece el vehículo"),
             "Dependencia": ("categoría", "Dependencia ficticia dentro de la dirección"),
             "Identificable": ("SI / NO", "Si el vehículo lleva identificación visible"),
@@ -240,7 +277,8 @@ TABLAS = {
             "NumeroTarjeta": ("texto", "Tarjeta de combustible asignada"),
             "LimiteSaldo": ("decimal", "Límite de saldo de la tarjeta"),
             "LimiteLitros": ("decimal (L)", "Límite de litros de la tarjeta"),
-            "SubEstado": ("categoría", "ACTIVO si está EN SERVICIO; si no, INACTIVO"),
+            "SubEstado": ("categoría", "Didáctico: ACTIVO o INACTIVO. Realista: motivo de fuera de servicio o "
+                                       "etapa del trámite de baja; vacío si está en servicio"),
             "FechaEstado": ("fecha", "Último cambio a un estado distinto de EN SERVICIO; vacía si está en servicio",
                             REALISTA),
         },
@@ -831,34 +869,43 @@ class GeneradorMaestro:
         logger.info("Generando FLOTA (escenario realista)...")
         rng = self.rng
         rows, self._perfiles = [], {}
+
+        def elegir(pesos):
+            return rng.choices(list(pesos), weights=list(pesos.values()))[0]
+
         for i in range(1, self.n_flota + 1):
             dg_sel = rng.choice(DIRECCIONES)
-            estado = rng.choice(ESTADOS_REALISTA)
-            tipo = rng.choice(TIPOS_VEHICULO)
+            estado = elegir(ESTADOS_REALISTA)
+            tipo = elegir(TIPOS_REALISTA)
             (cap_min, cap_max), rendimiento, km_dia = PERFILES_VEHICULO[tipo]
             capacidad = round(rng.uniform(cap_min, cap_max), 1)
-            fecha_estado = (None if estado == "EN SERVICIO"
-                            else FECHA_INICIO + timedelta(days=rng.randint(60, DIAS_VENTANA - 20)))
+            if estado == "EN SERVICIO":
+                fecha_estado = None
+            elif rng.random() < PROB_CAMBIO_EN_VENTANA[estado]:
+                fecha_estado = FECHA_INICIO + timedelta(days=rng.randint(60, DIAS_VENTANA - 20))
+            else:
+                fecha_estado = FECHA_INICIO - timedelta(days=rng.randint(30, 720))
+            anio = min(2025, max(2005, round(rng.triangular(2008, 2025, 2020))))
             matricula = f"VEH-{i:06d}"
             rows.append({
                 "Matricula": matricula,
-                "Dominio": f"AB{i:04d}CD",
+                "Dominio": dominio_sintetico(i, tipo, anio),
                 "Estado": estado,
                 "DireccionGral": dg_sel,
                 "Dependencia": rng.choice(DEPENDENCIAS[dg_sel]),
-                "Identificable": "SI" if rng.random() < 0.94 else "NO",
+                "Identificable": "SI" if rng.random() < PROB_IDENTIFICABLE_REALISTA else "NO",
                 "TipoVehiculo": tipo,
-                "Marca": rng.choice(MARCAS),
+                "Marca": elegir(MARCAS_REALISTA[tipo]),
                 "Modelo": f"MODEL-{rng.randint(2010, 2024)}",
-                "Año": rng.randint(2005, 2024),
-                "TipoCombustible": "NAFTA" if tipo == "MOTOCICLETA" else rng.choice(COMBUSTIBLES),
+                "Año": anio,
+                "TipoCombustible": "NAFTA" if rng.random() < PROB_NAFTA_POR_TIPO[tipo] else "GASOIL",
                 "CapacidadTanque": capacidad,
                 "NumeroMotor": f"M{i:08d}",
                 "NumeroChasis": f"CH{i:08d}",
                 "NumeroTarjeta": f"TARJ{i:08d}",
                 "LimiteSaldo": round(rng.uniform(1000, 10000), 2),
                 "LimiteLitros": round(capacidad * rng.uniform(3, 6), 1),
-                "SubEstado": "ACTIVO" if estado == "EN SERVICIO" else "INACTIVO",
+                "SubEstado": elegir(SUBESTADOS_REALISTA[estado]),
                 "FechaEstado": fecha_estado.date() if fecha_estado else None,
             })
             # Uso real del vehículo: guía la simulación pero no forma parte de los datos
@@ -956,7 +1003,7 @@ class GeneradorMaestro:
         cap_real = cap_reg * rng.uniform(1.3, 1.6) if rol == "TANQUE_AUXILIAR" else cap_reg
         base = perfil["base"]
         fin_activo = datetime.combine(v["FechaEstado"], datetime.min.time()) if v["FechaEstado"] else None
-        productos = PRODUCTOS_POR_COMBUSTIBLE[v["TipoCombustible"]]
+        productos = PRODUCTOS_REALISTA[v["TipoCombustible"]]
         odo = float(rng.randint(10000, 250000))
         combustible = cap_real * rng.uniform(0.4, 0.9)
         dia_inicio_fraude = rng.randint(90, 200)
@@ -964,7 +1011,7 @@ class GeneradorMaestro:
         viaje = (rng.randint(30, DIAS_VENTANA - 10), rng.choice(self._destinos)) if rol == "VIAJE_LARGO" else None
         dias_inactivo = set()
         if rol == "CARGA_VEHICULO_INACTIVO":
-            desde = (fin_activo - FECHA_INICIO).days + 5
+            desde = max(5, (fin_activo - FECHA_INICIO).days + 5)
             dias_inactivo = set(rng.sample(range(desde, DIAS_VENTANA + 1), rng.randint(1, 3)))
         dia_fuera_de_zona = rng.randint(30, DIAS_VENTANA) if rol == "CARGA_FUERA_DE_ZONA" else None
         cargas_sin_uso = rng.randint(3, 6) if rol == "RENDIMIENTO_IMPOSIBLE" else 0
@@ -973,7 +1020,8 @@ class GeneradorMaestro:
         def registrar(fecha, estacion, litros, odometro, etiqueta=None, legitimo=None):
             cargas.append({
                 "vehiculo_id": m, "dominio": v["Dominio"], "fecha": fecha, "estacion": estacion,
-                "producto": rng.choice(productos), "litros": round(litros, 2),
+                "producto": rng.choices(list(productos), weights=list(productos.values()))[0],
+                "litros": round(litros, 2),
                 "numero_tarjeta": v["NumeroTarjeta"], "conductor": f"CONDUCTOR-{rng.randint(1, 500)}",
                 "_odo_real": odometro, "_etiqueta": etiqueta, "_legitimo": legitimo,
                 "_capacidad": cap_reg, "_orden": len(cargas),
@@ -1154,7 +1202,7 @@ class GeneradorMaestro:
         rng = self.rng
         vehiculos = self.datasets['flota'].to_dict("records")
         matriculas = [v["Matricula"] for v in vehiculos]
-        self._con_gps = set(rng.sample(matriculas, int(len(matriculas) * COBERTURA_GPS)))
+        self._con_gps = {v["Matricula"] for v in vehiculos if rng.random() < TELEMETRIA_POR_ESTADO[v["Estado"]]}
         self._odometro_final = {}
         roles = self._asignar_roles(vehiculos, self._con_gps)
 

@@ -6,6 +6,7 @@ Registro de los cambios importantes y del **por qué** de cada uno. El detalle t
 
 | Fecha | Cambio | Por qué | Decidió |
 |---|---|---|---|
+| 2026-09-26 | Flota del escenario realista calibrada con el perfil de las fuentes: estados, telemetría por estado, tipos, combustibles, productos y formatos de dominio; dominios con otro formato bajan a 0,5% | El generador suponía 88% de telemetría pareja y casi toda la flota en servicio; la fuente muestra 48% fuera de servicio o en baja | Equipo |
 | 2026-09-25 | Formatos de origen en el escenario realista: dominios con otro formato y fechas de solicitud en dos formatos; H1 pasa a contrastarse (exacto vs. normalizado) | Los datos salían perfectamente limpios; la propuesta de defectos de calidad del PR #6 mostró que faltaba ejercitar la normalización | Equipo |
 | 2026-09-25 | Perfilador de fuentes y página Perfil de fuentes | Saber qué le falta al generador frente a fuentes externas sin traer sus datos: solo estructura y calidad agregadas, con revisión manual antes de versionar | Equipo |
 | 2026-09-25 | Página de documentación con variables vivas y esta bitácora | Tener el contexto vigente de la documentación dentro de la aplicación y poder descargarlo | Equipo |

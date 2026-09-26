@@ -210,26 +210,30 @@ Cada vehículo se simula día por día desde un perfil propio que no forma parte
 |---|---|---|
 | `flota.csv` | un vehículo | 200 |
 | `estaciones.csv` | una estación de servicio | 65 (40 en la zona de operación, 25 sobre rutas) |
-| `telemetria.csv` | un dispositivo GPS | 176 (uno por vehículo, 88% de la flota) |
-| `telemetria_diaria.csv` | un dispositivo y un día | ~46.000 (3% de los días sin señal) |
-| `consumo.csv` | una carga de combustible | ~5.200 (unas 25 por vehículo) |
-| `solicitudes.csv` | una solicitud de combustible | ~5.600 (una por carga, más rechazadas y pendientes) |
+| `telemetria.csv` | un dispositivo GPS | ~100 (80% de los vehículos en servicio, 47% de los fuera de servicio, casi ninguno de baja) |
+| `telemetria_diaria.csv` | un dispositivo y un día | ~26.000 (3% de los días sin señal) |
+| `consumo.csv` | una carga de combustible | ~3.400 (los vehículos fuera de servicio o de baja dejan de cargar) |
+| `solicitudes.csv` | una solicitud de combustible | ~3.700 (una por carga, más rechazadas y pendientes) |
 | `facturacion.csv` | una factura mensual de un proveedor | 45 (5 proveedores × 9 meses) |
-| `facturacion_detalle.csv` | una línea de factura | ~5.200 (una por carga facturada, más ajustes) |
-| `ground_truth.csv` | una anomalía inyectada | ~145 |
-| `casos_legitimos.csv` | un caso legítimo que parece anomalía | ~180 |
+| `facturacion_detalle.csv` | una línea de factura | ~3.400 (una por carga facturada, más ajustes) |
+| `ground_truth.csv` | una anomalía inyectada | ~125 |
+| `casos_legitimos.csv` | un caso legítimo que parece anomalía | ~170 |
 
 ### Diferencias con el escenario didáctico
 
 | Tabla | Columna | En el escenario realista |
 |---|---|---|
-| flota | `Estado` | 75% EN SERVICIO, 10% EN REPARACION, 5% FUERA DE SERVICIO, 10% BAJA |
-| flota | `CapacidadTanque` | Según el tipo: moto 10–18 L, sedán 45–60, pick-up 70–80, camioneta 60–80, utilitario 55–70, ambulancia 70–90, camión 150–300, bomberos 150–250 |
-| flota | `TipoCombustible` | Las motos siempre NAFTA |
+| flota | `Estado` | Calibrado con la fuente: 51,5% EN SERVICIO, 12,7% FUERA DE SERVICIO, 35,8% TRAMITE EN BAJA. De los que no están en servicio, parte cambió de estado durante el período (40% de los fuera de servicio, 15% de los de baja) y el resto ya estaba así antes y no carga |
+| flota | `SubEstado` | Motivo de fuera de servicio (problema de motor, batería, siniestro…) o etapa del trámite de baja; vacío si está en servicio |
+| flota | `Dominio` | Formatos públicos marcados como sintéticos (empiezan con Z, serie no asignada): autos desde 2016 `ZA123BC`, anteriores `ZZA123`, motos `Z123ABC` |
+| flota | `TipoVehiculo` / `Marca` | 37% sedán, 36% pick-up, 25% moto, 1% utilitario, 1% camión; marcas según el tipo |
+| flota | `Año` / `Identificable` | Año con moda en 2020 (mediana ~2018); 80% identificables |
+| flota | `CapacidadTanque` | Según el tipo: moto 10–18 L, sedán 45–60, pick-up 70–80, utilitario 55–70, camión 150–300 |
+| flota | `TipoCombustible` | Motos NAFTA; sedanes 80% NAFTA; pick-ups 80% GASOIL; utilitarios y camiones GASOIL (62% NAFTA en total) |
 | flota | `LimiteLitros` | 3 a 6 tanques |
 | flota | `FechaEstado` (nueva) | Fecha del último cambio a un estado distinto de EN SERVICIO; vacía si está en servicio. El vehículo deja de usarse desde esa fecha |
 | consumo | `estacion` | Código de `estaciones.csv` (`EST-NNN`) |
-| consumo | `producto` | Según el combustible: GASOIL o INFINIA DIESEL; NAFTA, SUPER o INFINIA; GLP |
+| consumo | `producto` | 99% premium: INFINIA DIESEL o INFINIA; el resto GASOIL o SUPER |
 | consumo | `precio_unitario` | Precio base del producto con un aumento del 2% mensual |
 | consumo | `litros` / `odometro` | Resultan de la simulación: el odómetro avanza según los km recorridos y los litros reponen lo consumido |
 | telemetria | `Odometro` | km acumulados del vehículo al final del período |

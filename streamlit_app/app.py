@@ -91,7 +91,7 @@ try:
         if not flota.empty:
             st.metric("Vehículos", f"{len(flota):,}")
             if "Estado" in flota.columns:
-                activos = (flota["Estado"] != "BAJA").sum()
+                activos = (~flota["Estado"].astype(str).str.contains("BAJA")).sum()
                 st.caption(f"{activos:,} no dados de baja")
         else:
             st.metric("Vehículos", "—")
