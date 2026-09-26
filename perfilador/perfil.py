@@ -344,7 +344,7 @@ EXTENSIONES = (".csv", ".xlsx", ".xlsm", ".xls")
 
 
 UUID = re.compile(r"[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}", re.IGNORECASE)
-SOLAPAMIENTO_VERSIONES = 0.5    # claves repetidas entre archivos a partir de las que son versiones
+UNION_VERSIONES = 1.1           # unión de claves / archivo más grande hasta la que son versiones
 
 
 def patron_de_nombre(nombre):
@@ -371,29 +371,37 @@ def _clave_comun(dfs):
 def combinar_archivos(partes):
     """Une los archivos de un mismo tipo. `partes` es una lista de (fecha de modificación, DataFrame).
 
-    - Lotes: cada archivo trae registros distintos (un día, un mes) y se apilan.
+    Devuelve la tabla, el modo y el porcentaje de filas descartadas por repetirse entre archivos.
+
     - Versiones: cada archivo repite casi los mismos registros (el mismo padrón exportado varias
-      veces); apilarlos multiplicaría las filas, así que se perfila solo el más reciente.
-    Se distinguen por cuántas claves de cada archivo aparecen en los demás; sin clave, por la
-    proporción de filas idénticas.
+      veces). Se reconocen porque la unión de las claves apenas supera al archivo más grande;
+      se perfila solo el más reciente, para no multiplicar las filas.
+    - Lotes: los archivos suman registros (un día, un mes, exportaciones que se superponen). Se
+      apilan del más reciente al más antiguo y se descartan los registros cuya clave ya vino en
+      un archivo más reciente; los repetidos dentro de un mismo archivo se conservan.
+    Sin clave común se usa la fila completa como clave.
     """
     if len(partes) == 1:
-        return partes[0][1], "unico"
+        return partes[0][1], "unico", 0.0
+    partes = sorted(partes, key=lambda p: p[0], reverse=True)
     dfs = [df for _, df in partes]
     clave = _clave_comun(dfs)
     if clave is not None:
-        claves = [set(df[clave].dropna().astype(str)) for df in dfs]
-        solapamiento = []
-        for i, propias in enumerate(claves):
-            otras = set().union(*(c for j, c in enumerate(claves) if j != i))
-            solapamiento.append(len(propias & otras) / len(propias) if propias else 0)
-        versiones = float(np.median(solapamiento)) >= SOLAPAMIENTO_VERSIONES
+        claves = [df[clave].astype(str).where(df[clave].notna()) for df in dfs]
     else:
-        apiladas = pd.concat(dfs, ignore_index=True)
-        versiones = apiladas.duplicated().mean() >= SOLAPAMIENTO_VERSIONES
-    if versiones:
-        return max(partes, key=lambda p: p[0])[1], "versiones"
-    return pd.concat(dfs, ignore_index=True), "lotes"
+        claves = [pd.util.hash_pandas_object(df, index=False).astype(str) for df in dfs]
+    union = set().union(*(set(c.dropna()) for c in claves))
+    mayor = max(c.nunique() for c in claves)
+    if mayor and len(union) / mayor <= UNION_VERSIONES:
+        return dfs[0], "versiones", 0.0
+    vistas, conservadas, total = set(), [], 0
+    for df, c in zip(dfs, claves):
+        nuevas = c.isna() | ~c.isin(vistas)
+        conservadas.append(df[nuevas.to_numpy()])
+        vistas.update(c.dropna())
+        total += len(df)
+    apiladas = pd.concat(conservadas, ignore_index=True)
+    return apiladas, "lotes", pct(total - len(apiladas), total)
 
 
 def tablas_de_rutas(rutas, renombrar=None):
@@ -406,7 +414,8 @@ def tablas_de_rutas(rutas, renombrar=None):
     grupos se unen como lotes o versiones (ver `combinar_archivos`).
 
     Solo lee: no escribe nada junto a los archivos. Devuelve las tablas y un resumen con la
-    cantidad de archivos por tabla, cómo se unieron y los que no se pudieron leer, por tipo de error.
+    cantidad de archivos por tabla, cómo se unieron, cuántas filas se descartaron por repetirse
+    entre archivos y los que no se pudieron leer, por tipo de error.
     """
     renombrar = renombrar or {}
     archivos = []
@@ -427,17 +436,17 @@ def tablas_de_rutas(rutas, renombrar=None):
             clave = patron or ("esquema", tuple(sorted(normalizar_nombre(c) for c in df.columns)))
             grupos.setdefault(clave, []).append((archivo.stat().st_mtime, df))
 
-    tablas, conteo, combinacion = {}, {}, {}
+    tablas, conteo, combinacion, descartadas = {}, {}, {}, {}
     for clave, partes in grupos.items():
         nombre = clave if isinstance(clave, str) else f"tabla_de_{len(clave[1])}_columnas"
         nombre = renombrar.get(nombre, nombre)
         base, n = nombre, 2
         while nombre in tablas:
             nombre, n = f"{base}_{n}", n + 1
-        tablas[nombre], combinacion[nombre] = combinar_archivos(partes)
+        tablas[nombre], combinacion[nombre], descartadas[nombre] = combinar_archivos(partes)
         conteo[nombre] = len(partes)
     return tablas, {"archivos_por_tabla": conteo, "combinacion_por_tabla": combinacion,
-                    "no_leidos_por_error": errores}
+                    "filas_repetidas_entre_archivos_pct": descartadas, "no_leidos_por_error": errores}
 
 
 def perfilar(tablas, origen="fuente"):

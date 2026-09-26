@@ -231,3 +231,21 @@ def test_nombres_opacos_se_agrupan_por_columnas_como_lotes_o_versiones(tmp_path,
     assert perfil["tablas"]["tabla_de_5_columnas"]["filas_aprox"] == 1200
     assert perfil["tablas"]["tabla_de_6_columnas"]["filas_aprox"] == 400  # la versión más reciente
     assert "ORGANIZACION_FICTICIA" not in salida.read_text(encoding="utf-8")
+
+
+def test_lotes_superpuestos_no_se_confunden_con_versiones():
+    import pandas as pd
+    from perfilador.perfil import combinar_archivos
+
+    def lote(ids):
+        return pd.DataFrame({"Id": [f"SOL-{i:06d}" for i in ids], "litros": [float(i % 50) for i in ids]})
+
+    grande = lote(range(600))
+    subconjuntos = [lote(range(k * 100, k * 100 + 80)) for k in range(5)]    # contenidos en el grande
+    sueltos = [lote(range(1000 + k * 30, 1000 + (k + 1) * 30)) for k in range(4)]  # sin claves en común
+    # El más reciente es un lote chico: no puede ganar como "versión"
+    partes = [(1, grande)] + [(2 + i, s) for i, s in enumerate(subconjuntos)] + [(10 + i, s) for i, s in enumerate(sueltos)]
+    tabla, modo, descartadas = combinar_archivos(partes)
+    assert modo == "lotes"
+    assert len(tabla) == 600 + 4 * 30 and tabla["Id"].is_unique
+    assert descartadas == round(100 * 5 * 80 / (600 + 5 * 80 + 4 * 30), 1)

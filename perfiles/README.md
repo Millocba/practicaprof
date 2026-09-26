@@ -27,7 +27,7 @@ Perfiles **agregados** de fuentes de datos externas: estructura y calidad, sin f
    Se le pueden pasar carpetas: se recorren completas y se leen solo los CSV y Excel. Los archivos del mismo tipo (mismo nombre salvo los números, por ejemplo uno por día) forman una sola tabla cuyo nombre es el patrón (`consumo_9999-99-99`), así el perfil no guarda fechas ni otros números de los nombres.
 
    - Si el nombre es solo un identificador (un UUID), se agrupan los archivos que tienen las mismas columnas, en una tabla `tabla_de_N_columnas`.
-   - Cada grupo se une como **lotes** (cada archivo trae registros distintos: se apilan) o como **versiones** (cada archivo repite casi los mismos registros, como un padrón exportado varias veces: se perfila solo el más reciente, para no multiplicar las filas). El perfil registra cuántos archivos tiene cada tabla y cómo se unieron.
+   - Cada grupo se une como **versiones** o como **lotes**. Son versiones cuando la unión de las claves apenas supera (hasta un 10%) al archivo más grande, como un padrón exportado varias veces: se perfila solo el más reciente, para no multiplicar las filas. Si no, son lotes: se apilan del más reciente al más antiguo y se descartan los registros cuya clave ya vino en un archivo más reciente (exportaciones que se superponen). El perfil registra cuántos archivos tiene cada tabla, cómo se unieron y qué porcentaje de filas se descartó por repetirse entre archivos.
    - Si un nombre de tabla incluye el de una organización o persona, se reemplaza al generar: `--renombrar "patrón=nombre"`. Editarlo a mano en el JSON obliga a cambiarlo también en las relaciones.
 
    **Si los archivos están en un servidor**, el perfilador se ejecuta allí, en una terminal del servicio, y solo sale el perfil:
