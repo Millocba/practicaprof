@@ -23,8 +23,8 @@ st.set_page_config(page_title="Hipótesis", page_icon="🧪", layout="wide")
 st.markdown("# 🧪 Hipótesis: ¿cuánto aporta el contexto?")
 st.markdown(
     "Cada hipótesis compara una **regla ingenua** (la primera que se le ocurriría a cualquiera) "
-    "con una **regla con contexto** (historial del vehículo, estado de la flota, GPS, solicitudes, detalle "
-    "de facturación). La hipótesis "
+    "con una **regla con contexto** (historial del vehículo, estado de la flota, GPS, registro interno, "
+    "facturación por contrato, saldo de los contratos, grupo de los dispositivos). La hipótesis "
     f"**se sostiene** si la regla con contexto mejora el F1 en al menos {MEJORA_MINIMA_F1:.2f}. "
     "El veredicto se calcula con los datos, no está escrito a mano."
 )
@@ -164,8 +164,8 @@ for h in HIPOTESIS:
 
 st.markdown("## Relación con las hipótesis del proyecto")
 st.markdown(
-    "- *Integrar fuentes permite detectar situaciones invisibles en análisis aislados*: H6, H7, H8 y H9 "
-    "(estado de la flota, GPS, solicitudes y detalle de facturación).\n"
+    "- *Integrar fuentes permite detectar situaciones invisibles en análisis aislados*: H6 a H11 "
+    "(estado de la flota, GPS, registro interno, facturación, contratos y telemetría).\n"
     "- *Los umbrales adecuados varían según el tipo de vehículo y su contexto* y *el historial "
     "individual puede ser más informativo que un umbral general*: H2c, H3b y H5.\n"
     "- *Combinar reglas, estadística robusta y ML puede reducir falsas alertas*: ver la página "

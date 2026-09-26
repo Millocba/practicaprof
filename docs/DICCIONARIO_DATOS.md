@@ -239,16 +239,19 @@ Cada vehículo se simula día por día desde un perfil propio que no forma parte
 | flota | `Año` / `Identificable` | Año con moda en 2020 (mediana ~2018); 80% identificables |
 | flota | `CapacidadTanque` | Según el tipo: moto 10–18 L, sedán 45–60, pick-up 70–80, utilitario 55–70, camión 150–300 |
 | flota | `TipoCombustible` | Motos NAFTA; sedanes 80% NAFTA; pick-ups 80% GASOIL; utilitarios y camiones GASOIL (62% NAFTA en total) |
-| flota | `LimiteLitros` | 3 a 6 tanques |
+| flota | `NumeroContrato` / `Cupo` (nuevas) | Contrato de la tarjeta, 1 a 6; litros por carga (la capacidad del tanque) |
+| flota | `LimiteLitros` / `LimiteSaldo` | Límites mensuales de la tarjeta, fijados al registrarla: 15 a 35 tanques y su valor |
 | flota | `FechaEstado` (nueva) | Fecha del último cambio a un estado distinto de EN SERVICIO; vacía si está en servicio. El vehículo deja de usarse desde esa fecha |
 | consumo | `estacion` | Código de `estaciones.csv` (`EST-NNN`) |
 | consumo | `producto` | 99% premium: INFINIA DIESEL o INFINIA; el resto GASOIL o SUPER |
 | consumo | `precio_unitario` | Precio base del producto con un aumento del 2% mensual |
 | consumo | `litros` / `odometro` | Resultan de la simulación: el odómetro avanza según los km recorridos y los litros reponen lo consumido |
+| consumo | `hora` / `tipo_identificacion` / `contrato` (nuevas) | Hora de la carga; PATENTE o DNI (tarjeta personal, sin dominio); contrato de la tarjeta |
 | telemetria | `Odometro` | km acumulados del vehículo al final del período |
-| solicitudes | todas | Coherentes con las cargas: cada carga tiene una solicitud APROBADA del mismo vehículo 0 a 2 días antes, por el 100% al 125% de los litros cargados. Además, un 8% de solicitudes RECHAZADA o PENDIENTE que no terminan en carga (`litros_autorizados` = 0) |
-| facturacion | `proveedor` (nueva) | Marca de la estación: cada proveedor emite una factura por mes |
-| facturacion | `total_monto` | Suma de las líneas de la factura (salvo en las anomalías `TOTAL_INFLADO`) |
+| telemetria | `Grupo` (nueva) | Grupo de la dependencia del móvil, o `BAJA / REEMPLAZOS` si el dispositivo está en depósito |
+| solicitudes | todas | Registro interno: pedido, rendición con ticket, anulaciones y estaciones de otra red (ver *Registro interno*) |
+| facturacion | `contrato` / `producto` / `total_pdf` / `vencimiento` (nuevas) | Una factura por contrato, mes y familia; total del PDF (vacío si no se cargó); vencimiento a 15 días (ver *Facturación*) |
+| facturacion | `total_monto` | Deuda: suma de las líneas a precio de empresa (salvo en las anomalías `TOTAL_INFLADO`) |
 
 ### estaciones.csv
 

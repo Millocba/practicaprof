@@ -1,10 +1,10 @@
 # Diseño: base de datos y escenario realista v2
 
-> **Propuesta pendiente de aprobación.** Describe qué cambia en el modelo de datos, el generador y las hipótesis para acercarlos al circuito real de abastecimiento. Las proporciones finales se calibran con el perfil aprobado de las fuentes ([perfiles/](../perfiles/README.md)); las de este documento son punto de partida.
+> **Implementado** en los pasos 1 a 5 del *Orden de implementación*; la base de datos (paso 6) sigue pendiente. Describe qué cambia en el modelo de datos, el generador y las hipótesis para acercarlos al circuito real de abastecimiento. Las proporciones finales se calibran con el perfil aprobado de las fuentes ([perfiles/](../perfiles/README.md)); las de este documento son punto de partida.
 
 ## Objetivo
 
-Hoy el escenario realista modela solicitudes con litros autorizados y una factura por proveedor y mes. El circuito real es otro:
+Antes de este diseño, el escenario realista modelaba solicitudes con litros autorizados y una factura por proveedor y mes. El circuito real, que ahora modela, es otro:
 
 1. Cada vehículo tiene una **tarjeta** asignada a un **contrato** con un **tope mensual en pesos** (no hay límite en litros). Cada carga descuenta del saldo del mes; si se agota, **el suministro se corta** para todas las tarjetas del contrato. Para evitarlo, se sigue cada contrato **proyectando el consumo promedio diario a fin de mes**: si la proyección supera el saldo, se **transfiere saldo a mano antes del corte** desde otro contrato, generalmente el que más saldo tiene.
 2. También hay **tarjetas personales**, asociadas a una persona y no a un vehículo. Igual requieren una solicitud en el registro interno, que indica la unidad y hasta cuánto se puede cargar en ella, así que aparecen tanto en el registro interno como en el reporte del proveedor.

@@ -160,7 +160,7 @@ with col3:
     ### 🔍 3. Análisis por hipótesis
     Qué encuentran las reglas en los datos
     - Calidad de datos y vinculación
-    - Una pestaña por hipótesis (H1 a H9)
+    - Una vista por hipótesis (H1 a H11)
     - Antes y después: regla ingenua vs. con contexto
     """)
 
