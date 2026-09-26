@@ -81,6 +81,7 @@ CATALOGO_ANOMALIAS = {
     "DIFERENCIA_DEUDA_PDF": ("H9", "ALTA"),
     "PRODUCTO_NO_COMBUSTIBLE": ("H9", "MEDIA"),
     "CARGA_CON_CUPO_AGOTADO": ("H10", "ALTA"),
+    "DISPOSITIVO_ACTIVO_EN_BAJA": ("H11", "ALTA"),
     "TRANSFERENCIA_SIN_NECESIDAD": ("H10", "MEDIA"),
 }
 
@@ -108,6 +109,7 @@ CATALOGO_LEGITIMOS = {
     "AJUSTE_DOCUMENTADO": "la factura incluye un ajuste documentado (bonificación o recargo)",
     "DOMINIO_CON_FORMATO": "el dominio se registró con espacios, guiones o minúsculas; normalizado es el del vehículo",
     "TRANSFERENCIA_DE_SALDO": "el contrato recibió saldo de otro porque la proyección del mes no alcanzaba",
+    "DISPOSITIVO_EN_DEPOSITO": "el móvil está de baja y su dispositivo quedó en el grupo de depósito, sin transmitir",
 }
 
 COLUMNAS_CASOS_LEGITIMOS = ["tabla", "id_registro", "vehiculo_id", "tipo_caso", "descripcion"]
@@ -196,6 +198,7 @@ MARCAS_REALISTA = {
     "CAMION": {"IVECO": 0.6, "FORD": 0.4},
 }
 TELEMETRIA_POR_ESTADO = {"EN SERVICIO": 0.80, "FUERA DE SERVICIO": 0.47, "TRAMITE EN BAJA": 0.043}
+GRUPO_DEPOSITO = "BAJA / REEMPLAZOS"   # grupo de los dispositivos retirados de los móviles de baja
 PROB_IDENTIFICABLE_REALISTA = 0.8
 PRECIO_BASE = {"GASOIL": 2.0, "INFINIA DIESEL": 2.4, "NAFTA": 2.1, "SUPER": 2.3, "INFINIA": 2.6, "GLP": 1.2}
 AUMENTO_MENSUAL_PRECIO = 0.02
@@ -241,7 +244,9 @@ EVENTOS_REALISTA = {
     "FACTURADA_A_PRECIO_DE_SURTIDOR": 6,  # líneas al precio del surtidor en lugar del de empresa
     "DIFERENCIA_DEUDA_PDF": 2,      # facturas cuyo PDF no coincide con la deuda
     "PRODUCTO_NO_COMBUSTIBLE": 2,   # facturas con renglones de lubricante
-    "CARGA_CON_CUPO_AGOTADO": 1,    # contratos-mes en los que una transferencia llega tarde y se carga sin saldo
+    "CARGA_CON_CUPO_AGOTADO": 1,
+    "DISPOSITIVO_ACTIVO_EN_BAJA": 2,  # móviles de baja con el dispositivo fuera del depósito y transmitiendo
+    "DISPOSITIVO_EN_DEPOSITO": 3,   # legítimos, como mínimo: ~4% de las bajas tiene dispositivo (fuente)    # contratos-mes en los que una transferencia llega tarde y se carga sin saldo
     "TRANSFERENCIA_SIN_NECESIDAD": 2,  # transferencias que la proyección no justifica
     "AJUSTE_DOCUMENTADO": 4,        # legítimos: facturas con un ajuste
 }
@@ -342,6 +347,8 @@ TABLAS = {
             "Latitud": ("decimal", "Última posición: latitud"),
             "Longitud": ("decimal", "Última posición: longitud"),
             "Odometro": ("entero (km)", "Odómetro del dispositivo"),
+            "Grupo": ("categoría", "Grupo del dispositivo: el de la dependencia del móvil, o BAJA / REEMPLAZOS "
+                                   "si está en depósito", REALISTA),
         },
     },
     "telemetria_diaria": {
@@ -1981,6 +1988,73 @@ class GeneradorMaestro:
         """Si algún día del mes el contrato empieza con el saldo en cero o menos y carga igual."""
         return cls._dia_de_saldo_agotado(contrato, mes, limites, transferencias, por_dia) is not None
 
+    def aplicar_telemetria_de_bajas(self):
+        """Realista: grupo de cada dispositivo y dispositivos de los móviles de baja.
+
+        A un móvil de baja no se le pone telemetría; si la tenía, el dispositivo pasa al grupo de
+        depósito (BAJA / REEMPLAZOS) y deja de transmitir (caso legítimo DISPOSITIVO_EN_DEPOSITO).
+        Ningún móvil debe ir a desguace con el aparato funcionando: un móvil de baja con el
+        dispositivo en un grupo operativo y transmitiendo es la anomalía DISPOSITIVO_ACTIVO_EN_BAJA.
+        Usa un generador aleatorio propio y se aplica al final: el resto del escenario no cambia.
+        """
+        rng = random.Random(self.seed + 3_000_003)
+        flota, telemetria = self.datasets["flota"], self.datasets["telemetria"]
+        por_dominio = flota.set_index("Dominio")
+        estado = telemetria["Placa"].map(por_dominio["Estado"])
+        telemetria["Grupo"] = "GRUPO " + telemetria["Placa"].map(por_dominio["Dependencia"]).fillna("SIN DEPENDENCIA")
+        de_baja = estado.str.contains("BAJA", na=False)
+        telemetria.loc[de_baja, "Grupo"] = GRUPO_DEPOSITO
+        telemetria.loc[de_baja, "Estado"] = "OFFLINE"
+        telemetria.loc[de_baja, "UltimaConexion"] = [
+            (FECHA_REFERENCIA - timedelta(days=rng.randint(30, 300))).isoformat() for _ in range(de_baja.sum())]
+
+        # Móviles de baja con el dispositivo activo: el propio, que nunca se movió al depósito, o uno
+        # nuevo instalado en un móvil que ya estaba de baja
+        bajas = sorted(flota.loc[flota["Estado"].str.contains("BAJA"), "Dominio"])
+        activos = rng.sample(bajas, min(self._cantidad("DISPOSITIVO_ACTIVO_EN_BAJA"), len(bajas)))
+        nuevas = []
+        for dominio in activos:
+            fila = telemetria.index[telemetria["Placa"] == dominio]
+            reciente = (FECHA_REFERENCIA - timedelta(minutes=rng.randint(10, 3 * 24 * 60))).isoformat()
+            grupo = "GRUPO " + por_dominio.at[dominio, "Dependencia"]
+            if len(fila):
+                telemetria.loc[fila, ["Grupo", "Estado", "UltimaConexion"]] = [grupo, "ONLINE", reciente]
+                alias = telemetria.at[fila[0], "Alias"]
+            else:
+                alias = f"DEV-{len(telemetria) + len(nuevas) + 1:06d}"
+                base = self._perfiles[por_dominio.at[dominio, "Matricula"]]["base"]
+                nuevas.append({
+                    "IMEI": f"{rng.randint(350000000000000, 359999999999999)}", "Alias": alias, "Placa": dominio,
+                    "MSISDN": f"54911{rng.randint(1000000, 9999999)}", "Modelo": f"GPS-A-{rng.randint(1, 5)}",
+                    "Tipo": "GPS", "Estado": "ONLINE", "Bateria": round(rng.uniform(60, 100), 1),
+                    "UltimaConexion": reciente, "Latitud": round(base[0], 6), "Longitud": round(base[1], 6),
+                    "Odometro": int(rng.randint(20000, 250000)), "Grupo": grupo})
+            self._registrar_anomalia("telemetria", alias, por_dominio.at[dominio, "Matricula"],
+                                     "DISPOSITIVO_ACTIVO_EN_BAJA", "Grupo",
+                                     f"móvil de baja con el dispositivo en {grupo}, transmitiendo")
+        # Al menos unos pocos dispositivos retirados en depósito, como en la fuente
+        con_dispositivo = set(telemetria["Placa"]) | set(activos)
+        faltan = max(0, self._cantidad("DISPOSITIVO_EN_DEPOSITO") - int((telemetria["Grupo"] == GRUPO_DEPOSITO).sum()))
+        for dominio in rng.sample([b for b in bajas if b not in con_dispositivo], faltan):
+            base = self._perfiles[por_dominio.at[dominio, "Matricula"]]["base"]
+            nuevas.append({
+                "IMEI": f"{rng.randint(350000000000000, 359999999999999)}",
+                "Alias": f"DEV-{len(telemetria) + len(nuevas) + 1:06d}", "Placa": dominio,
+                "MSISDN": f"54911{rng.randint(1000000, 9999999)}", "Modelo": f"GPS-A-{rng.randint(1, 5)}",
+                "Tipo": "GPS", "Estado": "OFFLINE", "Bateria": round(rng.uniform(0, 30), 1),
+                "UltimaConexion": (FECHA_REFERENCIA - timedelta(days=rng.randint(30, 300))).isoformat(),
+                "Latitud": round(base[0], 6), "Longitud": round(base[1], 6),
+                "Odometro": int(rng.randint(20000, 250000)), "Grupo": GRUPO_DEPOSITO})
+        if nuevas:
+            telemetria = pd.concat([telemetria, pd.DataFrame(nuevas)], ignore_index=True)
+        en_deposito = telemetria[telemetria["Grupo"] == GRUPO_DEPOSITO]
+        for fila in en_deposito.itertuples():
+            self._registrar_legitimo(fila.Alias, por_dominio.at[fila.Placa, "Matricula"], "DISPOSITIVO_EN_DEPOSITO",
+                                     CATALOGO_LEGITIMOS["DISPOSITIVO_EN_DEPOSITO"], tabla="telemetria")
+        self.datasets["telemetria"] = telemetria
+        logger.info(f"✓ Telemetría de bajas: {len(en_deposito)} dispositivos en depósito, "
+                    f"{len(activos)} móviles de baja con el dispositivo activo")
+
     def ejecutar(self):
         """Ejecuta todo el pipeline"""
         logger.info("=" * 60)
@@ -2001,6 +2075,7 @@ class GeneradorMaestro:
                 self.generar_facturacion_realista()
                 self.aplicar_formatos_de_origen()
                 self.generar_contratos_realista()
+                self.aplicar_telemetria_de_bajas()
             else:
                 self.generar_solicitudes()
                 self.generar_facturacion()

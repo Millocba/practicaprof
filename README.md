@@ -87,7 +87,7 @@ Promedio de 5 semillas, 200 vehículos cada una.
 - En los saltos de odómetro (H2), comparar con el historial del propio vehículo detecta el 100% de los casos, contra el 25% de un umbral fijo.
 - Isolation Forest encuentra todas las anomalías de odómetro, pero solo el 76% de los excesos volumétricos: los vehículos con exceso forman un grupo denso que deja de parecer atípico.
 
-**Escenario realista: hipótesis.** La flota está calibrada con el perfil agregado de las fuentes reales: 52% en servicio, 13% fuera de servicio y 36% en trámite de baja; telemetría en el 80% de los vehículos en servicio y casi ninguno de baja; sedanes, pick-ups y motos; cargas con mediana de 35 L. Cada hipótesis compara una regla ingenua con una regla con contexto; se sostiene si el F1 mejora al menos 0,10. Las 11 se sostienen en las 5 semillas.
+**Escenario realista: hipótesis.** La flota está calibrada con el perfil agregado de las fuentes reales: 52% en servicio, 13% fuera de servicio y 36% en trámite de baja; telemetría en el 80% de los vehículos en servicio y casi ninguno de baja; sedanes, pick-ups y motos; cargas con mediana de 35 L. Cada hipótesis compara una regla ingenua con una regla con contexto; se sostiene si el F1 mejora al menos 0,10. Las 12 se sostienen en las 5 semillas.
 
 | | Hipótesis | F1 ingenua → con contexto | Falsas alarmas por casos legítimos |
 |---|---|---|---|
@@ -102,6 +102,7 @@ Promedio de 5 semillas, 200 vehículos cada una.
 | H8 | El cruce diario por dominio de un sistema operativo, voraz y sin tolerancias, confunde las tarjetas personales y las rendiciones pendientes con cargas sin respaldo y no ve los registros anulados, los desacuerdos de litros ni los excesos; cruzar por dominio (el del vehículo de la tarjeta) o persona y horario, con asignación óptima y tolerancias, los separa | 0,17 → 1,00 | 385 → 0 |
 | H9 | Comparar lo facturado a cada contrato con su consumo a precio del surtidor confunde el descuento de empresa, los desfases de corte y los ajustes con diferencias; la conciliación triple (deuda, PDF y consumo) y cada línea contra su carga detectan cargas inexistentes, duplicadas, sobreprecios, cobros al precio del surtidor, renglones que no son combustible, deudas infladas y PDF que no coinciden (evaluada por factura) | 0,27 → 1,00 | 66 → 0 |
 | H10 | Comparar el consumo del mes con el tope confunde las transferencias de saldo legítimas con problemas y no ve las innecesarias; el saldo diario con la proyección a fin de mes separa unas de otras y encuentra las cargas con el saldo agotado (evaluada por contrato y mes) | 0,16 → 0,92 | 45 → 3 |
+| H11 | Marcar todo móvil de baja con dispositivo confunde los aparatos retirados al depósito con los que siguen funcionando; el grupo del dispositivo y su última transmisión dejan solo los móviles que irían a desguace con el aparato activo (pocos casos: 2 anomalías y unos 3 dispositivos en depósito por dataset) | 0,57 → 1,00 | 15 → 0 |
 
 - En H5 el GPS no mejora al odómetro, porque en esos vehículos el odómetro no está adulterado. La mayoría de sus falsos positivos son otras anomalías que también cargan sin recorrido (vehículos inactivos, cargas lejos, fraccionamiento).
 - El umbral fijo de saltos es inutilizable con uso realista: genera unas 400 falsas alarmas por dataset, porque un camión recorre 500 km en pocos días.

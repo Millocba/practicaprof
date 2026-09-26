@@ -348,6 +348,10 @@ En el escenario realista `solicitudes.csv` es el registro interno, como en la fu
 | `ESTACION_AJENA` | legítimo | ~7% de los pedidos (`tabla` = solicitudes) | Carga en otra red: está en el registro y no en el reporte |
 | `REGISTRO_REHECHO` | legítimo | ~27 pedidos (`tabla` = solicitudes) | El pedido se anuló y se volvió a hacer antes de cargar |
 
+### Telemetría de los móviles de baja (escenario realista)
+
+A un móvil de baja no se le coloca telemetría; si la tenía, el dispositivo pasa al grupo `BAJA / REEMPLAZOS` (depósito), queda `OFFLINE` y deja de transmitir (caso legítimo `DISPOSITIVO_EN_DEPOSITO`, `tabla` = telemetria, id = `Alias`). Ningún móvil debe ir a desguace con el aparato funcionando: `DISPOSITIVO_ACTIVO_EN_BAJA` (2 por cada 200 vehículos) es un móvil de baja con el dispositivo en el grupo de su dependencia y transmitiendo. Los demás dispositivos están en el grupo `GRUPO <dependencia>` del móvil.
+
 ### Facturación (escenario realista)
 
 Como en la fuente, el proveedor factura cada contrato: una factura por contrato, mes y familia (DIESEL o NAFTA), a **precio de empresa**, un 2% menor que el del surtidor que registra la carga. Cada factura tiene el monto de la deuda (`total_monto`) y el total de su PDF (`total_pdf`; el 15% no tiene el PDF cargado, como en la fuente). Cada línea de `facturacion_detalle` es una carga del reporte, un ajuste documentado o un renglón que no es combustible.

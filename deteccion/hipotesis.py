@@ -145,6 +145,17 @@ HIPOTESIS = [
         "contexto": "tope, transferencias y saldo diario de cada contrato",
         "nivel": "contrato_mes",
     },
+    {
+        "codigo": "H11",
+        "titulo": "Telemetría de los móviles de baja",
+        "enunciado": "Marcar todo móvil de baja con dispositivo confunde los aparatos ya retirados al depósito con "
+                     "los que siguen funcionando; mirar el grupo del dispositivo y su última transmisión deja solo "
+                     "los móviles que irían a desguace con el aparato activo.",
+        "tipos": ["DISPOSITIVO_ACTIVO_EN_BAJA"],
+        "reglas": [("baja_con_dispositivo", "móvil de baja con dispositivo asociado"),
+                   ("dispositivo_activo_en_baja", "fuera del grupo de depósito y con transmisión en la última semana")],
+        "contexto": "grupo del dispositivo y última transmisión",
+    },
 ]
 
 

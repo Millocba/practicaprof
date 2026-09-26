@@ -732,6 +732,39 @@ def detectar_irregularidades_de_cupo(consumo, contratos, transferencias):
     ], ignore_index=True)
 
 
+GRUPO_DEPOSITO = "BAJA / REEMPLAZOS"
+DIAS_TRANSMISION_RECIENTE = 7   # transmitió en la última semana
+
+
+def _dispositivos_de_baja(flota, telemetria):
+    """Dispositivos instalados en móviles cuyo estado es de baja (por dominio normalizado)."""
+    de_baja = set(normalizar_dominio(flota.loc[flota["Estado"].astype(str).str.contains("BAJA"), "Dominio"]))
+    return telemetria[normalizar_dominio(telemetria["Placa"]).isin(de_baja)].rename(columns={"Alias": "id"})
+
+
+def detectar_baja_con_dispositivo(flota, telemetria):
+    """H11 (ingenua): móvil de baja con un dispositivo asociado."""
+    return _alertas(_dispositivos_de_baja(flota, telemetria), "DISPOSITIVO_ACTIVO_EN_BAJA", "baja_con_dispositivo",
+                    lambda d: "móvil de baja con el dispositivo " + d["id"].astype(str) + " en " + d["Grupo"].astype(str))
+
+
+def detectar_dispositivo_activo_en_baja(flota, telemetria, dias=DIAS_TRANSMISION_RECIENTE):
+    """H11: móvil de baja con el dispositivo fuera del grupo de depósito y transmitiendo.
+
+    Si el dispositivo quedó en el grupo de depósito (baja / reemplazos) y no transmite, está
+    recuperado. Un móvil de baja no debe ir a desguace con el aparato funcionando.
+    """
+    dispositivos = _dispositivos_de_baja(flota, telemetria)
+    ultima = pd.to_datetime(telemetria["UltimaConexion"], errors="coerce", format="mixed")
+    referencia = ultima.max()
+    transmite = (referencia - pd.to_datetime(dispositivos["UltimaConexion"], errors="coerce", format="mixed")
+                 ) <= pd.Timedelta(days=dias)
+    activos = dispositivos[(dispositivos["Grupo"] != GRUPO_DEPOSITO) & transmite]
+    return _alertas(activos, "DISPOSITIVO_ACTIVO_EN_BAJA", "dispositivo_activo_en_baja",
+                    lambda d: "móvil de baja con " + d["id"].astype(str) + " en " + d["Grupo"].astype(str)
+                    + ", transmitiendo")
+
+
 def gps_por_intervalo(dias):
     """Por transacción: km del GPS desde el día de carga anterior y si la cobertura fue completa."""
     filas = dias.explode("ids")[["ids", "km_gps", "completo"]].rename(columns={"ids": "id"})
@@ -742,11 +775,13 @@ def reglas_del_dataset(datos):
     """Aplica `ejecutar_reglas` a un dataset {tabla: DataFrame o None} como el de `cargar_dataset`."""
     return ejecutar_reglas(datos["flota"], datos["consumo"], datos.get("estaciones"), datos.get("telemetria_diaria"),
                            datos.get("solicitudes"), datos.get("facturacion"), datos.get("facturacion_detalle"),
-                           contratos=datos.get("contratos"), transferencias=datos.get("transferencias"))
+                           contratos=datos.get("contratos"), transferencias=datos.get("transferencias"),
+                           telemetria=datos.get("telemetria"))
 
 
 def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, solicitudes=None,
-                    facturacion=None, facturacion_detalle=None, contratos=None, transferencias=None):
+                    facturacion=None, facturacion_detalle=None, contratos=None, transferencias=None,
+                    telemetria=None):
     """Aplica todas las reglas disponibles y devuelve las alertas concatenadas.
 
     Las reglas con contexto se agregan cuando existen las fuentes que necesitan: fecha
@@ -800,6 +835,9 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
             if "contrato" in facturacion.columns and "contrato" in consumo.columns:
                 partes += [detectar_conciliacion_mensual(consumo, facturacion, excluir),
                            detectar_pdf_no_concilia(facturacion)]
+        if telemetria is not None and "Grupo" in telemetria.columns:
+            partes += [detectar_baja_con_dispositivo(flota, telemetria),
+                       detectar_dispositivo_activo_en_baja(flota, telemetria)]
         if contratos is not None and transferencias is not None and "contrato" in consumo.columns:
             partes += [
                 detectar_ejecucion_supera_tope(consumo, contratos),

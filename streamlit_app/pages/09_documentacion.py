@@ -51,7 +51,8 @@ def contexto_actual(escenario, flota, consumo, ground_truth, legitimos, estacion
     veredictos = None
     if legitimos is not None:
         alertas = ejecutar_reglas(flota, consumo, estaciones, telemetria_diaria, solicitudes, facturacion,
-                                  facturacion_detalle, contratos=contratos, transferencias=transferencias)
+                                  facturacion_detalle, contratos=contratos, transferencias=transferencias,
+                                  telemetria=telemetria)
         _, veredictos = contrastar_hipotesis(alertas, ground_truth, legitimos, facturacion_detalle)
     return documentacion.construir_contexto(escenario, tablas, metadata, veredictos)
 

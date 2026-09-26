@@ -64,6 +64,7 @@ def test_etiquetas_referencian_registros_existentes_y_no_se_superponen(dataset):
            "facturacion": set(dataset["facturacion"]["numero_factura"]),
            "facturacion_detalle": set(dataset["facturacion_detalle"]["numero_linea"]),
            "solicitudes": set(dataset["solicitudes"]["id"]),
+           "telemetria": set(dataset["telemetria"]["Alias"]),
            "contrato_mes": {f"CTO-{c}|{m}" for c, m in zip(dataset["consumo"]["contrato"],
                                                            pd.to_datetime(dataset["consumo"]["fecha"]).dt.to_period("M"))}}
     for tabla_etiquetas in [dataset["ground_truth"], dataset["casos_legitimos"]]:
@@ -180,6 +181,18 @@ def test_facturacion_por_contrato_a_precio_de_empresa(dataset):
     con_pdf = facturas.dropna(subset=["total_pdf"])
     con_pdf = con_pdf[~con_pdf["numero_factura"].isin(etiquetadas)]
     assert (con_pdf["total_pdf"] == con_pdf["total_monto"]).all()
+
+
+def test_telemetria_de_los_moviles_de_baja(dataset):
+    flota, telemetria = dataset["flota"], dataset["telemetria"]
+    estado = telemetria["Placa"].map(flota.set_index("Dominio")["Estado"])
+    de_baja = telemetria[estado.str.contains("BAJA", na=False)]
+    activos = set(dataset["ground_truth"].query("tipo_anomalia == 'DISPOSITIVO_ACTIVO_EN_BAJA'")["id_registro"])
+    en_deposito = de_baja[~de_baja["Alias"].isin(activos)]
+    assert len(en_deposito) >= 3 and (en_deposito["Grupo"] == "BAJA / REEMPLAZOS").all()
+    assert (en_deposito["Estado"] == "OFFLINE").all()
+    assert (telemetria.loc[telemetria["Alias"].isin(activos), "Grupo"] != "BAJA / REEMPLAZOS").all()
+    assert not (telemetria.loc[~estado.str.contains("BAJA", na=False), "Grupo"] == "BAJA / REEMPLAZOS").any()
 
 
 def test_flota_calibrada_con_la_fuente(dataset):

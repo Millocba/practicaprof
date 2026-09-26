@@ -40,9 +40,10 @@ if flota.empty or consumo.empty or ground_truth.empty:
 
 @st.cache_data
 def calcular(flota, consumo, ground_truth, estaciones, telemetria_diaria, legitimos, solicitudes,
-             facturacion, facturacion_detalle, contratos=None, transferencias=None):
+             facturacion, facturacion_detalle, contratos=None, transferencias=None, telemetria=None):
     alertas = ejecutar_reglas(flota, consumo, estaciones, telemetria_diaria, solicitudes, facturacion,
-                              facturacion_detalle, contratos=contratos, transferencias=transferencias)
+                              facturacion_detalle, contratos=contratos, transferencias=transferencias,
+                              telemetria=telemetria)
     por_regla = evaluar_por_regla(alertas, ground_truth)
     if legitimos is not None:
         ids_legitimos = set(legitimos["id_registro"])
@@ -64,7 +65,7 @@ def calcular(flota, consumo, ground_truth, estaciones, telemetria_diaria, legiti
 alertas, por_tipo, por_regla = calcular(flota, consumo, ground_truth, datos["estaciones"],
                                         datos["telemetria_diaria"], legitimos, datos["solicitudes"],
                                         datos["facturacion"], datos["facturacion_detalle"],
-                                        datos["contratos"], datos["transferencias"])
+                                        datos["contratos"], datos["transferencias"], datos["telemetria"])
 
 if escenario == "didactico":
     st.warning(

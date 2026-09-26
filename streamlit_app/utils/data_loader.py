@@ -206,6 +206,7 @@ def load_dataset_deteccion(escenario):
         "facturacion_detalle": o_none(load_facturacion_detalle(escenario)),
         "contratos": o_none(load_contratos(escenario)) if realista else None,
         "transferencias": o_none(load_transferencias(escenario)) if realista else None,
+        "telemetria": o_none(load_telemetria(escenario)) if realista else None,
     }
 
 
