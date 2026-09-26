@@ -2,10 +2,9 @@
 
 Uso:
     python -m perfilador perfilar archivo1.xlsx carpeta/ --origen "fuentes reales" [--salida perfil.json]
-        Acepta archivos y carpetas (se recorren completas). Los archivos del mismo tipo (mismo
-        nombre salvo números e identificadores, o las mismas columnas si el nombre es un
-        identificador) se agrupan en una tabla, como lotes o versiones. --renombrar PATRON=NOMBRE
-        reemplaza un nombre de tabla. Escribe
+        Acepta archivos y carpetas (se recorren completas). Los archivos con las mismas columnas
+        se agrupan en una tabla, como lotes o versiones. --renombrar PATRON=NOMBRE reemplaza un
+        nombre de tabla; --reemplazar TEXTO=NUEVO, un texto en todo el perfil. Escribe
         perfiles/pendientes/perfil_AAAA-MM-DD.json o --salida. Solo imprime conteos.
     python -m perfilador aprobar perfiles/pendientes/perfil_X.json --responsable "Nombre" [--notas "..."]
         Registra la revisión manual y lo pasa a perfiles/aprobados/ (se versiona).
@@ -20,7 +19,7 @@ from datetime import date
 from pathlib import Path
 
 from perfilador.comparar import comparar, informe_markdown, perfil_de_directorio, sugerir_emparejamiento
-from perfilador.perfil import perfilar, tablas_de_rutas
+from perfilador.perfil import perfilar, reemplazar_textos, tablas_de_rutas
 
 RAIZ = Path(__file__).parent.parent
 PENDIENTES = RAIZ / "perfiles" / "pendientes"
@@ -40,6 +39,8 @@ def cmd_perfilar(args):
         raise SystemExit("No se encontraron archivos CSV o Excel legibles.")
     perfil = perfilar(tablas, origen=args.origen)
     perfil["lectura"] = lectura
+    if args.reemplazar:
+        perfil = reemplazar_textos(perfil, dict(r.split("=", 1) for r in args.reemplazar))
     destino = Path(args.salida) if args.salida else PENDIENTES / f"perfil_{date.today().isoformat()}.json"
     guardar(perfil, destino)
     print(f"Perfil de {len(perfil['tablas'])} tablas ({sum(lectura['archivos_por_tabla'].values())} archivos) "
@@ -84,6 +85,8 @@ def main():
     p.add_argument("--salida")
     p.add_argument("--renombrar", action="append", default=[], metavar="PATRON=NOMBRE",
                    help="reemplaza el nombre de una tabla (por ejemplo, si incluye el de una organización)")
+    p.add_argument("--reemplazar", action="append", default=[], metavar="TEXTO=NUEVO",
+                   help="reemplaza un texto en todo el perfil, sin distinguir mayúsculas (organizaciones, proveedores)")
     p.set_defaults(funcion=cmd_perfilar)
     a = sub.add_parser("aprobar", help="registrar la revisión manual de un perfil")
     a.add_argument("perfil")

@@ -348,12 +348,16 @@ UNION_VERSIONES = 1.1           # unión de claves / archivo más grande hasta l
 
 
 def patron_de_nombre(nombre):
-    """Nombre de archivo sin identificadores ni números: `consumo_2025-09-01` -> `consumo_9999-99-99`.
+    """Nombre de archivo sin identificadores, copias ni fechas finales.
 
-    Un nombre que es solo un identificador (UUID) queda vacío: no dice qué contiene.
+    `consumo_2025-09-01` -> `consumo`; `Reporte (12)` -> `Reporte`; `lote_3_final` -> `lote_9_final`.
+    Los números que quedan en el medio se reemplazan por 9. Un nombre que es solo un
+    identificador (UUID) queda vacío: no dice qué contiene.
     """
-    sin_uuid = UUID.sub("", nombre)
-    return re.sub(r"\d", "9", sin_uuid).strip(" _-.:()")
+    patron = re.sub(r"\d", "9", UUID.sub("", nombre))
+    patron = re.sub(r"\s*\(9+\)", "", patron)             # copias del navegador: " (1)", " (12)"
+    patron = re.sub(r"[\s_\-.]*9[9T:.\-\s]*$", "", patron)  # fecha, hora o número al final
+    return patron.strip(" _-.:()")
 
 
 def _clave_comun(dfs):
@@ -407,10 +411,10 @@ def combinar_archivos(partes):
 def tablas_de_rutas(rutas, renombrar=None):
     """Lee archivos o carpetas (recorridas completas) y agrupa los archivos del mismo tipo.
 
-    Son del mismo tipo los archivos cuyo nombre coincide salvo por números e identificadores
-    (uno por día, por mes...); si el nombre es solo un identificador, los que tienen las mismas
-    columnas. Cada grupo es una tabla con el patrón como nombre, así el perfil no guarda fechas
-    ni otros números de los nombres; `renombrar` ({patrón: nombre}) permite reemplazarlo. Los
+    Son del mismo tipo los archivos con las mismas columnas (uno por día, copias descargadas
+    varias veces, exportaciones del mismo padrón). Cada grupo es una tabla que se llama como el
+    patrón de nombre más frecuente (ver `patron_de_nombre`), así el perfil no guarda fechas ni
+    otros números de los nombres; `renombrar` ({patrón: nombre}) permite reemplazarlo. Los
     grupos se unen como lotes o versiones (ver `combinar_archivos`).
 
     Solo lee: no escribe nada junto a los archivos. Devuelve las tablas y un resumen con la
@@ -432,14 +436,15 @@ def tablas_de_rutas(rutas, renombrar=None):
             errores[type(error).__name__] = errores.get(type(error).__name__, 0) + 1
             continue
         for nombre, df in leidas.items():
-            patron = patron_de_nombre(nombre)
-            clave = patron or ("esquema", tuple(sorted(normalizar_nombre(c) for c in df.columns)))
-            grupos.setdefault(clave, []).append((archivo.stat().st_mtime, df))
+            esquema = tuple(sorted(normalizar_nombre(c) for c in df.columns))
+            grupos.setdefault(esquema, []).append((archivo.stat().st_mtime, df, patron_de_nombre(nombre)))
 
     tablas, conteo, combinacion, descartadas = {}, {}, {}, {}
-    for clave, partes in grupos.items():
-        nombre = clave if isinstance(clave, str) else f"tabla_de_{len(clave[1])}_columnas"
+    for esquema, partes in grupos.items():
+        patrones = pd.Series([p for _, _, p in partes if p], dtype=object)
+        nombre = patrones.value_counts().sort_index().idxmax() if len(patrones) else f"tabla_de_{len(esquema)}_columnas"
         nombre = renombrar.get(nombre, nombre)
+        partes = [(fecha, df) for fecha, df, _ in partes]
         base, n = nombre, 2
         while nombre in tablas:
             nombre, n = f"{base}_{n}", n + 1
@@ -447,6 +452,30 @@ def tablas_de_rutas(rutas, renombrar=None):
         conteo[nombre] = len(partes)
     return tablas, {"archivos_por_tabla": conteo, "combinacion_por_tabla": combinacion,
                     "filas_repetidas_entre_archivos_pct": descartadas, "no_leidos_por_error": errores}
+
+
+def reemplazar_textos(perfil, reemplazos):
+    """Reemplaza textos en todo el perfil (claves y valores), sin distinguir mayúsculas.
+
+    Sirve para neutralizar nombres de organizaciones o proveedores en nombres de tabla o de
+    columna, relaciones y valores de categorías. Solo cambia etiquetas: los porcentajes y
+    estadísticos siguen siendo los mismos.
+    """
+    patrones = [(re.compile(re.escape(viejo), re.IGNORECASE), nuevo) for viejo, nuevo in reemplazos.items()]
+
+    def texto(s):
+        for patron, nuevo in patrones:
+            s = patron.sub(nuevo, s)
+        return s
+
+    def recorrer(x):
+        if isinstance(x, dict):
+            return {texto(k) if isinstance(k, str) else k: recorrer(v) for k, v in x.items()}
+        if isinstance(x, list):
+            return [recorrer(v) for v in x]
+        return texto(x) if isinstance(x, str) else x
+
+    return recorrer(perfil)
 
 
 def perfilar(tablas, origen="fuente"):

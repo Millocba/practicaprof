@@ -196,10 +196,10 @@ def test_carpeta_agrupa_archivos_del_mismo_tipo_sin_guardar_sus_nombres(tmp_path
     subprocess.run([sys.executable, "-m", "perfilador", "perfilar", str(volumen), "--salida", str(salida)],
                    cwd=RAIZ, check=True, capture_output=True)
     perfil = json.loads(salida.read_text(encoding="utf-8"))
-    assert set(perfil["tablas"]) == {"consumo_9999-99-99", "flota"}
-    assert perfil["lectura"]["archivos_por_tabla"] == {"consumo_9999-99-99": 3, "flota": 1}
+    assert set(perfil["tablas"]) == {"consumo", "flota"}
+    assert perfil["lectura"]["archivos_por_tabla"] == {"consumo": 3, "flota": 1}
     assert sum(perfil["lectura"]["no_leidos_por_error"].values()) == 1
-    assert perfil["tablas"]["consumo_9999-99-99"]["filas_aprox"] == 1200
+    assert perfil["tablas"]["consumo"]["filas_aprox"] == 1200
     assert "2025-09-01" not in salida.read_text(encoding="utf-8")
     assert {p: p.stat().st_mtime for p in volumen.rglob("*")} == antes  # no escribe junto a los archivos
 
@@ -217,10 +217,11 @@ def test_nombres_opacos_se_agrupan_por_columnas_como_lotes_o_versiones(tmp_path,
         ruta = volumen / f"{uuid.uuid4()}.csv"
         vehiculos.head(filas).to_csv(ruta, index=False)
         os.utime(ruta, (1_700_000_000 + i, 1_700_000_000 + i))
-    cargas.head(100).to_csv(volumen / "reporte ORGANIZACION_FICTICIA 01-02.csv", index=False)
+    cargas.head(100).drop(columns=["Observaciones"]).to_csv(volumen / "reporte ORGANIZACION_FICTICIA 01-02.csv",
+                                                            index=False)
     salida = tmp_path / "perfil.json"
     subprocess.run([sys.executable, "-m", "perfilador", "perfilar", str(volumen), "--salida", str(salida),
-                    "--renombrar", "reporte ORGANIZACION_FICTICIA 99-99=reporte_de_cargas"],
+                    "--renombrar", "reporte ORGANIZACION_FICTICIA=reporte_de_cargas"],
                    cwd=RAIZ, check=True, capture_output=True)
     perfil = json.loads(salida.read_text(encoding="utf-8"))
     lectura = perfil["lectura"]
@@ -249,3 +250,24 @@ def test_lotes_superpuestos_no_se_confunden_con_versiones():
     assert modo == "lotes"
     assert len(tabla) == 600 + 4 * 30 and tabla["Id"].is_unique
     assert descartadas == round(100 * 5 * 80 / (600 + 5 * 80 + 4 * 30), 1)
+
+
+def test_copias_del_mismo_reporte_se_unen_y_los_nombres_se_neutralizan(tmp_path, tablas):
+    volumen = tmp_path / "volumen"
+    volumen.mkdir()
+    cargas = tablas["cargas"].assign(Proveedor="PROVEEDOR_REAL_FICTICIO")
+    nombres = ["ReporteConsumos.csv", "ReporteConsumos (1).csv", "ReporteConsumos (12) (3).csv",
+               "ReporteConsumos - 2025-09-01T101530.123.csv"]
+    for i, nombre in enumerate(nombres):
+        cargas.iloc[i * 300:(i + 1) * 300].to_csv(volumen / nombre, index=False)
+    salida = tmp_path / "perfil.json"
+    subprocess.run([sys.executable, "-m", "perfilador", "perfilar", str(volumen), "--salida", str(salida),
+                    "--reemplazar", "proveedor_real_ficticio=PROVEEDOR_1"],
+                   cwd=RAIZ, check=True, capture_output=True)
+    texto = salida.read_text(encoding="utf-8")
+    perfil = json.loads(texto)
+    assert perfil["lectura"]["archivos_por_tabla"] == {"ReporteConsumos": 4}
+    assert perfil["tablas"]["ReporteConsumos"]["filas_aprox"] == 1200
+    assert "PROVEEDOR_REAL_FICTICIO" not in texto.upper()
+    proveedor = columna(perfil, "ReporteConsumos", "Proveedor")
+    assert proveedor["categorias"][0]["valor"] == "PROVEEDOR_1" and proveedor["categorias"][0]["pct"] == 100.0
