@@ -47,4 +47,5 @@ Cada ejecución deberá asociarse con versión de código, esquema, semilla, par
 | Detección | `deteccion/reglas.py`, `deteccion/modelo.py`, `deteccion/evaluacion.py` | Reglas ingenuas y con contexto, Isolation Forest y modelo supervisado, evaluados contra el ground truth |
 | Hipótesis | `deteccion/hipotesis.py` | Contraste de cada hipótesis del escenario realista con veredicto calculado |
 | Priorización | `deteccion/priorizacion.py` | Cola de revisión con motivos, curva de esfuerzo y vehículos a auditar |
+| Persistencia | `base_datos/` | SQLite con migraciones versionadas: maestros con vigencia, operativos cargados por día de forma repetible y vistas de control (saldo diario, conciliación triple, bajas con dispositivo activo); ver [BASE_DE_DATOS.md](BASE_DE_DATOS.md) |
 | Presentación | `streamlit_app/` | Aplicación Streamlit; no duplica la lógica de detección, la importa de `deteccion/` |

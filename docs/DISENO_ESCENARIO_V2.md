@@ -1,6 +1,6 @@
 # Diseño: base de datos y escenario realista v2
 
-> **Implementado** en los pasos 1 a 5 del *Orden de implementación*; la base de datos (paso 6) sigue pendiente. Describe qué cambia en el modelo de datos, el generador y las hipótesis para acercarlos al circuito real de abastecimiento. Las proporciones finales se calibran con el perfil aprobado de las fuentes ([perfiles/](../perfiles/README.md)); las de este documento son punto de partida.
+> **Implementado** (pasos 1 a 6 del *Orden de implementación*). Describe qué cambia en el modelo de datos, el generador y las hipótesis para acercarlos al circuito real de abastecimiento. Las proporciones finales se calibran con el perfil aprobado de las fuentes ([perfiles/](../perfiles/README.md)); las de este documento son punto de partida.
 
 ## Objetivo
 
@@ -123,7 +123,7 @@ La regla ingenua de H8 reproduce el cruce típico de un sistema operativo (voraz
 3. Registro interno y H8 reformulada. **Hecho** (con tarjetas personales).
 4. Facturación por contrato y H9 ampliada. **Hecho**.
 5. Telemetría y bajas (H11). **Hecho**.
-6. Base de datos: migraciones y carga desde los CSV.
+6. Base de datos: migraciones y carga desde los CSV. **Hecho** ([BASE_DE_DATOS.md](BASE_DE_DATOS.md)).
 
 Cada paso es un commit con tests y con las hipótesis verificadas en cinco semillas.
 

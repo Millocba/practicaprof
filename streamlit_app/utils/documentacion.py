@@ -28,6 +28,7 @@ DOCUMENTOS = [
     ("Datos", "Gobierno de datos y persistencia", "docs/DATA_GOVERNANCE.md"),
     ("Datos", "Límite de metadatos reales", "docs/REAL_DATA_BOUNDARY.md"),
     ("Datos", "Perfiles de fuentes", "perfiles/README.md"),
+    ("Datos", "Base de datos", "docs/BASE_DE_DATOS.md"),
     ("Técnica", "Arquitectura", "docs/ARCHITECTURE.md"),
     ("Técnica", "Entorno de desarrollo", "docs/DEVELOPMENT.md"),
     ("Trabajo en equipo", "Reglas para agentes de IA", "AGENTS.md"),

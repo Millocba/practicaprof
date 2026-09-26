@@ -156,6 +156,7 @@ Cada corrida del generador escribe también un `diccionario.json` con el grano, 
 ```text
 generator_pipeline_maestro.py   generador oficial
 deteccion/                      reglas, hipótesis, modelos de ML, priorización y evaluación
+base_datos/                     base SQLite del escenario realista: migraciones, carga y vistas de control
 perfilador/                     perfil agregado de fuentes y comparación con los datos sintéticos
 perfiles/                       perfiles aprobados e informes de brechas
 streamlit_app/                  aplicación (páginas y carga de datos)
@@ -175,6 +176,7 @@ legacy/                         generadores, notebooks y etapa inicial anteriore
 - [Entorno de desarrollo](docs/DEVELOPMENT.md)
 - [Diccionario de datos del pipeline maestro](docs/DICCIONARIO_DATOS.md)
 - [Límite de metadatos reales](docs/REAL_DATA_BOUNDARY.md)
+- [Base de datos](docs/BASE_DE_DATOS.md)
 - [Evolución de los generadores](legacy/EVOLUCION.md)
 - [Registro del Sprint 1](docs/sprints/sprint-1/README.md)
 - [Estado actual](docs/ESTADO_ACTUAL.md) (con valores vivos en la página Documentación de la aplicación)
