@@ -64,6 +64,8 @@ def dos_cifras(valor):
 
 
 def banda(n):
+    if n == 0:
+        return "0"
     if n < MINIMO_GRUPO:
         return f"<{MINIMO_GRUPO}"
     for limite in [100, 1_000, 10_000, 100_000, 1_000_000]:
@@ -194,6 +196,13 @@ def perfilar_columna(nombre, serie):
     if n < MINIMO_GRUPO:
         perfil["tipo"] = "desconocido"
         perfil["nota"] = f"menos de {MINIMO_GRUPO} valores: sin estadísticas"
+        # En tablas chicas (catálogos, como los contratos) se informa cómo se reparte el total de una
+        # columna numérica, en porcentajes ordenados y sin asociarlos a ninguna fila, y el total redondeado
+        numeros = pd.to_numeric(presentes, errors="coerce").dropna() if not perfil["sensible"] else pd.Series(dtype=float)
+        if len(numeros) >= 2 and len(numeros) == n and (numeros >= 0).all() and numeros.sum() > 0:
+            perfil["tipo"] = "numérico"
+            perfil["reparto_pct"] = sorted((round(100 * v / numeros.sum()) for v in numeros), reverse=True)
+            perfil["total_aprox"] = dos_cifras(float(numeros.sum()))
         return perfil
 
     if pd.api.types.is_bool_dtype(serie):
@@ -546,7 +555,9 @@ def reemplazar_textos(perfil, reemplazos):
 
 
 def perfilar(tablas, origen="fuente"):
-    """Perfil completo de un conjunto de tablas {nombre: DataFrame}."""
+    """Perfil completo de un conjunto de tablas {nombre: DataFrame}, con los controles que crucen tablas."""
+    from perfilador.controles import ejecutar_controles
+
     return {
         "perfilador_version": VERSION,
         "generado": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
@@ -555,4 +566,5 @@ def perfilar(tablas, origen="fuente"):
         "reglas": {"minimo_grupo": MINIMO_GRUPO, "max_categorias": MAX_CATEGORIAS},
         "tablas": {nombre: perfilar_tabla(nombre, df) for nombre, df in tablas.items()},
         "relaciones": relaciones_entre_tablas(tablas),
+        "controles": ejecutar_controles(tablas),
     }

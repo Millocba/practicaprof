@@ -106,11 +106,15 @@ def test_cuantiles_redondeados():
     assert all(v == dos_cifras(v) for v in c["numerico"].values() if isinstance(v, float) and v > 100)
 
 
-def test_tabla_chica_sin_estadisticas():
-    c = perfilar_columna("Importe", pd.Series(range(MINIMO_GRUPO - 1)))
-    assert c["tipo"] == "desconocido" and "numerico" not in c
-    p = perfilar({"chica": pd.DataFrame({"a": range(5)})})
+def test_tabla_chica_sin_estadisticas_pero_con_reparto():
+    c = perfilar_columna("limite", pd.Series([4e6, 1e6, 1.4e6, 8.5e5, 1.8e5, 2.6e6]))
+    assert "numerico" not in c and "categorias" not in c
+    assert c["reparto_pct"] == [40, 26, 14, 10, 8, 2] and c["total_aprox"] == 10_000_000
+    assert "reparto_pct" not in perfilar_columna("dni", pd.Series([30111222, 30222333, 30333444]))
+    assert "reparto_pct" not in perfilar_columna("dependencia", pd.Series(["A", "B", "C"]))
+    p = perfilar({"chica": pd.DataFrame({"a": range(5)}), "vacia": pd.DataFrame({"a": []})})
     assert p["tablas"]["chica"]["filas_aprox"] is None
+    assert p["tablas"]["chica"]["filas"] == "<20" and p["tablas"]["vacia"]["filas"] == "0"
 
 
 def test_relacion_exacta_y_normalizada(perfil):
@@ -379,3 +383,30 @@ def test_reemplazos_no_tocan_formatos_y_relaciones_solo_entre_claves():
     relaciones = {(r["origen"], r["destino"]) for r in relaciones_entre_tablas({"orden": orden, "flota": flota})}
     assert ("flota.Dominio", "orden.Placa") in relaciones
     assert not any(o.startswith(("flota.CapacidadTanque", "flota.Año")) for o, _ in relaciones)
+
+
+def test_control_telemetria_vs_estado():
+    from perfilador.controles import telemetria_vs_estado
+
+    n = 300
+    estados = ["En Servicio"] * 150 + ["Tramite en Baja"] * 120 + ["Fuera de Servicio"] * 30
+    padron = pd.DataFrame({"Matricula": [str(1000 + i) for i in range(n)], "Dominio": [f"ZZ{i:03d}QQ" for i in range(n)],
+                           "Estado": estados, "SubEstado": ["x"] * n})
+    filas = []
+    for i in range(150):              # en servicio: todos con dispositivo que transmite
+        filas.append((f"ZZ{i:03d}QQ", "", "GRUPO 1", "viernes, 12 de septiembre de 2025 9:05:03"))
+    for i in range(150, 190):         # 40 en baja con el dispositivo en depósito, sin transmitir
+        filas.append((f"ZZ{i:03d}QQ", "", "BAJA / REEMPLAZOS", "lunes, 2 de junio de 2025 10:00:00"))
+    for i in range(190, 195):         # 5 en baja con dispositivo fuera del depósito y transmitiendo: alerta
+        filas.append(("", str(1000 + i), "GRUPO 2", "jueves, 11 de septiembre de 2025 18:30:00"))
+    filas.append(("XX999XX", "", "GRUPO 3", "viernes, 12 de septiembre de 2025 8:00:00"))  # sin móvil
+    dispositivos = pd.DataFrame(filas, columns=["Placa", "Alias", "Grupo", "Hora de última transmisión"])
+    control = telemetria_vs_estado({"padron": padron, "dispositivos": dispositivos})
+    servicio, baja = control["por_estado"]["EN SERVICIO"], control["por_estado"]["TRAMITE EN BAJA"]
+    assert servicio["otro_grupo_transmite"] == 150 and servicio["sin_dispositivo"] == 0
+    assert baja["deposito_sin_transmitir"] == 40 and baja["sin_dispositivo"] == 75
+    assert baja["otro_grupo_transmite"] == "1–19" and control["alerta_baja_con_dispositivo_activo"] == "1–19"
+    assert control["dispositivos_sin_movil"] == "1–19" and control["mes_de_referencia"] == "2025-09"
+    assert control["por_estado"]["FUERA DE SERVICIO"]["sin_dispositivo"] == 30
+    texto = json.dumps(control, ensure_ascii=False)
+    assert "ZZ0" not in texto and "1190" not in texto

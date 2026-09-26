@@ -15,6 +15,8 @@ Perfiles **agregados** de fuentes de datos externas: estructura y calidad, sin f
 - **Fechas:** formatos y cantidad por mes.
 - **Categorías:** solo las que tienen 20 casos o más; el resto se agrupa como `OTRA_CATEGORIA_SINTETIZABLE`.
 - **Columnas sensibles** (identificadores, personas, patentes, ubicaciones, texto libre): se detectan por el nombre o el formato y se describen **solo por su formato**, sin valores, cuantiles ni categorías.
+- **Tablas chicas** (menos de 20 filas, como un catálogo de contratos): sin estadísticas; de las columnas numéricas se informa cómo se reparte el total, en porcentajes ordenados sin asociarlos a ninguna fila, y el total redondeado. Una tabla vacía figura con `0` filas.
+- **Controles que cruzan tablas** (`controles`): conteos por categoría calculados junto a los datos, con los conteos de 1 a 19 informados como `1–19`. Hoy: `telemetria_vs_estado`, móviles por estado según tengan dispositivo, si está en el grupo de depósito (baja / reemplazos) y si transmitió en la última semana; la alerta cuenta los móviles en baja con el dispositivo fuera del depósito y transmitiendo.
 - **Relaciones:** qué porcentaje de los valores de una columna existe en la clave de otra tabla, exacto y después de normalizar (mayúsculas, sin espacios ni guiones).
 
 ## Procedimiento
