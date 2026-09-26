@@ -121,7 +121,7 @@ La regla ingenua de H8 reproduce el cruce típico de un sistema operativo (voraz
 1. Aprobar este diseño y el perfil de las fuentes; ajustar proporciones con el informe de brechas.
 2. Contratos, tarjetas y cupo en el generador, con sus tests. **Hecho** (junto con H10).
 3. Registro interno y H8 reformulada. **Hecho** (con tarjetas personales).
-4. Facturación por contrato y H9 ampliada.
+4. Facturación por contrato y H9 ampliada. **Hecho**.
 5. Telemetría y bajas (H11).
 6. Base de datos: migraciones y carga desde los CSV.
 

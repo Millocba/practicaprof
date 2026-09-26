@@ -118,13 +118,16 @@ HIPOTESIS = [
     {
         "codigo": "H9",
         "titulo": "Conciliación de facturas",
-        "enunciado": "Comparar el total mensual facturado con el consumo registrado confunde desfases de "
-                     "corte y ajustes documentados, y no ve irregularidades chicas; conciliar la factura "
-                     "línea por línea contra las cargas las detecta.",
-        "tipos": ["TOTAL_INFLADO", "LINEA_SIN_CONSUMO", "LINEA_DUPLICADA", "SOBREPRECIO"],
-        "reglas": [("conciliacion_mensual", "total del mes vs. consumo del mes"),
-                   (["factura_no_concilia", "linea_sin_consumo", "linea_duplicada", "sobreprecio"],
-                    "encabezado vs. líneas y cada línea vs. su carga")],
+        "enunciado": "Comparar lo facturado a cada contrato en el mes con su consumo a precio del surtidor "
+                     "confunde el descuento de empresa, los desfases de corte y los ajustes documentados con "
+                     "diferencias, y no ve irregularidades chicas; la conciliación triple (deuda, PDF y "
+                     "consumo) y cada línea contra su carga las detectan.",
+        "tipos": ["TOTAL_INFLADO", "LINEA_SIN_CONSUMO", "LINEA_DUPLICADA", "SOBREPRECIO",
+                  "FACTURADA_A_PRECIO_DE_SURTIDOR", "DIFERENCIA_DEUDA_PDF", "PRODUCTO_NO_COMBUSTIBLE"],
+        "reglas": [("conciliacion_mensual", "facturado del mes vs. consumo del contrato a precio del surtidor"),
+                   (["factura_no_concilia", "pdf_no_concilia", "linea_sin_consumo", "linea_duplicada", "sobreprecio",
+                     "precio_de_surtidor", "producto_no_combustible"],
+                    "deuda vs. líneas, PDF vs. deuda y cada línea vs. su carga, a precio de empresa")],
         "contexto": "detalle de facturación",
         "nivel": "factura",
     },

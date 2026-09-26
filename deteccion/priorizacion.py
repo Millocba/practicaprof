@@ -37,7 +37,8 @@ REGLAS_CONTEXTO = ["exceso_sin_antecedente", "retroceso_con_contexto", "salto_co
                    "fraccionamiento_sin_recorrido", "rendimiento_bajo_gps", "carga_vehiculo_inactivo",
                    "carga_lejos_del_gps", "carga_sin_registro", "carga_de_registro_anulado", "desacuerdo_de_litros",
                    "supera_autorizado_con_tolerancia"]
-REGLAS_FACTURACION = ["factura_no_concilia", "linea_sin_consumo", "linea_duplicada", "sobreprecio"]
+REGLAS_FACTURACION = ["factura_no_concilia", "pdf_no_concilia", "linea_sin_consumo", "linea_duplicada", "sobreprecio",
+                      "precio_de_surtidor", "producto_no_combustible"]
 
 METODOS = ["Reglas ingenuas", "Reglas con contexto", "Isolation Forest", "Modelo supervisado", "Combinado"]
 PRESUPUESTOS = [25, 50, 100, 200]

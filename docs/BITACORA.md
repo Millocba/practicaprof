@@ -6,6 +6,7 @@ Registro de los cambios importantes y del **por qué** de cada uno. El detalle t
 
 | Fecha | Cambio | Por qué | Decidió |
 |---|---|---|---|
+| 2026-09-26 | Facturación por contrato, mes y familia a precio de empresa, con deuda, PDF y conciliación triple; H9 ampliada | En la fuente el proveedor factura cada contrato a precio de empresa y la deuda, el PDF y el consumo deben coincidir | Equipo |
 | 2026-09-26 | Registro interno en lugar de las solicitudes del realista, tarjetas personales e H8 reformulada (cruce voraz del sistema operativo frente a cruce con contexto) | Las solicitudes con litros autorizados no reflejaban el circuito real: pedido, rendición con ticket, anulaciones, estaciones de otra red y tarjetas personales | Equipo |
 | 2026-09-26 | Contratos con cupo mensual, transferencias preventivas según la proyección a fin de mes e H10 | En la realidad cada tarjeta descuenta de un contrato con tope y el saldo se reparte entre contratos antes de que se corte el suministro | Equipo |
 | 2026-09-26 | Flota del escenario realista calibrada con el perfil de las fuentes: estados, telemetría por estado, tipos, combustibles, productos y formatos de dominio; dominios con otro formato bajan a 0,5% | El generador suponía 88% de telemetría pareja y casi toda la flota en servicio; la fuente muestra 48% fuera de servicio o en baja | Equipo |

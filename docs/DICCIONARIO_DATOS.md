@@ -221,7 +221,7 @@ Cada vehículo se simula día por día desde un perfil propio que no forma parte
 | `telemetria_diaria.csv` | un dispositivo y un día | ~26.000 (3% de los días sin señal) |
 | `consumo.csv` | una carga del reporte del proveedor | ~3.200 (los vehículos fuera de servicio o de baja dejan de cargar; las cargas en otra red solo están en el registro interno) |
 | `solicitudes.csv` | un pedido del registro interno | ~3.400 (uno por carga, más los de estaciones de otra red y los anulados) |
-| `facturacion.csv` | una factura mensual de un proveedor | 45 (5 proveedores × 9 meses) |
+| `facturacion.csv` | una factura del proveedor por contrato, mes y familia de combustible | ~105 (6 contratos × 2 familias × 9 meses) |
 | `facturacion_detalle.csv` | una línea de factura | ~3.400 (una por carga facturada, más ajustes) |
 | `contratos.csv` | un contrato de abastecimiento | 6, con su tope mensual en pesos |
 | `transferencias.csv` | una transferencia de saldo entre contratos | ~50 (unas 5 por mes) |
@@ -347,6 +347,12 @@ En el escenario realista `solicitudes.csv` es el registro interno, como en la fu
 | `TARJETA_PERSONAL` | legítimo | ~1,2% de las cargas | Tarjeta personal: el reporte trae la persona (`tipo_identificacion` DNI) y el dominio vacío |
 | `ESTACION_AJENA` | legítimo | ~7% de los pedidos (`tabla` = solicitudes) | Carga en otra red: está en el registro y no en el reporte |
 | `REGISTRO_REHECHO` | legítimo | ~27 pedidos (`tabla` = solicitudes) | El pedido se anuló y se volvió a hacer antes de cargar |
+
+### Facturación (escenario realista)
+
+Como en la fuente, el proveedor factura cada contrato: una factura por contrato, mes y familia (DIESEL o NAFTA), a **precio de empresa**, un 2% menor que el del surtidor que registra la carga. Cada factura tiene el monto de la deuda (`total_monto`) y el total de su PDF (`total_pdf`; el 15% no tiene el PDF cargado, como en la fuente). Cada línea de `facturacion_detalle` es una carga del reporte, un ajuste documentado o un renglón que no es combustible.
+
+La conciliación triple compara la deuda con la suma de las líneas, el PDF con la deuda y cada línea con su carga. Anomalías de H9: `TOTAL_INFLADO` (la deuda y el PDF superan en 3% a 10% las líneas), `DIFERENCIA_DEUDA_PDF` (2 facturas: el PDF difiere en 2% a 8% de la deuda), `LINEA_SIN_CONSUMO`, `LINEA_DUPLICADA`, `SOBREPRECIO` (8% a 20% sobre el precio del surtidor), `FACTURADA_A_PRECIO_DE_SURTIDOR` (6 líneas sin el descuento de empresa) y `PRODUCTO_NO_COMBUSTIBLE` (2 facturas con 1 a 3 renglones de lubricante).
 
 ### Contratos, cupo y transferencias (escenario realista)
 

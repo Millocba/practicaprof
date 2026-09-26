@@ -35,6 +35,8 @@ TOLERANCIA_AUTORIZADO = 0.05   # exceso sobre lo autorizado atribuible a la medi
 DIFERENCIA_CONCILIACION = 0.01  # diferencia relativa entre consumo del mes y total facturado
 DIFERENCIA_ENCABEZADO = 0.005   # diferencia relativa entre el total de la factura y sus líneas
 TOLERANCIA_PRECIO = 0.02        # diferencia de precio por litro entre la factura y la carga
+MARGEN_PRECIO_SURTIDOR = 0.005  # a menos de esto del precio del surtidor, la línea no tiene el descuento de empresa
+DIFERENCIA_PDF = 0.001          # diferencia relativa entre el total del PDF y la deuda
 MARGEN_PROYECCION = 1.05        # una transferencia se justifica si la proyección supera el saldo con este margen
 HOLGURA_TRANSFERENCIA = 0.9     # es injustificada si la proyección no llega a este tanto del saldo
 DIAS_PESO_HISTORICO = 7         # la proyección combina el mes con 7 días del promedio histórico del contrato
@@ -577,15 +579,16 @@ def detectar_cruce_con_contexto(consumo, registro, excluir_ids=(), flota=None, t
     ], ignore_index=True)
 
 
-def detectar_conciliacion_mensual(consumo, estaciones, facturacion, excluir_ids=()):
-    """H9 (ingenua): el consumo del mes de cada proveedor no coincide con el total facturado."""
-    marca = estaciones.set_index("codigo")["marca"]
+def detectar_conciliacion_mensual(consumo, facturacion, excluir_ids=()):
+    """H9 (ingenua): el consumo del mes de cada contrato, a precio del surtidor (como se sigue la
+    ejecución del cupo), no coincide con el total facturado del contrato en el mes."""
     datos = consumo[~consumo["id"].isin(set(excluir_ids))].assign(
-        proveedor=lambda d: d["estacion"].map(marca),
         periodo=lambda d: pd.to_datetime(d["fecha"]).dt.to_period("M").astype(str))
-    registrado = datos.groupby(["proveedor", "periodo"])["importe_total"].sum()
-    facturas = facturacion.set_index(["proveedor", "periodo"])
-    comparacion = facturas.join(registrado.rename("registrado"), how="left").fillna({"registrado": 0})
+    registrado = datos.groupby(["contrato", "periodo"])["importe_total"].sum()
+    facturado = facturacion.groupby(["contrato", "periodo"])["total_monto"].sum().rename("facturado")
+    comparacion = facturacion.set_index(["contrato", "periodo"]).join(facturado).join(
+        registrado.rename("registrado"), how="left").fillna({"registrado": 0})
+    comparacion["total_monto"] = comparacion["facturado"]
     diferencia = (comparacion["total_monto"] - comparacion["registrado"]) / comparacion["registrado"].clip(lower=1)
     marcadas = comparacion[diferencia.abs() > DIFERENCIA_CONCILIACION].reset_index()
     marcadas = marcadas.assign(id=marcadas["numero_factura"], diferencia=diferencia[diferencia.abs()
@@ -606,8 +609,23 @@ def detectar_factura_no_concilia(facturacion, facturacion_detalle):
                     lambda d: "total " + (d["diferencia"] * 100).round(1).astype(str) + "% distinto de sus líneas")
 
 
+def detectar_pdf_no_concilia(facturacion):
+    """H9: el total del PDF no coincide con el monto de la deuda (si el PDF está cargado)."""
+    con_pdf = facturacion.dropna(subset=["total_pdf"])
+    diferencia = (con_pdf["total_pdf"] - con_pdf["total_monto"]) / con_pdf["total_monto"].abs().clip(lower=1)
+    marcadas = con_pdf[diferencia.abs() > DIFERENCIA_PDF].assign(id=lambda d: d["numero_factura"])
+    return _alertas(marcadas, "DIFERENCIA_DEUDA_PDF", "pdf_no_concilia",
+                    lambda d: "PDF por " + d["total_pdf"].round(2).astype(str) + " y deuda por "
+                    + d["total_monto"].round(2).astype(str))
+
+
 def detectar_irregularidades_de_linea(consumo, facturacion_detalle):
-    """H9: líneas de combustible sin carga registrada, duplicadas o con sobreprecio."""
+    """H9: líneas sin carga registrada, duplicadas, con sobreprecio, al precio del surtidor o que no
+    son combustible.
+
+    El proveedor factura a precio de empresa, un 2% menor que el del surtidor que registra la
+    carga: una línea al precio del surtidor es un cobro de más; una por encima, sobreprecio.
+    """
     lineas = facturacion_detalle[facturacion_detalle["concepto"] == "COMBUSTIBLE"].rename(
         columns={"numero_linea": "id"}).sort_values("id")
     sin_consumo = lineas[~lineas["referencia_consumo"].isin(consumo["id"])]
@@ -616,6 +634,10 @@ def detectar_irregularidades_de_linea(consumo, facturacion_detalle):
     precio = consumo.set_index("id")["precio_unitario"]
     con_precio = lineas.assign(precio_carga=lineas["referencia_consumo"].map(precio)).dropna(subset=["precio_carga"])
     sobreprecio = con_precio[con_precio["precio_unitario"] > con_precio["precio_carga"] * (1 + TOLERANCIA_PRECIO)]
+    al_surtidor = con_precio[(con_precio["precio_unitario"] >= con_precio["precio_carga"] * (1 - MARGEN_PRECIO_SURTIDOR))
+                             & ~con_precio["id"].isin(sobreprecio["id"])]
+    otros = facturacion_detalle[~facturacion_detalle["concepto"].isin(["COMBUSTIBLE", "AJUSTE"])].rename(
+        columns={"numero_linea": "id"})
     return pd.concat([
         _alertas(sin_consumo, "LINEA_SIN_CONSUMO", "linea_sin_consumo",
                  lambda d: d["referencia_consumo"].astype(str) + " no existe en el registro de cargas"),
@@ -624,6 +646,10 @@ def detectar_irregularidades_de_linea(consumo, facturacion_detalle):
         _alertas(sobreprecio, "SOBREPRECIO", "sobreprecio",
                  lambda d: d["precio_unitario"].astype(str) + " por litro; en la carga, "
                  + d["precio_carga"].astype(str)),
+        _alertas(al_surtidor, "FACTURADA_A_PRECIO_DE_SURTIDOR", "precio_de_surtidor",
+                 lambda d: d["precio_unitario"].astype(str) + " por litro, el del surtidor: sin descuento de empresa"),
+        _alertas(otros, "PRODUCTO_NO_COMBUSTIBLE", "producto_no_combustible",
+                 lambda d: d["concepto"].astype(str) + " en una factura de combustible"),
     ], ignore_index=True)
 
 
@@ -771,8 +797,9 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
                 detectar_factura_no_concilia(facturacion, facturacion_detalle),
                 detectar_irregularidades_de_linea(consumo, facturacion_detalle),
             ]
-            if estaciones is not None:
-                partes.append(detectar_conciliacion_mensual(consumo, estaciones, facturacion, excluir))
+            if "contrato" in facturacion.columns and "contrato" in consumo.columns:
+                partes += [detectar_conciliacion_mensual(consumo, facturacion, excluir),
+                           detectar_pdf_no_concilia(facturacion)]
         if contratos is not None and transferencias is not None and "contrato" in consumo.columns:
             partes += [
                 detectar_ejecucion_supera_tope(consumo, contratos),

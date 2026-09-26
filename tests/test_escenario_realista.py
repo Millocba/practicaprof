@@ -167,6 +167,21 @@ def test_cada_carga_real_se_factura_al_menos_una_vez(dataset):
     assert reales <= set(dataset["facturacion_detalle"]["referencia_consumo"])
 
 
+def test_facturacion_por_contrato_a_precio_de_empresa(dataset):
+    facturas, lineas, consumo = dataset["facturacion"], dataset["facturacion_detalle"], dataset["consumo"]
+    assert not facturas.duplicated(["contrato", "periodo", "producto"]).any()
+    assert set(facturas["producto"]) == {"DIESEL", "NAFTA"}
+    etiquetadas = set(dataset["ground_truth"]["id_registro"])
+    limpias = lineas[(lineas["concepto"] == "COMBUSTIBLE") & ~lineas["numero_linea"].isin(etiquetadas)]
+    precio_surtidor = limpias["referencia_consumo"].map(consumo.set_index("id")["precio_unitario"])
+    assert ((limpias["precio_unitario"] / precio_surtidor).round(2) == 0.98).all()
+    sin_pdf = facturas["total_pdf"].isna().mean()
+    assert 0.05 < sin_pdf < 0.3
+    con_pdf = facturas.dropna(subset=["total_pdf"])
+    con_pdf = con_pdf[~con_pdf["numero_factura"].isin(etiquetadas)]
+    assert (con_pdf["total_pdf"] == con_pdf["total_monto"]).all()
+
+
 def test_flota_calibrada_con_la_fuente(dataset):
     import re
 

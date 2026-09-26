@@ -77,6 +77,9 @@ CATALOGO_ANOMALIAS = {
     "LINEA_SIN_CONSUMO": ("H9", "ALTA"),
     "LINEA_DUPLICADA": ("H9", "ALTA"),
     "SOBREPRECIO": ("H9", "MEDIA"),
+    "FACTURADA_A_PRECIO_DE_SURTIDOR": ("H9", "MEDIA"),
+    "DIFERENCIA_DEUDA_PDF": ("H9", "ALTA"),
+    "PRODUCTO_NO_COMBUSTIBLE": ("H9", "MEDIA"),
     "CARGA_CON_CUPO_AGOTADO": ("H10", "ALTA"),
     "TRANSFERENCIA_SIN_NECESIDAD": ("H10", "MEDIA"),
 }
@@ -114,6 +117,9 @@ COLUMNAS_CASOS_LEGITIMOS = ["tabla", "id_registro", "vehiculo_id", "tipo_caso", 
 # factor: los dos grandes quedan cortos y reciben transferencias preventivas de los que sobran; en
 # total el cupo alcanza cualquier mes (ejecución media cercana al 90%)
 REPARTO_CONTRATOS = [0.492, 0.237, 0.091, 0.082, 0.075, 0.023]
+FACTOR_PRECIO_EMPRESA = 0.98        # el proveedor factura al precio de empresa, un 2% menor que el del surtidor
+PROB_PDF_CARGADO = 0.85             # el 15% de las facturas no tiene su PDF cargado (fuente)
+PROVEEDOR_CONTRATO = "PROVEEDOR 1"
 FACTOR_TOPE_CONTRATO = [0.9, 0.92, 1.2, 1.25, 1.2, 1.3]
 MARGEN_PROYECCION = 1.05            # se transfiere si la proyección a fin de mes supera el saldo en este margen
 DIA_INICIO_SEGUIMIENTO = 5          # antes, el promedio del mes no es confiable (salvo que no alcance el día)
@@ -232,6 +238,9 @@ EVENTOS_REALISTA = {
     "LINEA_SIN_CONSUMO": 6,
     "LINEA_DUPLICADA": 5,
     "SOBREPRECIO": 6,
+    "FACTURADA_A_PRECIO_DE_SURTIDOR": 6,  # líneas al precio del surtidor en lugar del de empresa
+    "DIFERENCIA_DEUDA_PDF": 2,      # facturas cuyo PDF no coincide con la deuda
+    "PRODUCTO_NO_COMBUSTIBLE": 2,   # facturas con renglones de lubricante
     "CARGA_CON_CUPO_AGOTADO": 1,    # contratos-mes en los que una transferencia llega tarde y se carga sin saldo
     "TRANSFERENCIA_SIN_NECESIDAD": 2,  # transferencias que la proyección no justifica
     "AJUSTE_DOCUMENTADO": 4,        # legítimos: facturas con un ajuste
@@ -438,11 +447,15 @@ TABLAS = {
         "clave": "numero_factura", "escenarios": AMBOS,
         "columnas": {
             "numero_factura": ("texto", "Número de factura"),
-            "proveedor": ("categoría", "Marca de estación que factura", REALISTA),
+            "contrato": ("entero", "Contrato facturado, 1 a 6", REALISTA),
+            "proveedor": ("categoría", "Proveedor del contrato", REALISTA),
+            "producto": ("categoría", "DIESEL o NAFTA: una factura por contrato, mes y familia", REALISTA),
             "fecha_factura": ("fecha", "Último día del período"),
             "periodo": ("texto", "Período facturado, AAAA-MM"),
             "total_litros": ("decimal (L)", "Litros facturados"),
-            "total_monto": ("decimal", "Importe sin IVA"),
+            "total_monto": ("decimal", "Importe sin IVA (realista: monto de la deuda, a precio de empresa)"),
+            "total_pdf": ("decimal", "Total del PDF de la factura; vacío si el PDF no se cargó", REALISTA),
+            "vencimiento": ("fecha", "Vencimiento: 15 días después de la factura", REALISTA),
             "iva": ("decimal", "21% de total_monto"),
             "monto_total_con_iva": ("decimal", "total_monto × 1,21"),
             "estado": ("categoría", "PAGADA, PENDIENTE o VENCIDA"),
@@ -455,11 +468,11 @@ TABLAS = {
             "numero_linea": ("texto", "Clave de la línea, LIN-NNNNNNNN"),
             "numero_factura": ("texto", "Factura a la que pertenece"),
             "referencia_consumo": ("texto", "Carga que factura; vacía en los ajustes"),
-            "concepto": ("categoría", "COMBUSTIBLE o AJUSTE"),
+            "concepto": ("categoría", "COMBUSTIBLE, AJUSTE o (realista) LUBRICANTE"),
             "fecha": ("fecha", "Fecha de la carga según el proveedor"),
             "dominio": ("texto", "Dominio según el proveedor"),
             "litros": ("decimal (L)", "Litros facturados"),
-            "precio_unitario": ("decimal", "Precio por litro facturado"),
+            "precio_unitario": ("decimal", "Precio por litro facturado (realista: de empresa, un 2% menor que el del surtidor)"),
             "importe": ("decimal", "Importe de la línea"),
             "descripcion": ("texto", "Motivo del ajuste; vacía en las líneas de combustible"),
         },
@@ -1537,43 +1550,64 @@ class GeneradorMaestro:
         logger.info(f"✓ REGISTRO INTERNO generado: {len(df)} registros ({len(ajenas)} en estaciones de otra red)")
         return df
 
-    def generar_facturacion_realista(self):
-        """FACTURACION por proveedor y mes, con su detalle línea por línea.
+    def _asignar_contratos(self):
+        """Cada vehículo (y su tarjeta) pertenece a un contrato. Generador aleatorio propio."""
+        self._rng_contratos = random.Random(self.seed + 2_000_003)
+        indices = list(range(1, len(REPARTO_CONTRATOS) + 1))
+        flota = self.datasets["flota"]
+        self._contrato_de = {m: self._rng_contratos.choices(indices, weights=REPARTO_CONTRATOS)[0]
+                             for m in flota["Matricula"]}
+        flota["NumeroContrato"] = flota["Matricula"].map(self._contrato_de)
 
-        Cada proveedor (marca de estación) emite una factura mensual; cada línea
-        referencia una carga. Se inyectan líneas sin carga real, líneas duplicadas,
-        sobreprecios y totales inflados, y casos legítimos: cargas del último día del
-        mes facturadas en el período siguiente y facturas con un ajuste documentado.
+    def generar_facturacion_realista(self):
+        """FACTURACION por contrato, mes y familia de combustible, con su detalle línea por línea.
+
+        Como en la fuente, el proveedor factura cada contrato a precio de empresa (un 2% menor que
+        el del surtidor). Cada factura tiene el monto de la deuda y el total de su PDF (el 15% no
+        tiene el PDF cargado); cada línea referencia una carga. Se inyectan líneas sin carga real,
+        duplicadas, con sobreprecio o al precio del surtidor, renglones que no son combustible,
+        deudas infladas y PDF que no coinciden con la deuda, y casos legítimos: cargas del último
+        día del mes facturadas en el período siguiente y facturas con un ajuste documentado.
         """
         logger.info("Generando FACTURACION (escenario realista)...")
         rng = self.rng
+        self._asignar_contratos()
         cargas = self._cargas_facturables().copy()
-        marca = self.datasets['estaciones'].set_index("codigo")["marca"]
         dominio = self.datasets['flota'].set_index("Matricula")["Dominio"]
         cargas["fecha"] = pd.to_datetime(cargas["fecha"])
-        cargas["proveedor"] = cargas["id"].map(self._estacion_real).map(marca)
+        cargas["proveedor"] = cargas["vehiculo_id"].map(self._contrato_de)
+        cargas["familia"] = cargas["producto"].str.contains("DIESEL|GASOIL").map({True: "DIESEL", False: "NAFTA"})
         cargas = cargas.sort_values(["fecha", "id"])
 
         lineas = []
         for c in cargas.itertuples():
             periodo = c.fecha.to_period("M")
             desfase = c.fecha.is_month_end and rng.random() < PROB_DESFASE_DE_CORTE
+            precio = round(c.precio_unitario * FACTOR_PRECIO_EMPRESA, 2)
             lineas.append({
-                "periodo": periodo + 1 if desfase else periodo, "proveedor": c.proveedor,
+                "periodo": periodo + 1 if desfase else periodo, "proveedor": (c.proveedor, c.familia),
                 "referencia_consumo": c.id, "concepto": "COMBUSTIBLE", "fecha": c.fecha.date(),
-                "dominio": dominio[c.vehiculo_id], "litros": c.litros, "precio_unitario": c.precio_unitario,
-                "importe": c.importe_total, "descripcion": "", "_etiqueta": None,
+                "dominio": dominio[c.vehiculo_id], "litros": c.litros, "precio_unitario": precio,
+                "importe": round(c.litros * precio, 2), "descripcion": "", "_etiqueta": None,
                 "_legitimo": "DESFASE_DE_CORTE" if desfase else None, "_vehiculo": c.vehiculo_id,
+                "_precio_surtidor": c.precio_unitario,
             })
 
         # Irregularidades por línea, sobre líneas sin otro caso
         limpias = [i for i, linea in enumerate(lineas) if not linea["_legitimo"]]
-        asignacion = self._repartir(limpias, ["SOBREPRECIO", "LINEA_DUPLICADA", "LINEA_SIN_CONSUMO"])
+        asignacion = self._repartir(limpias, ["SOBREPRECIO", "LINEA_DUPLICADA", "LINEA_SIN_CONSUMO",
+                                              "FACTURADA_A_PRECIO_DE_SURTIDOR"])
         extras = []
         for i, rol in sorted(asignacion.items()):
             linea = lineas[i]
-            if rol == "SOBREPRECIO":
-                original = linea["precio_unitario"]
+            if rol == "FACTURADA_A_PRECIO_DE_SURTIDOR":
+                linea["precio_unitario"] = linea["_precio_surtidor"]
+                linea["importe"] = round(linea["litros"] * linea["precio_unitario"], 2)
+                linea["_etiqueta"] = ("FACTURADA_A_PRECIO_DE_SURTIDOR",
+                                      f"{linea['precio_unitario']} por litro: el precio del surtidor, sin el "
+                                      f"descuento de empresa")
+            elif rol == "SOBREPRECIO":
+                original = linea["_precio_surtidor"]
                 linea["precio_unitario"] = round(original * rng.uniform(1.08, 1.2), 2)
                 linea["importe"] = round(linea["litros"] * linea["precio_unitario"], 2)
                 linea["_etiqueta"] = ("SOBREPRECIO",
@@ -1589,6 +1623,20 @@ class GeneradorMaestro:
                                    _etiqueta=("LINEA_SIN_CONSUMO",
                                               f"{inexistente} no existe en el registro de cargas")))
         lineas += extras
+
+        # Renglones que no son combustible (lubricante) en algunas facturas
+        grupos = sorted({(linea["periodo"], linea["proveedor"]) for linea in lineas})
+        for periodo, proveedor in rng.sample(grupos, min(self._cantidad("PRODUCTO_NO_COMBUSTIBLE"), len(grupos))):
+            for _ in range(rng.randint(1, 3)):
+                litros = float(rng.choice([4, 8]))
+                precio = round(PRECIO_BASE["INFINIA"] * rng.uniform(4, 6), 2)
+                lineas.append({
+                    "periodo": periodo, "proveedor": proveedor, "referencia_consumo": None, "concepto": "LUBRICANTE",
+                    "fecha": periodo.end_time.date(), "dominio": None, "litros": litros, "precio_unitario": precio,
+                    "importe": round(litros * precio, 2), "descripcion": "LUBRICANTE 15W40",
+                    "_etiqueta": ("PRODUCTO_NO_COMBUSTIBLE", "renglón de lubricante en una factura de combustible"),
+                    "_legitimo": None, "_vehiculo": None,
+                })
 
         # Ajustes documentados en algunas facturas (legítimos)
         grupos = sorted({(linea["periodo"], linea["proveedor"]) for linea in lineas})
@@ -1607,8 +1655,7 @@ class GeneradorMaestro:
             })
 
         # Numeración y encabezados
-        codigo = {g: f"FAC-{g[0].strftime('%Y%m')}-{g[1].replace(' ', '')[:3].upper()}-{rng.randint(1000, 9999)}"
-                  for g in grupos}
+        codigo = {g: f"FAC-{g[0].strftime('%Y%m')}-C{g[1][0]}{g[1][1][0]}-{rng.randint(1000, 9999)}" for g in grupos}
         lineas.sort(key=lambda linea: (linea["periodo"], linea["proveedor"], linea["concepto"] != "COMBUSTIBLE",
                                        str(linea["fecha"]), str(linea["referencia_consumo"])))
         for i, linea in enumerate(lineas, 1):
@@ -1616,7 +1663,8 @@ class GeneradorMaestro:
             linea["numero_factura"] = codigo[(linea["periodo"], linea["proveedor"])]
             if linea["_etiqueta"]:
                 tipo, detalle = linea["_etiqueta"]
-                columna = {"SOBREPRECIO": "precio_unitario"}.get(tipo, "referencia_consumo")
+                columna = {"SOBREPRECIO": "precio_unitario", "FACTURADA_A_PRECIO_DE_SURTIDOR": "precio_unitario",
+                           "PRODUCTO_NO_COMBUSTIBLE": "concepto"}.get(tipo, "referencia_consumo")
                 self._registrar_anomalia("facturacion_detalle", linea["numero_linea"], linea["_vehiculo"],
                                          tipo, columna, detalle)
             if linea["_legitimo"] == "DESFASE_DE_CORTE":
@@ -1634,8 +1682,9 @@ class GeneradorMaestro:
             propias = [linea for linea in lineas if (linea["periodo"], linea["proveedor"]) == grupo]
             combustible = [linea for linea in propias if linea["concepto"] == "COMBUSTIBLE"]
             facturas.append({
-                "numero_factura": codigo[grupo], "proveedor": grupo[1],
-                "fecha_factura": grupo[0].end_time.date(), "periodo": str(grupo[0]),
+                "numero_factura": codigo[grupo], "contrato": grupo[1][0], "proveedor": PROVEEDOR_CONTRATO,
+                "producto": grupo[1][1], "fecha_factura": grupo[0].end_time.date(),
+                "vencimiento": (grupo[0].end_time + timedelta(days=15)).date(), "periodo": str(grupo[0]),
                 "total_litros": round(sum(x["litros"] for x in combustible), 2),
                 "total_monto": round(sum(x["importe"] for x in propias), 2),
                 "estado": rng.choice(["PAGADA", "PENDIENTE", "VENCIDA"]),
@@ -1646,12 +1695,23 @@ class GeneradorMaestro:
             factura["total_monto"] = round(real * rng.uniform(1.03, 1.10), 2)
             self._registrar_anomalia("facturacion", factura["numero_factura"], None, "TOTAL_INFLADO",
                                      "total_monto", f"total {factura['total_monto']} con líneas por {real}")
+        # El PDF repite la deuda (también la inflada); el 15% no se cargó y en algunas no coincide
+        for factura in facturas:
+            factura["total_pdf"] = factura["total_monto"] if rng.random() < PROB_PDF_CARGADO else None
+        con_pdf = [f for f in facturas if f["total_pdf"] is not None and
+                   not any(a["id_registro"] == f["numero_factura"] for a in self.anomalias)]
+        for factura in rng.sample(con_pdf, min(self._cantidad("DIFERENCIA_DEUDA_PDF"), len(con_pdf))):
+            factura["total_pdf"] = round(factura["total_monto"] * rng.choice([-1, 1]) * rng.uniform(0.02, 0.08)
+                                         + factura["total_monto"], 2)
+            self._registrar_anomalia("facturacion", factura["numero_factura"], None, "DIFERENCIA_DEUDA_PDF",
+                                     "total_pdf", f"PDF por {factura['total_pdf']} y deuda por {factura['total_monto']}")
         for factura in facturas:
             factura["iva"] = round(factura["total_monto"] * 0.21, 2)
             factura["monto_total_con_iva"] = round(factura["total_monto"] * 1.21, 2)
 
-        columnas_factura = ["numero_factura", "proveedor", "fecha_factura", "periodo", "total_litros",
-                            "total_monto", "iva", "monto_total_con_iva", "estado", "numero_transacciones"]
+        columnas_factura = ["numero_factura", "contrato", "proveedor", "producto", "fecha_factura", "vencimiento",
+                            "periodo", "total_litros", "total_monto", "total_pdf", "iva", "monto_total_con_iva",
+                            "estado", "numero_transacciones"]
         columnas_linea = ["numero_linea", "numero_factura", "referencia_consumo", "concepto", "fecha", "dominio",
                           "litros", "precio_unitario", "importe", "descripcion"]
         self.datasets['facturacion'] = pd.DataFrame(facturas)[columnas_factura]
@@ -1759,16 +1819,14 @@ class GeneradorMaestro:
 
         Usa un generador aleatorio propio y se aplica al final: el resto del escenario no cambia.
         """
-        rng = random.Random(self.seed + 2_000_003)
+        rng = self._rng_contratos
         flota, consumo = self.datasets["flota"], self.datasets["consumo"]
         indices = list(range(1, len(REPARTO_CONTRATOS) + 1))
-        contrato_de = {m: rng.choices(indices, weights=REPARTO_CONTRATOS)[0] for m in flota["Matricula"]}
-        flota["NumeroContrato"] = flota["Matricula"].map(contrato_de)
         flota["Cupo"] = flota["CapacidadTanque"]
         flota["LimiteLitros"] = [round(c * rng.uniform(15, 35)) for c in flota["CapacidadTanque"]]
         precio_medio = consumo["precio_unitario"].mean()
         flota["LimiteSaldo"] = [round(ll * precio_medio * rng.uniform(1.0, 1.3), -1) for ll in flota["LimiteLitros"]]
-        consumo["contrato"] = consumo["vehiculo_id"].map(contrato_de).astype("Int64")
+        consumo["contrato"] = consumo["vehiculo_id"].map(self._contrato_de).astype("Int64")
 
         fechas = pd.to_datetime(consumo["fecha"])
         meses = sorted(fechas.dt.to_period("M").unique())
