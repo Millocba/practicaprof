@@ -4,7 +4,8 @@ Uso:
     python -m perfilador perfilar archivo1.xlsx carpeta/ --origen "fuentes reales" [--salida perfil.json]
         Acepta archivos y carpetas (se recorren completas). Los archivos con las mismas columnas
         se agrupan en una tabla, como lotes o versiones. --renombrar PATRON=NOMBRE reemplaza un
-        nombre de tabla; --reemplazar TEXTO=NUEVO, un texto en todo el perfil. Escribe
+        nombre de tabla; --reemplazar TEXTO=NUEVO, un texto en todo el perfil. --base-url-env VARIABLE
+        suma las tablas de una base de datos (en solo lectura, con prefijo base.). Escribe
         perfiles/pendientes/perfil_AAAA-MM-DD.json o --salida. Solo imprime conteos.
     python -m perfilador aprobar perfiles/pendientes/perfil_X.json --responsable "Nombre" [--notas "..."]
         Registra la revisión manual y lo pasa a perfiles/aprobados/ (se versiona).
@@ -15,11 +16,12 @@ Los archivos de origen se leen en memoria y nunca se copian ni se escriben.
 """
 import argparse
 import json
+import os
 from datetime import date
 from pathlib import Path
 
 from perfilador.comparar import comparar, informe_markdown, perfil_de_directorio, sugerir_emparejamiento
-from perfilador.perfil import perfilar, reemplazar_textos, tablas_de_rutas
+from perfilador.perfil import perfilar, reemplazar_textos, tablas_de_base, tablas_de_rutas
 
 RAIZ = Path(__file__).parent.parent
 PENDIENTES = RAIZ / "perfiles" / "pendientes"
@@ -35,8 +37,18 @@ def guardar(perfil, destino):
 def cmd_perfilar(args):
     renombrar = dict(r.split("=", 1) for r in args.renombrar)
     tablas, lectura = tablas_de_rutas(args.archivos, renombrar)
+    if args.base_url_env:
+        url = os.environ.get(args.base_url_env)
+        if not url:
+            raise SystemExit(f"La variable de entorno {args.base_url_env} no está definida.")
+        try:
+            de_base, lectura_base = tablas_de_base(url)
+        except Exception as error:  # noqa: BLE001 - el mensaje podría incluir datos de conexión
+            raise SystemExit(f"No se pudo leer la base ({type(error).__name__}).") from None
+        tablas.update(de_base)
+        lectura.update(lectura_base)
     if not tablas:
-        raise SystemExit("No se encontraron archivos CSV o Excel legibles.")
+        raise SystemExit("No se encontraron archivos CSV o Excel legibles ni tablas en la base.")
     perfil = perfilar(tablas, origen=args.origen)
     perfil["lectura"] = lectura
     if args.reemplazar:
@@ -80,7 +92,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="comando", required=True)
     p = sub.add_parser("perfilar", help="perfilar archivos CSV o Excel")
-    p.add_argument("archivos", nargs="+")
+    p.add_argument("archivos", nargs="*", help="archivos o carpetas (CSV y Excel)")
+    p.add_argument("--base-url-env", metavar="VARIABLE",
+                   help="variable de entorno con la cadena de conexión de una base de datos para sumar sus "
+                        "tablas (prefijo base.), en solo lectura; la cadena no se muestra ni se guarda")
     p.add_argument("--origen", default="fuentes reales")
     p.add_argument("--salida")
     p.add_argument("--renombrar", action="append", default=[], metavar="PATRON=NOMBRE",

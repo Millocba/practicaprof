@@ -272,3 +272,54 @@ def test_copias_del_mismo_reporte_se_unen_y_los_nombres_se_neutralizan(tmp_path,
     proveedor = columna(perfil, "ReporteConsumos", "Proveedor")
     assert proveedor["categorias"][0]["valor"] == "PROVEEDOR_1" and proveedor["categorias"][0]["pct"] == 100.0
 
+
+
+def test_suma_las_tablas_de_una_base_sin_mostrar_la_conexion(tmp_path, tablas):
+    pytest.importorskip("sqlalchemy")
+    import hashlib
+    import os
+    import sqlite3
+
+    volumen = tmp_path / "volumen"
+    volumen.mkdir()
+    tarjetas = [f"TARJ{i:08d}" for i in range(300)]
+    pd.DataFrame({"NumeroTarjeta": tarjetas, "LimiteLitros": [200.0] * 300}).to_csv(volumen / "padron.csv", index=False)
+    base = tmp_path / "base_secreta_ficticia.db"
+    with sqlite3.connect(base) as conexion:
+        pd.DataFrame({"id": range(900), "tarjeta": [tarjetas[i % 300] for i in range(900)],
+                      "es_contingencia": [i % 50 == 0 for i in range(900)]}).to_sql(
+            "fact_transacciones", conexion, index=False)
+        pd.DataFrame({"dia": [f"2025-09-{d:02d}" for d in range(1, 31)],
+                      "data_json": ['{"filas": [' + ",".join('{"litros": %d}' % j for j in range(200)) + "]}"] * 30}
+                     ).to_sql("consumo_reportes", conexion, index=False)
+    huella = hashlib.sha256(base.read_bytes()).hexdigest()
+    url = f"sqlite:///{base.as_posix()}"
+    salida = tmp_path / "perfil.json"
+    proceso = subprocess.run([sys.executable, "-m", "perfilador", "perfilar", str(volumen), "--salida", str(salida),
+                              "--base-url-env", "PERFILADOR_URL_PRUEBA"],
+                             cwd=RAIZ, check=True, capture_output=True, text=True,
+                             env={**os.environ, "PERFILADOR_URL_PRUEBA": url})
+    texto = salida.read_text(encoding="utf-8")
+    perfil = json.loads(texto)
+    assert {"padron", "base.fact_transacciones", "base.consumo_reportes"} <= set(perfil["tablas"])
+    assert perfil["lectura"]["tablas_de_base"] == 2
+    assert any(r["origen"] == "base.fact_transacciones.tarjeta" and r["destino"] == "padron.NumeroTarjeta"
+               for r in perfil["relaciones"])
+    bloque = columna(perfil, "base.consumo_reportes", "data_json")
+    assert all(len(f["formato"]) <= 61 for f in bloque["formatos"])
+    for secreto in ["base_secreta_ficticia", "sqlite:///"]:
+        assert secreto not in texto and secreto not in proceso.stdout and secreto not in proceso.stderr
+    assert hashlib.sha256(base.read_bytes()).hexdigest() == huella
+
+
+def test_error_de_conexion_no_muestra_la_cadena(tmp_path):
+    pytest.importorskip("sqlalchemy")
+    import os
+
+    url = "sqlite:///" + (tmp_path / "no_existe" / "clave_ficticia.db").as_posix()
+    proceso = subprocess.run([sys.executable, "-m", "perfilador", "perfilar", "--salida", str(tmp_path / "p.json"),
+                              "--base-url-env", "PERFILADOR_URL_PRUEBA"],
+                             cwd=RAIZ, capture_output=True, text=True, env={**os.environ, "PERFILADOR_URL_PRUEBA": url})
+    assert proceso.returncode != 0
+    assert "clave_ficticia" not in proceso.stdout + proceso.stderr
+    assert "No se pudo leer la base" in proceso.stdout + proceso.stderr

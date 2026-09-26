@@ -16,7 +16,7 @@ Hoy el escenario realista modela solicitudes con litros autorizados y una factur
 Por la estructura de la base MySQL del sistema en uso (nombres de tablas y columnas y cantidad de filas). El perfilador no lee esta base, solo los archivos del volumen, así que estos datos no tienen todavía un perfil:
 
 - **Los topes se guardan como dato:** hay una tabla de contratos con seis contratos, uno por dependencia, y su límite. No se calculan.
-- **Brecha con el generador actual:** no tiene contratos. Solo escribe `LimiteSaldo` y `LimiteLitros` por vehículo con valores al azar, que ninguna regla lee. Hay que modelar el contrato como maestro y decidir qué representan esos límites por tarjeta (ver *Decisiones abiertas*).
+- **Brecha con el generador actual:** no tiene contratos. Solo escribe `LimiteSaldo` y `LimiteLitros` por vehículo con valores al azar, que ninguna regla lee. Hay que modelar el contrato como maestro y hacer coherentes esos límites: en la fuente real se fijan al registrar cada tarjeta o móvil, junto con el contrato al que pertenece.
 - **Las transferencias no se registran.** Existe una tabla de crédito por contrato (límite, consumido, disponible, fecha de actualización), pero está vacía. Las transferencias de saldo se hacen fuera del sistema, así que no hay datos para calibrar su frecuencia ni su margen: se fijan en este diseño.
 - **Las facturas cuelgan del contrato** y guardan el monto facturado, el consumido, el total del PDF y la nota de crédito. Hay bastante más de una factura por contrato y período (unas 180 en siete períodos), y en promedio dos o tres renglones de PDF por factura.
 - **Las transacciones del proveedor** (unas 80.000) marcan la contingencia.
@@ -32,7 +32,7 @@ La base separa los datos maestros, que cambian poco y se versionan con vigencia,
 | `vehiculo` | matrícula | Dominio, tipo, marca, capacidad del tanque, combustible, dependencia, estado con fecha |
 | `dispositivo` | IMEI | Telemetría; asignación al vehículo con fecha desde/hasta |
 | `contrato` | número | Proveedor, dependencia, tope mensual en pesos, vigencia |
-| `tarjeta` | número | Asignada a un contrato y, con vigencia, a un vehículo (tarjeta de unidad) o a una persona (tarjeta personal, identificada por un código sintético) |
+| `tarjeta` | número | Asignada a un contrato y, con vigencia, a un vehículo (tarjeta de unidad) o a una persona (tarjeta personal, identificada por un código sintético). Al registrarla se le fijan un límite de saldo y un límite de litros |
 | `estacion` | código | Proveedor (propio o ajeno), ubicación ficticia, local o de ruta |
 | `dependencia` | código | Jerarquía de direcciones y dependencias |
 
@@ -124,11 +124,12 @@ Cada paso es un commit con tests y con las hipótesis verificadas en cinco semil
 
 - El tope es solo en pesos.
 - Al agotarse un contrato se corta el suministro. Para evitarlo se proyecta el consumo promedio diario a fin de mes y, si no alcanza, se transfiere saldo a mano antes del corte, generalmente desde el contrato con más saldo.
+- `LimiteSaldo` y `LimiteLitros` se fijan en cada tarjeta o móvil al registrarlo, junto con el contrato al que pertenece. El generador los asigna coherentes con el tanque y el precio, y una carga que los supera es una anomalía (`CARGA_SUPERA_LIMITE_TARJETA`).
 - Las tarjetas personales se modelan: requieren solicitud con la unidad y el límite, y aparecen en el registro interno y en el reporte.
 
 ## Decisiones abiertas
 
-- Qué representan `LimiteSaldo` y `LimiteLitros` por tarjeta en la fuente real (límite por carga, por día, por mes) y si se mantienen junto al tope del contrato o se eliminan.
+- A qué período se aplican `LimiteSaldo` y `LimiteLitros` de cada tarjeta (por carga, por día o por mes): se verifica con el perfil comparando las cargas con esos límites.
 
 - Margen de la proyección con el que se decide transferir, retraso típico de la transferencia y cuántas hay por mes. No se pueden calibrar con datos (no hay transferencias registradas): propuesta inicial, transferir cuando la proyección supere el 95% del saldo, con un retraso de 0 a 2 días hábiles.
 - Cuántas facturas por contrato y período y cómo se reparten (por semana, por producto): a calibrar con el perfil de la base.

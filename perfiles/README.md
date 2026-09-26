@@ -38,6 +38,8 @@ Perfiles **agregados** de fuentes de datos externas: estructura y calidad, sin f
    done
    python -m perfilador perfilar /ruta/de/los/archivos --origen "fuentes reales" --salida /tmp/perfil.json
    ```
+   Para sumar las tablas de la base de datos del servidor, se agrega `--base-url-env VARIABLE` con el nombre de la variable de entorno que tiene la cadena de conexión (no su valor): se leen todas las tablas en una transacción de solo lectura, con el prefijo `base.`, y la cadena no se muestra ni se guarda. Necesita `sqlalchemy` y el conector de la base (por ejemplo `pymysql`), que suelen estar en el servidor de la aplicación.
+
    Necesita Python con `pandas` y `openpyxl`. Solo lee los archivos y escribe el perfil en `/tmp`, fuera de la carpeta de datos. Después se copia el perfil a `perfiles/pendientes/` y se borra `/tmp/p` y `/tmp/perfil.json` del servidor.
 2. **Revisar** el perfil en `pendientes/`: que no incluya nombres, identificadores, lugares ni combinaciones que permitan reconocer una entidad. Si hay dudas, no se aprueba.
 3. **Aprobar**, registrando quién lo revisó:

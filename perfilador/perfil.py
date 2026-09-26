@@ -26,6 +26,7 @@ MINIMO_GRUPO = 20
 MAX_CATEGORIAS = 50
 LARGO_TEXTO_LIBRE = 30          # formatos más largos se consideran texto libre
 MAX_FORMATOS_DISTINTOS = 40     # más formatos distintos que esto también indica texto libre
+MAX_LARGO_FORMATO = 60          # los formatos más largos (bloques JSON, textos) se truncan
 OTRA = "OTRA_CATEGORIA_SINTETIZABLE"
 
 # Pistas en el nombre de la columna -> tipo de dato sensible
@@ -93,7 +94,8 @@ def formato(valor):
     """Forma de un valor sin su contenido: letras -> A, dígitos -> 9, el resto se conserva."""
     texto = str(valor).strip()
     texto = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode()
-    return re.sub(r"\d", "9", re.sub(r"[A-Za-z]", "A", texto))
+    forma = re.sub(r"\d", "9", re.sub(r"[A-Za-z]", "A", texto))
+    return forma if len(forma) <= MAX_LARGO_FORMATO else forma[:MAX_LARGO_FORMATO] + "…"
 
 
 def sensibilidad_por_nombre(nombre):
@@ -453,6 +455,41 @@ def tablas_de_rutas(rutas, renombrar=None):
         conteo[nombre] = len(partes)
     return tablas, {"archivos_por_tabla": conteo, "combinacion_por_tabla": combinacion,
                     "filas_repetidas_entre_archivos_pct": descartadas, "no_leidos_por_error": errores}
+
+
+def tablas_de_base(url, prefijo="base."):
+    """Cada tabla de una base de datos (MySQL u otra que SQLAlchemy soporte), en solo lectura.
+
+    `url` es la cadena de conexión: se usa y no se guarda ni se muestra. En MySQL la sesión se
+    abre como transacción de solo lectura. Si falla, se informa solo el tipo de error: el
+    mensaje podría incluir el host o el usuario. Devuelve {prefijo + tabla: DataFrame} y un
+    resumen con las tablas leídas y las que fallaron, por tipo de error.
+    """
+    import importlib.util
+
+    import sqlalchemy as sa
+
+    # mysql:// usa por defecto un conector que suele no estar instalado; si está pymysql, se usa ese
+    if url.startswith("mysql://") and importlib.util.find_spec("MySQLdb") is None             and importlib.util.find_spec("pymysql") is not None:
+        url = "mysql+pymysql://" + url[len("mysql://"):]
+    motor = sa.create_engine(url)
+    tablas, errores = {}, {}
+    try:
+        with motor.connect() as conexion:
+            if motor.dialect.name in ("mysql", "mariadb"):
+                conexion.exec_driver_sql("SET SESSION TRANSACTION READ ONLY")
+            conexion.exec_driver_sql("START TRANSACTION READ ONLY" if motor.dialect.name in ("mysql", "mariadb")
+                                     else "SELECT 1")
+            citar = motor.dialect.identifier_preparer.quote
+            for nombre in sa.inspect(conexion).get_table_names():
+                try:
+                    tablas[prefijo + nombre] = pd.read_sql_query(sa.text(f"SELECT * FROM {citar(nombre)}"), conexion)
+                except Exception as error:  # noqa: BLE001 - el mensaje podría incluir datos de conexión
+                    errores[type(error).__name__] = errores.get(type(error).__name__, 0) + 1
+            conexion.rollback()
+    finally:
+        motor.dispose()
+    return tablas, {"tablas_de_base": len(tablas), "tablas_de_base_con_error": errores}
 
 
 def reemplazar_textos(perfil, reemplazos):
