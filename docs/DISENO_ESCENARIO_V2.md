@@ -13,9 +13,10 @@ Hoy el escenario realista modela solicitudes con litros autorizados y una factur
 
 ## Qué muestran las fuentes reales
 
-Por la estructura de la base del sistema en uso (nombres de tablas y columnas y cantidad de filas, sin valores):
+Por la estructura de la base MySQL del sistema en uso (nombres de tablas y columnas y cantidad de filas). El perfilador no lee esta base, solo los archivos del volumen, así que estos datos no tienen todavía un perfil:
 
-- **Los topes se guardan como dato:** hay una tabla de contratos con seis contratos y su límite. No se calculan.
+- **Los topes se guardan como dato:** hay una tabla de contratos con seis contratos, uno por dependencia, y su límite. No se calculan.
+- **Brecha con el generador actual:** no tiene contratos. Solo escribe `LimiteSaldo` y `LimiteLitros` por vehículo con valores al azar, que ninguna regla lee. Hay que modelar el contrato como maestro y decidir qué representan esos límites por tarjeta (ver *Decisiones abiertas*).
 - **Las transferencias no se registran.** Existe una tabla de crédito por contrato (límite, consumido, disponible, fecha de actualización), pero está vacía. Las transferencias de saldo se hacen fuera del sistema, así que no hay datos para calibrar su frecuencia ni su margen: se fijan en este diseño.
 - **Las facturas cuelgan del contrato** y guardan el monto facturado, el consumido, el total del PDF y la nota de crédito. Hay bastante más de una factura por contrato y período (unas 180 en siete períodos), y en promedio dos o tres renglones de PDF por factura.
 - **Las transacciones del proveedor** (unas 80.000) marcan la contingencia.
@@ -126,6 +127,8 @@ Cada paso es un commit con tests y con las hipótesis verificadas en cinco semil
 - Las tarjetas personales se modelan: requieren solicitud con la unidad y el límite, y aparecen en el registro interno y en el reporte.
 
 ## Decisiones abiertas
+
+- Qué representan `LimiteSaldo` y `LimiteLitros` por tarjeta en la fuente real (límite por carga, por día, por mes) y si se mantienen junto al tope del contrato o se eliminan.
 
 - Margen de la proyección con el que se decide transferir, retraso típico de la transferencia y cuántas hay por mes. No se pueden calibrar con datos (no hay transferencias registradas): propuesta inicial, transferir cuando la proyección supere el 95% del saldo, con un retraso de 0 a 2 días hábiles.
 - Cuántas facturas por contrato y período y cómo se reparten (por semana, por producto): a calibrar con el perfil de la base.
