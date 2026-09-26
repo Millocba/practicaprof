@@ -11,6 +11,17 @@ Hoy el escenario realista modela solicitudes con litros autorizados y una factur
 3. El **registro interno** anota cada pedido de combustible y su rendición (ticket, rendido, anulado). No comparte ningún identificador con el **reporte del proveedor**: se cruzan por dominio y horario.
 4. El proveedor factura **por contrato**: una deuda con el monto, un PDF con el detalle y un reporte de consumo por factura. Los tres montos deben coincidir.
 
+## Qué muestran las fuentes reales
+
+Por la estructura de la base del sistema en uso (nombres de tablas y columnas y cantidad de filas, sin valores):
+
+- **Los topes se guardan como dato:** hay una tabla de contratos con seis contratos y su límite. No se calculan.
+- **Las transferencias no se registran.** Existe una tabla de crédito por contrato (límite, consumido, disponible, fecha de actualización), pero está vacía. Las transferencias de saldo se hacen fuera del sistema, así que no hay datos para calibrar su frecuencia ni su margen: se fijan en este diseño.
+- **Las facturas cuelgan del contrato** y guardan el monto facturado, el consumido, el total del PDF y la nota de crédito. Hay bastante más de una factura por contrato y período (unas 180 en siete períodos), y en promedio dos o tres renglones de PDF por factura.
+- **Las transacciones del proveedor** (unas 80.000) marcan la contingencia.
+
+**Consecuencia para H10:** en la realidad, las transferencias no son observables. El generador las registra (son parte de la verdad de referencia), pero la regla con contexto de H10 debe inferirlas de lo observable: el consumo de cada contrato frente a su tope y a su proyección. Registrar las transferencias, que el sistema ya prevé y no usa, queda como recomendación para la fuente real.
+
 ## Modelo de datos
 
 La base separa los datos maestros, que cambian poco y se versionan con vigencia, de los operativos, que crecen todos los días.
@@ -31,7 +42,7 @@ La base separa los datos maestros, que cambian poco y se versionan con vigencia,
 | `posicion_diaria` | vehículo + fecha | GPS diario |
 | `factura` | número | Contrato, período, monto de la deuda, total del PDF, vencimiento |
 | `factura_linea` | factura + renglón | Producto, litros, precio, importe; combustible o no |
-| `transferencia_saldo` | id | Contrato de origen y de destino, monto, fecha y hora |
+| `transferencia_saldo` | id | Contrato de origen y de destino, monto, fecha y hora. En la fuente real está prevista pero vacía: el generador la completa como verdad de referencia |
 | `saldo_contrato` | contrato + día | Derivada: tope, transferencias recibidas y cedidas, consumido y saldo; días sin suministro |
 
 - La carga se vincula con el contrato por la tarjeta vigente ese día, no por texto.
@@ -116,5 +127,6 @@ Cada paso es un commit con tests y con las hipótesis verificadas en cinco semil
 
 ## Decisiones abiertas
 
-- Margen de la proyección con el que se decide transferir, retraso típico de la transferencia y cuántas hay por mes (a calibrar con el perfil si es posible).
+- Margen de la proyección con el que se decide transferir, retraso típico de la transferencia y cuántas hay por mes. No se pueden calibrar con datos (no hay transferencias registradas): propuesta inicial, transferir cuando la proyección supere el 95% del saldo, con un retraso de 0 a 2 días hábiles.
+- Cuántas facturas por contrato y período y cómo se reparten (por semana, por producto): a calibrar con el perfil de la base.
 - Proporción de tarjetas personales y de cargas en contingencia (a calibrar con el perfil).

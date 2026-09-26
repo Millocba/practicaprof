@@ -20,6 +20,7 @@ from perfilador.comparar import comparar, sugerir_emparejamiento  # noqa: E402
 from perfilador.perfil import (  # noqa: E402
     MINIMO_GRUPO,
     OTRA,
+    banda,
     dos_cifras,
     formato,
     leer_tablas,
@@ -271,3 +272,33 @@ def test_copias_del_mismo_reporte_se_unen_y_los_nombres_se_neutralizan(tmp_path,
     assert "PROVEEDOR_REAL_FICTICIO" not in texto.upper()
     proveedor = columna(perfil, "ReporteConsumos", "Proveedor")
     assert proveedor["categorias"][0]["valor"] == "PROVEEDOR_1" and proveedor["categorias"][0]["pct"] == 100.0
+
+
+def test_base_sqlite_se_lee_en_modo_solo_lectura(tmp_path, tablas):
+    import hashlib
+    import sqlite3
+
+    volumen = tmp_path / "volumen"
+    volumen.mkdir()
+    base = volumen / "app.db"
+    with sqlite3.connect(base) as conexion:
+        tablas["cargas"].drop(columns=["Observaciones"]).to_sql("fact_transacciones", conexion, index=False)
+        pd.DataFrame({"numero": range(1, 7), "limite": [4e6, 1e6, 1.4e6, 8.5e5, 1.8e5, 2.6e6]}).to_sql(
+            "fact_contratos", conexion, index=False)
+        conexion.execute("CREATE TABLE fact_contratos_credito (contrato_id INTEGER, limite REAL, disponible REAL)")
+        pd.DataFrame({"email": [f"persona{i}@ejemplo.invalid" for i in range(40)],
+                      "hashed_password": [f"$2b$12$HASHSINTETICO{i:040d}" for i in range(40)]}).to_sql(
+            "users", conexion, index=False)
+    huella = hashlib.sha256(base.read_bytes()).hexdigest(), base.stat().st_mtime
+    salida = tmp_path / "perfil.json"
+    subprocess.run([sys.executable, "-m", "perfilador", "perfilar", str(volumen), "--salida", str(salida)],
+                   cwd=RAIZ, check=True, capture_output=True)
+    texto = salida.read_text(encoding="utf-8")
+    perfil = json.loads(texto)
+    assert {"fact_transacciones", "fact_contratos", "fact_contratos_credito", "users"} <= set(perfil["tablas"])
+    assert perfil["tablas"]["fact_transacciones"]["filas_aprox"] == 1200
+    assert perfil["tablas"]["fact_contratos_credito"]["filas"] == banda(0)
+    assert columna(perfil, "users", "hashed_password")["sensible"] == "identificador"
+    assert "HASHSINTETICO" not in texto and "@ejemplo.invalid" not in texto
+    assert (hashlib.sha256(base.read_bytes()).hexdigest(), base.stat().st_mtime) == huella
+    assert sorted(p.name for p in volumen.iterdir()) == ["app.db"]  # sin archivos -wal ni -journal

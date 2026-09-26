@@ -31,7 +31,8 @@ OTRA = "OTRA_CATEGORIA_SINTETIZABLE"
 # Pistas en el nombre de la columna -> tipo de dato sensible
 PISTAS_SENSIBLES = {
     "identificador": ["id", "codigo", "cod", "numero", "nro", "num", "imei", "matricula", "chasis", "motor",
-                      "tarjeta", "msisdn", "ticket", "serie", "cuenta", "cbu", "legajo"],
+                      "tarjeta", "msisdn", "ticket", "serie", "cuenta", "cbu", "legajo", "password", "hash",
+                      "hashed", "token", "secret", "clave"],
     "persona": ["nombre", "nombres", "apellido", "apellidos", "conductor", "chofer", "responsable", "dni",
                 "cuit", "cuil", "email", "mail", "correo", "telefono", "celular", "usuario", "firma"],
     "vehiculo": ["dominio", "patente", "placa"],
@@ -313,9 +314,28 @@ def relaciones_entre_tablas(tablas, cobertura_minima=0.5):
     return sorted(relaciones, key=lambda r: -r["cobertura_normalizada_pct"])
 
 
+EXTENSIONES_SQLITE = (".db", ".sqlite", ".sqlite3")
+
+
+def leer_sqlite(ruta):
+    """Cada tabla de una base SQLite, abierta en modo solo lectura (no bloquea ni modifica el archivo)."""
+    import sqlite3
+
+    conexion = sqlite3.connect(f"{Path(ruta).resolve().as_uri()}?mode=ro", uri=True)
+    try:
+        nombres = [f for (f,) in conexion.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+        return {n: pd.read_sql_query(f'SELECT * FROM "{n.replace(chr(34), chr(34) * 2)}"', conexion) for n in nombres}
+    finally:
+        conexion.close()
+
+
 def leer_tablas(archivo, nombre):
-    """Lee un CSV o un Excel (cada hoja es una tabla) desde una ruta o un archivo en memoria."""
+    """Lee un CSV, un Excel (cada hoja es una tabla) o una base SQLite (cada tabla), desde una ruta
+    o, salvo SQLite, desde un archivo en memoria."""
     nombre = str(nombre)
+    if nombre.lower().endswith(EXTENSIONES_SQLITE):
+        return leer_sqlite(archivo)
     if nombre.lower().endswith((".xlsx", ".xlsm", ".xls")):
         hojas = pd.read_excel(archivo, sheet_name=None)
         base = re.sub(r"\.\w+$", "", nombre.split("/")[-1].split("\\")[-1])
@@ -340,7 +360,7 @@ def leer_tablas(archivo, nombre):
     return {base: df}
 
 
-EXTENSIONES = (".csv", ".xlsx", ".xlsm", ".xls")
+EXTENSIONES = (".csv", ".xlsx", ".xlsm", ".xls") + EXTENSIONES_SQLITE
 
 
 UUID = re.compile(r"[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}", re.IGNORECASE)
