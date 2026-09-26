@@ -295,6 +295,10 @@ def relaciones_entre_tablas(tablas, cobertura_minima=0.5):
             if len(valores) < MINIMO_GRUPO or pd.api.types.is_float_dtype(valores) or valores.nunique() < 2 \
                     or pd.api.types.is_datetime64_any_dtype(valores):
                 continue
+            # Una columna numérica solo es clave si su nombre lo indica: si no, cualquier entero
+            # (año, capacidad, cantidades) "coincide" con un número de orden de otra tabla
+            if pd.api.types.is_numeric_dtype(valores) and                     sensibilidad_por_nombre(columna) not in ("identificador", "vehiculo"):
+                continue
             texto = valores.astype(str).str.strip()
             if _es_fecha(formato(texto.iloc[0])):
                 continue
@@ -317,9 +321,28 @@ def relaciones_entre_tablas(tablas, cobertura_minima=0.5):
     return sorted(relaciones, key=lambda r: -r["cobertura_normalizada_pct"])
 
 
+EXTENSIONES_SQLITE = (".db", ".sqlite", ".sqlite3")
+
+
+def leer_sqlite(ruta):
+    """Cada tabla de una base SQLite, abierta en modo solo lectura (no bloquea ni modifica el archivo)."""
+    import sqlite3
+
+    conexion = sqlite3.connect(f"{Path(ruta).resolve().as_uri()}?mode=ro", uri=True)
+    try:
+        nombres = [n for (n,) in conexion.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+        return {n: pd.read_sql_query(f'SELECT * FROM "{n.replace(chr(34), chr(34) * 2)}"', conexion) for n in nombres}
+    finally:
+        conexion.close()
+
+
 def leer_tablas(archivo, nombre):
-    """Lee un CSV o un Excel (cada hoja es una tabla) desde una ruta o un archivo en memoria."""
+    """Lee un CSV, un Excel (cada hoja es una tabla) o una base SQLite (cada tabla, en solo
+    lectura), desde una ruta o, salvo SQLite, desde un archivo en memoria."""
     nombre = str(nombre)
+    if nombre.lower().endswith(EXTENSIONES_SQLITE):
+        return leer_sqlite(archivo)
     if nombre.lower().endswith((".xlsx", ".xlsm", ".xls")):
         hojas = pd.read_excel(archivo, sheet_name=None)
         base = re.sub(r"\.\w+$", "", nombre.split("/")[-1].split("\\")[-1])
@@ -344,7 +367,7 @@ def leer_tablas(archivo, nombre):
     return {base: df}
 
 
-EXTENSIONES = (".csv", ".xlsx", ".xlsm", ".xls")
+EXTENSIONES = (".csv", ".xlsx", ".xlsm", ".xls") + EXTENSIONES_SQLITE
 
 
 UUID = re.compile(r"[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}", re.IGNORECASE)
@@ -512,7 +535,9 @@ def reemplazar_textos(perfil, reemplazos):
 
     def recorrer(x):
         if isinstance(x, dict):
-            return {texto(k) if isinstance(k, str) else k: recorrer(v) for k, v in x.items()}
+            # Los formatos son solo letras A y dígitos 9: no contienen nombres y no se tocan
+            return {texto(k) if isinstance(k, str) else k: (v if k == "formato" else recorrer(v))
+                    for k, v in x.items()}
         if isinstance(x, list):
             return [recorrer(v) for v in x]
         return texto(x) if isinstance(x, str) else x

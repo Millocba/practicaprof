@@ -20,6 +20,7 @@ from perfilador.comparar import comparar, sugerir_emparejamiento  # noqa: E402
 from perfilador.perfil import (  # noqa: E402
     MINIMO_GRUPO,
     OTRA,
+    banda,
     dos_cifras,
     formato,
     leer_tablas,
@@ -334,3 +335,47 @@ def test_reemplazos_en_una_pasada_y_pistas_de_usuario():
     assert reemplazar_textos(perfil, reemplazos) == {
         "base.tabla_proveedor_1": ["CONTRATO_1", "CONTRATO_2", "proveedor_1 Norte"]}
     assert all(sensibilidad_por_nombre(n) == "persona" for n in ["username", "Solicitante", "Cargador", "login"])
+
+
+def test_base_sqlite_se_lee_en_modo_solo_lectura(tmp_path, tablas):
+    import hashlib
+    import sqlite3
+
+    volumen = tmp_path / "volumen"
+    volumen.mkdir()
+    base = volumen / "app.db"
+    with sqlite3.connect(base) as conexion:
+        tablas["cargas"].drop(columns=["Observaciones"]).to_sql("fact_transacciones", conexion, index=False)
+        pd.DataFrame({"numero": range(1, 7), "limite": [4e6, 1e6, 1.4e6, 8.5e5, 1.8e5, 2.6e6]}).to_sql(
+            "fact_contratos", conexion, index=False)
+        conexion.execute("CREATE TABLE fact_contratos_credito (contrato_id INTEGER, limite REAL, disponible REAL)")
+        pd.DataFrame({"email": [f"persona{i}@ejemplo.invalid" for i in range(40)],
+                      "hashed_password": [f"$2b$12$HASHSINTETICO{i:040d}" for i in range(40)]}).to_sql(
+            "users", conexion, index=False)
+    huella = hashlib.sha256(base.read_bytes()).hexdigest(), base.stat().st_mtime
+    salida = tmp_path / "perfil.json"
+    subprocess.run([sys.executable, "-m", "perfilador", "perfilar", str(volumen), "--salida", str(salida)],
+                   cwd=RAIZ, check=True, capture_output=True)
+    texto = salida.read_text(encoding="utf-8")
+    perfil = json.loads(texto)
+    assert {"fact_transacciones", "fact_contratos", "fact_contratos_credito", "users"} <= set(perfil["tablas"])
+    assert perfil["tablas"]["fact_transacciones"]["filas_aprox"] == 1200
+    assert perfil["tablas"]["fact_contratos_credito"]["filas"] == banda(0)
+    assert columna(perfil, "users", "hashed_password")["sensible"] == "identificador"
+    assert "HASHSINTETICO" not in texto and "@ejemplo.invalid" not in texto
+    assert (hashlib.sha256(base.read_bytes()).hexdigest(), base.stat().st_mtime) == huella
+    assert sorted(p.name for p in volumen.iterdir()) == ["app.db"]  # sin archivos -wal ni -journal
+
+
+def test_reemplazos_no_tocan_formatos_y_relaciones_solo_entre_claves():
+    from perfilador.perfil import reemplazar_textos, relaciones_entre_tablas
+
+    perfil = {"formatos": [{"formato": "AAAA-9999", "pct": 100.0}], "categorias": [{"valor": "AAAA norte", "pct": 100.0}]}
+    salida = reemplazar_textos(perfil, {"aaaa": "ORGANISMO"})
+    assert salida["formatos"][0]["formato"] == "AAAA-9999" and salida["categorias"][0]["valor"] == "ORGANISMO norte"
+    orden = pd.DataFrame({"Secuencia": range(1, 3001), "Placa": [f"ZZ{i:04d}" for i in range(3000)]})
+    flota = pd.DataFrame({"Dominio": [f"ZZ{i:04d}" for i in range(0, 3000, 3)],
+                          "CapacidadTanque": [(i % 80) + 1 for i in range(1000)], "Año": [2000 + i % 25 for i in range(1000)]})
+    relaciones = {(r["origen"], r["destino"]) for r in relaciones_entre_tablas({"orden": orden, "flota": flota})}
+    assert ("flota.Dominio", "orden.Placa") in relaciones
+    assert not any(o.startswith(("flota.CapacidadTanque", "flota.Año")) for o, _ in relaciones)
