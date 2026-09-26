@@ -6,9 +6,10 @@
 
 Hoy el escenario realista modela solicitudes con litros autorizados y una factura por proveedor y mes. El circuito real es otro:
 
-1. Cada vehículo tiene una **tarjeta** asignada a un **contrato** con un **tope mensual en pesos**. Cada carga descuenta del saldo del mes; si se agota, las tarjetas del contrato no pueden cargar hasta el mes siguiente.
-2. El **registro interno** anota cada pedido de combustible y su rendición (ticket, rendido, anulado). No comparte ningún identificador con el **reporte del proveedor**: se cruzan por dominio y horario.
-3. El proveedor factura **por contrato**: una deuda con el monto, un PDF con el detalle y un reporte de consumo por factura. Los tres montos deben coincidir.
+1. Cada vehículo tiene una **tarjeta** asignada a un **contrato** con un **tope mensual en pesos** (no hay límite en litros). Cada carga descuenta del saldo del mes; si se agota, **el suministro se corta** para todas las tarjetas del contrato hasta que alguien **transfiere saldo a mano** desde otro contrato, generalmente el que más saldo tiene.
+2. También hay **tarjetas personales**, asociadas a una persona y no a un vehículo. Igual requieren una solicitud en el registro interno, que indica la unidad y hasta cuánto se puede cargar en ella, así que aparecen tanto en el registro interno como en el reporte del proveedor.
+3. El **registro interno** anota cada pedido de combustible y su rendición (ticket, rendido, anulado). No comparte ningún identificador con el **reporte del proveedor**: se cruzan por dominio y horario.
+4. El proveedor factura **por contrato**: una deuda con el monto, un PDF con el detalle y un reporte de consumo por factura. Los tres montos deben coincidir.
 
 ## Modelo de datos
 
@@ -19,7 +20,7 @@ La base separa los datos maestros, que cambian poco y se versionan con vigencia,
 | `vehiculo` | matrícula | Dominio, tipo, marca, capacidad del tanque, combustible, dependencia, estado con fecha |
 | `dispositivo` | IMEI | Telemetría; asignación al vehículo con fecha desde/hasta |
 | `contrato` | número | Proveedor, dependencia, tope mensual en pesos, vigencia |
-| `tarjeta` | número | Asignada a un contrato y a un vehículo (o a una persona) con vigencia |
+| `tarjeta` | número | Asignada a un contrato y, con vigencia, a un vehículo (tarjeta de unidad) o a una persona (tarjeta personal, identificada por un código sintético) |
 | `estacion` | código | Proveedor (propio o ajeno), ubicación ficticia, local o de ruta |
 | `dependencia` | código | Jerarquía de direcciones y dependencias |
 
@@ -30,7 +31,8 @@ La base separa los datos maestros, que cambian poco y se versionan con vigencia,
 | `posicion_diaria` | vehículo + fecha | GPS diario |
 | `factura` | número | Contrato, período, monto de la deuda, total del PDF, vencimiento |
 | `factura_linea` | factura + renglón | Producto, litros, precio, importe; combustible o no |
-| `saldo_contrato` | contrato + mes | Derivada: consumido, saldo y fecha en que se agotó |
+| `transferencia_saldo` | id | Contrato de origen y de destino, monto, fecha y hora |
+| `saldo_contrato` | contrato + día | Derivada: tope, transferencias recibidas y cedidas, consumido y saldo; días sin suministro |
 
 - La carga se vincula con el contrato por la tarjeta vigente ese día, no por texto.
 - El esquema se crea con migraciones numeradas; la carga desde los CSV del generador es idempotente (clave natural de cada tabla) y se prueba sobre una base temporal.
@@ -38,13 +40,21 @@ La base separa los datos maestros, que cambian poco y se versionan con vigencia,
 
 ## Cambios en el generador (escenario realista)
 
-**Contratos y cupo.** Seis contratos con topes desiguales (uno concentra cerca del 40% del cupo, otro menos del 2%), escalados para que un mes normal ejecute alrededor del 90%. La simulación diaria descuenta cada carga del saldo; cuando un contrato se agota:
+**Contratos y cupo.** Seis contratos con topes desiguales en pesos (uno concentra cerca del 40% del cupo, otro menos del 2%), escalados para que la flota ejecute alrededor del 90% del total en un mes normal; algunos contratos se agotan antes de fin de mes y otros sobran. La simulación diaria descuenta cada carga del saldo del contrato de la tarjeta:
 
-- las cargas normales de sus tarjetas se rechazan (no se generan);
-- aparecen los comportamientos que el tope induce, como anomalías o casos legítimos:
-  - `CARGA_CON_CUPO_AGOTADO` (anomalía): carga registrada con el saldo en cero, que el sistema no debería permitir;
-  - `TARJETA_DE_OTRO_CONTRATO` (anomalía): el vehículo carga con una tarjeta de otro contrato o de otro vehículo;
-  - `CONTINGENCIA` (legítimo o anomalía según tenga respaldo en el registro interno): carga manual fuera del circuito normal.
+- **Corte:** con el saldo agotado, las cargas de las tarjetas del contrato no se realizan; los vehículos postergan la carga.
+- **Transferencia:** después de un retraso de horas a un par de días hábiles, se transfiere saldo desde el contrato con más saldo disponible (caso legítimo `TRANSFERENCIA_DE_SALDO`, registrado en `transferencia_saldo`).
+- Los comportamientos que el corte induce, como anomalías:
+  - `CARGA_CON_CUPO_AGOTADO`: carga registrada con el saldo en cero, que el corte debería haber impedido;
+  - `TARJETA_DE_OTRO_CONTRATO`: durante el corte, el vehículo carga con una tarjeta de otro contrato o de otro vehículo;
+  - `TRANSFERENCIA_SIN_NECESIDAD`: transferencia a un contrato que todavía tenía saldo, o desde uno que queda sin saldo para su propio consumo.
+- `CONTINGENCIA` (legítimo si tiene respaldo en el registro interno, anomalía si no): carga manual fuera del circuito normal.
+
+**Tarjetas personales.** Una parte de las tarjetas es personal. La carga figura en el reporte con la persona (código sintético) en lugar del dominio; la solicitud del registro interno indica la unidad y el límite. Casos:
+
+- `CARGA_PERSONAL_SIN_SOLICITUD` (anomalía): carga con tarjeta personal sin solicitud de esa persona.
+- `CARGA_PERSONAL_SUPERA_AUTORIZADO` (anomalía): la carga supera el límite de la solicitud.
+- `CARGA_PERSONAL_EN_OTRA_UNIDAD` (anomalía): los litros no son compatibles con la unidad de la solicitud (tanque, combustible).
 
 **Reporte del proveedor.** La tabla de cargas incorpora origen (normal o contingencia), remito, precio de surtidor y precio de empresa (este último alrededor de 2% menor) y los impuestos por litro incluidos en el precio.
 
@@ -74,9 +84,9 @@ Se mantienen las irregularidades de línea actuales (sin carga, duplicada, sobre
 
 | | Regla ingenua | Regla con contexto |
 |---|---|---|
-| **H8 (reformulada).** Cruzar el registro interno con el reporte detecta cargas sin respaldo, rendiciones sin carga y anuladas que se facturan | Emparejamiento voraz por dominio y día, sin tolerancia de horario ni de litros | Asignación óptima por dominio con tolerancia de horario y litros, excluyendo estaciones ajenas y pendientes |
+| **H8 (reformulada).** Cruzar el registro interno con el reporte detecta cargas sin respaldo, rendiciones sin carga y anuladas que se facturan | Emparejamiento voraz por dominio y día, sin tolerancia de horario ni de litros; las cargas con tarjeta personal no tienen dominio y quedan como "sin solicitud" | Asignación óptima por dominio, o por persona en las tarjetas personales, con tolerancia de horario y litros, excluyendo estaciones ajenas y pendientes |
 | **H9 (ampliada).** La conciliación triple deuda–PDF–consumo por contrato detecta sobre y subfacturación que el total mensual no ve | Total del mes contra consumo del mes | Deuda contra consumo, PDF contra deuda y cada línea contra su carga |
-| **H10 (nueva).** Las irregularidades se concentran en los contratos que agotan su cupo | Controles iguales para todos los días | Controles reforzados después de agotado el cupo: tarjetas de otro contrato, contingencias sin respaldo |
+| **H10 (nueva).** El corte por cupo agotado induce irregularidades que solo se ven siguiendo el saldo de cada contrato | Ejecución mensual de cada contrato contra su tope | Saldo diario con las transferencias: cargas durante el corte, tarjetas de otro contrato, transferencias sin necesidad y contingencias sin respaldo |
 
 La regla ingenua de H8 reproduce el cruce típico de un sistema operativo (voraz, sin tolerancias); la con contexto es el aporte metodológico del proyecto.
 
@@ -97,8 +107,13 @@ La regla ingenua de H8 reproduce el cruce típico de un sistema operativo (voraz
 
 Cada paso es un commit con tests y con las hipótesis verificadas en cinco semillas.
 
+## Decisiones tomadas
+
+- El tope es solo en pesos.
+- Al agotarse un contrato se corta el suministro; se transfiere saldo a mano desde otro contrato, generalmente el de más saldo.
+- Las tarjetas personales se modelan: requieren solicitud con la unidad y el límite, y aparecen en el registro interno y en el reporte.
+
 ## Decisiones abiertas
 
-- ¿El tope es solo en pesos o también en litros por tarjeta?
-- ¿Qué pasa en la realidad cuando un contrato se agota: se bloquea la tarjeta, se pasa a contingencia, se reasigna la tarjeta?
-- ¿La tarjeta puede estar a nombre de una persona (DNI) además de un vehículo? Si es así, ¿se modela?
+- Retraso típico entre el corte y la transferencia, y cuántas transferencias hay por mes (a calibrar con el perfil si es posible).
+- Proporción de tarjetas personales y de cargas en contingencia (a calibrar con el perfil).
