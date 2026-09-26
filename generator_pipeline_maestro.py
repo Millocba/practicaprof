@@ -68,8 +68,10 @@ CATALOGO_ANOMALIAS = {
     "CARGA_VEHICULO_INACTIVO": ("H6", "ALTA"),
     "CARGA_FUERA_DE_ZONA": ("H7", "ALTA"),
     # Circuito solicitud -> carga -> factura (escenario realista)
-    "CARGA_SIN_SOLICITUD": ("H8", "ALTA"),
-    "CARGA_CON_SOLICITUD_RECHAZADA": ("H8", "ALTA"),
+    "CARGA_SIN_REGISTRO": ("H8", "ALTA"),
+    "ANULADA_CON_CARGA": ("H8", "ALTA"),
+    "RENDIDA_SIN_CARGA": ("H8", "ALTA"),
+    "DESACUERDO_DE_LITROS": ("H8", "MEDIA"),
     "CARGA_SUPERA_AUTORIZADO": ("H8", "MEDIA"),
     "TOTAL_INFLADO": ("H9", "ALTA"),
     "LINEA_SIN_CONSUMO": ("H9", "ALTA"),
@@ -94,7 +96,10 @@ CATALOGO_LEGITIMOS = {
     "VIAJE_LARGO": "carga en estaciones de ruta durante un viaje real",
     "CAMBIO_ODOMETRO": "el odómetro se reemplazó y vuelve a contar desde un valor bajo",
     "ERROR_TIPEO_ODOMETRO": "la lectura del odómetro se cargó con un error de tipeo",
-    "REGULARIZACION_POSTERIOR": "la solicitud se aprobó después de la carga (urgencia regularizada)",
+    "PENDIENTE_DE_RENDICION": "la solicitud del registro interno todavía no se rindió: la carga existe",
+    "ESTACION_AJENA": "carga en una estación de otro proveedor: está en el registro interno y no en el reporte",
+    "TARJETA_PERSONAL": "carga con una tarjeta personal: el reporte trae la persona y no el dominio",
+    "REGISTRO_REHECHO": "el pedido se anuló y se volvió a hacer antes de cargar: el anulado no tiene carga",
     "TOLERANCIA_MEDICION": "la carga supera lo autorizado dentro de la tolerancia de medición del surtidor",
     "DESFASE_DE_CORTE": "la carga del último día del mes se factura en el período siguiente",
     "AJUSTE_DOCUMENTADO": "la factura incluye un ajuste documentado (bonificación o recargo)",
@@ -213,10 +218,15 @@ EVENTOS_REALISTA = {
     "CAMBIO_ODOMETRO": 2,
     "ERROR_TIPEO_ODOMETRO": 5,
     # Circuito solicitud -> carga -> factura
-    "CARGA_SIN_SOLICITUD": 6,       # cargas sin ninguna solicitud
-    "CARGA_CON_SOLICITUD_RECHAZADA": 4,
+    "CARGA_SIN_REGISTRO": 6,        # cargas sin ningún registro interno
+    "ANULADA_CON_CARGA": 4,         # registro anulado cuya carga igual existe
+    "RENDIDA_SIN_CARGA": 5,         # registros rendidos sin carga en el reporte
+    "DESACUERDO_DE_LITROS": 6,      # el registro declara de 2 a 18 L distintos que la carga
     "CARGA_SUPERA_AUTORIZADO": 6,   # 15% a 50% más que lo autorizado
-    "REGULARIZACION_POSTERIOR": 8,  # legítimos
+    "PENDIENTE_DE_RENDICION": 37,   # legítimos: ~1,1% de las cargas (fuente)
+    "TARJETA_PERSONAL": 40,         # legítimos: ~1,2% de las cargas (fuente)
+    "ESTACION_AJENA": 240,          # legítimos: ~7% de los registros (fuente)
+    "REGISTRO_REHECHO": 27,         # legítimos: con los anulados con carga, ~0,9% de registros anulados (fuente)
     "TOLERANCIA_MEDICION": 10,      # legítimos: 1% a 3% más que lo autorizado
     "TOTAL_INFLADO": 2,             # facturas
     "LINEA_SIN_CONSUMO": 6,
@@ -234,7 +244,12 @@ TASAS_CALIDAD_REALISTA = {"DOMINIO_INVALIDO": 0.003, "VALOR_NULO": 0.005, "DUPLI
 # Se aplican al final con un generador aleatorio propio, para no alterar el resto del escenario.
 TASA_DOMINIO_CON_FORMATO = 0.005    # cargas con el dominio escrito de otra forma (H1): la fuente gana
                                     # alrededor de medio punto de vinculación al normalizar
-TASA_FECHA_OTRO_FORMATO = 0.15      # solicitudes con la fecha en DD/MM/AAAA en lugar de AAAA-MM-DD
+# Registro interno (escenario realista), calibrado con el perfil de la fuente
+TOLERANCIA_REGISTRO_LITROS = 0.5    # diferencia de litros entre el registro y la carga que no es desacuerdo
+NIVELES_TANQUE = {"TANQUE LLENO": 0.74, "1/2 TANQUE": 0.09, "3/4 TANQUE": 0.085, "1/4 TANQUE": 0.075, "RESERVA": 0.01}
+BANDERAS_RENDICION = {"Amarillo": 0.64, "Verde": 0.359, "Rojo": 0.001}
+RELACIONES_CONSUMO = {"J": 0.62, "I": 0.13, "D": 0.08, "Q": 0.06, "E": 0.06, "K": 0.05}
+ESTACION_AJENA = "ESTACION AJENA"
 _CORTES_DOMINIO = r"(?<=[A-Z])(?=\d)|(?<=\d)(?=[A-Z])"   # entre letras y números
 FORMATOS_DOMINIO = [
     lambda d: d.lower(),                                  # za123bc
@@ -270,6 +285,7 @@ def dominio_sintetico(i, tipo, anio):
 
 AMBOS = ("didactico", "realista")
 REALISTA = ("realista",)
+DIDACTICO = ("didactico",)
 
 # tabla: grano, clave, escenarios y columnas {nombre: (tipo, descripción[, escenarios])}
 TABLAS = {
@@ -357,22 +373,45 @@ TABLAS = {
             "conductor": ("texto", "Conductor, CONDUCTOR-N; puede estar vacío"),
             "odometro": ("entero (km)", "Lectura del odómetro informada en la carga; puede estar vacía"),
             "contrato": ("entero", "Contrato de la tarjeta, 1 a 6: descuenta del saldo del mes", REALISTA),
+            "hora": ("texto", "Hora de la carga, HH:MM:SS", REALISTA),
+            "tipo_identificacion": ("categoría", "PATENTE, o DNI si la tarjeta es personal: entonces el dominio "
+                                                 "viene vacío y el conductor es la persona", REALISTA),
         },
     },
     "solicitudes": {
-        "grano": "una solicitud de combustible", "clave": "id", "escenarios": AMBOS,
+        "grano": "una solicitud de combustible (en el realista, del registro interno: pedido y rendición)",
+        "clave": "id", "escenarios": AMBOS,
         "columnas": {
             "id": ("texto", "Clave de la solicitud, SOL-NNNNNNNN"),
             "vehiculo_id": ("texto", "Vehículo solicitante"),
             "dominio": ("texto", "Dominio del vehículo solicitante"),
-            "fecha_solicitud": ("fecha", "Fecha de la solicitud, AAAA-MM-DD; en el escenario realista, "
-                                         "una parte llega como DD/MM/AAAA"),
-            "litros_solicitados": ("decimal (L)", "Litros pedidos"),
-            "litros_autorizados": ("decimal (L)", "Litros autorizados; 0 si fue rechazada o está pendiente"),
-            "estado": ("categoría", "APROBADA, PENDIENTE o RECHAZADA"),
-            "centro_costo": ("texto", "Centro de costo, CC-NNN"),
-            "responsable": ("texto", "Responsable, RESP-N"),
-            "observaciones": ("texto", "Observaciones; puede estar vacía"),
+            "fecha_solicitud": ("fecha", "Fecha de la solicitud, AAAA-MM-DD", DIDACTICO),
+            "litros_solicitados": ("decimal (L)", "Litros pedidos", DIDACTICO),
+            "estado": ("categoría", "APROBADA, PENDIENTE o RECHAZADA", DIDACTICO),
+            "centro_costo": ("texto", "Centro de costo, CC-NNN", DIDACTICO),
+            "responsable": ("texto", "Responsable, RESP-N", DIDACTICO),
+            "observaciones": ("texto", "Observaciones; puede estar vacía", DIDACTICO),
+            "fecha": ("fecha", "Fecha del pedido, DD/MM/AAAA como en la fuente", REALISTA),
+            "hora": ("texto", "Hora del pedido, HH:MM:SS: de 5 a 90 minutos antes de la carga", REALISTA),
+            "odometro": ("entero (km)", "Odómetro declarado", REALISTA),
+            "solicitante": ("texto", "Quien pide: el conductor, o la persona de la tarjeta personal", REALISTA),
+            "tarjeta_personal": ("booleano", "La carga se hace con una tarjeta personal y no con la del vehículo",
+                                 REALISTA),
+            "litros_autorizados": ("decimal (L)", "Litros autorizados (didáctico: 0 si fue rechazada o está "
+                                                  "pendiente)"),
+            "litros_cargados": ("decimal (L)", "Litros que el registro declara cargados", REALISTA),
+            "nivel_tanque": ("categoría", "Nivel del tanque antes de cargar: TANQUE LLENO, 3/4, 1/2, 1/4, RESERVA",
+                             REALISTA),
+            "rendido": ("categoría", "SI si se rindió el ticket; NO si está pendiente", REALISTA),
+            "fecha_rendicion": ("fecha", "Fecha de la rendición, DD/MM/AAAA; vacía si está pendiente", REALISTA),
+            "hora_rendicion": ("texto", "Hora de la rendición; vacía si está pendiente", REALISTA),
+            "numero_ticket": ("texto", "Ticket de la carga, 6 dígitos; vacío si está pendiente", REALISTA),
+            "anulado": ("categoría", "SI si el registro se anuló", REALISTA),
+            "fecha_anulado": ("fecha", "Fecha de la anulación, DD/MM/AAAA", REALISTA),
+            "estacion_servicio": ("texto", "Estación (código del reporte) o ESTACION AJENA si es de otro proveedor",
+                                  REALISTA),
+            "bandera_rendicion": ("categoría", "Amarillo, Verde o Rojo", REALISTA),
+            "relacion_consumo": ("categoría", "Código de relación de consumo del vehículo", REALISTA),
         },
     },
     "contratos": {
@@ -463,9 +502,8 @@ RELACIONES = [
     ("transferencias", "contrato_origen", "contratos", "indice", "N:1", REALISTA, ""),
     ("transferencias", "contrato_destino", "contratos", "indice", "N:1", REALISTA, ""),
     ("solicitudes", "vehiculo_id", "flota", "Matricula", "N:1", AMBOS, ""),
-    ("solicitudes", "vehiculo_id + fecha_solicitud + litros_autorizados", "consumo",
-     "vehiculo_id + fecha + litros", "1:1", REALISTA,
-     "sin clave: se empareja por vehículo, fecha y litros"),
+    ("solicitudes", "dominio + fecha + hora", "consumo", "dominio + fecha + hora", "1:1", REALISTA,
+     "sin clave común: se cruza por dominio y horario; en las tarjetas personales, por solicitante y conductor"),
     ("telemetria", "Placa", "flota", "Dominio", "N:1", AMBOS, "uno por vehículo en el realista"),
     ("telemetria_diaria", "Placa", "telemetria", "Placa", "N:1", REALISTA, ""),
     ("facturacion", "periodo", "consumo", "fecha (mes)", "1:N", ("didactico",), "suma de las cargas del mes"),
@@ -1347,84 +1385,156 @@ class GeneradorMaestro:
         return asignacion
 
     def generar_solicitudes_realista(self):
-        """SOLICITUDES coherentes con el consumo: cada carga tiene su solicitud aprobada.
+        """REGISTRO INTERNO (solicitudes.csv): pedido y rendición de cada carga.
 
-        La solicitud se aprueba entre 0 y 2 días antes de la carga por algo más de los
-        litros cargados. Se inyectan cargas sin solicitud, con solicitud rechazada o por
-        encima de lo autorizado, y casos legítimos: regularizaciones posteriores y
-        diferencias dentro de la tolerancia de medición. Además hay solicitudes
-        rechazadas o pendientes que no terminan en carga.
+        Como en la fuente, cada carga del reporte del proveedor tiene su pedido en el registro
+        interno, de 5 a 90 minutos antes, con los litros autorizados y el ticket de la rendición.
+        No comparten ningún identificador: se cruzan por dominio y horario (o por persona, en las
+        tarjetas personales). También agrega al reporte la hora de cada carga y el tipo de tarjeta.
+
+        Anomalías: carga sin registro, registro anulado con carga, registro rendido sin carga,
+        desacuerdo de litros y carga que supera lo autorizado. Casos legítimos: rendición
+        pendiente, estación de otro proveedor (solo en el registro), tarjeta personal (el
+        reporte trae la persona y no el dominio) y exceso dentro de la tolerancia del surtidor.
         """
-        logger.info("Generando SOLICITUDES (escenario realista)...")
         rng = self.rng
+        consumo = self.datasets["consumo"]
+
+        def elegir(pesos):
+            return rng.choices(list(pesos), weights=list(pesos.values()))[0]
+
+        consumo["hora"] = [f"{min(23, int(rng.triangular(6, 24, 12))):02d}:{rng.randint(0, 59):02d}:"
+                           f"{rng.randint(0, 59):02d}" for _ in range(len(consumo))]
+        # Un duplicado repite también la hora de su original
+        original_de = {a["id_registro"]: a["descripcion"].removeprefix("copia de ")
+                       for a in self.anomalias if a["tipo_anomalia"] == "DUPLICADO"}
+        hora_de = consumo.set_index("id")["hora"]
+        consumo["hora"] = [hora_de[original_de[i]] if i in original_de else h for i, h in zip(consumo["id"], consumo["hora"])]
+        consumo["tipo_identificacion"] = "PATENTE"
         cargas = self._cargas_facturables()
-        dominio = self.datasets['flota'].set_index("Matricula")["Dominio"]
         etiquetadas = ({a["id_registro"] for a in self.anomalias}
-                       | {c["id_registro"] for c in self.casos_legitimos})
+                       | {c["id_registro"] for c in self.casos_legitimos} | set(original_de.values()))
         asignacion = self._repartir(
             [i for i in cargas["id"] if i not in etiquetadas],
-            ["CARGA_SIN_SOLICITUD", "CARGA_CON_SOLICITUD_RECHAZADA", "CARGA_SUPERA_AUTORIZADO",
-             "REGULARIZACION_POSTERIOR", "TOLERANCIA_MEDICION"])
+            ["CARGA_SIN_REGISTRO", "ANULADA_CON_CARGA", "CARGA_SUPERA_AUTORIZADO", "DESACUERDO_DE_LITROS",
+             "TOLERANCIA_MEDICION", "PENDIENTE_DE_RENDICION", "TARJETA_PERSONAL", "ESTACION_AJENA",
+             "REGISTRO_REHECHO"])
 
-        rows = []
+        # Tarjetas personales: el reporte trae la persona en lugar del dominio
+        personales = [i for i, rol in asignacion.items() if rol == "TARJETA_PERSONAL"]
+        es_personal = consumo["id"].isin(personales)
+        consumo.loc[es_personal, "tipo_identificacion"] = "DNI"
+        consumo.loc[es_personal, "dominio"] = None
+        consumo.loc[es_personal, "numero_tarjeta"] = [f"TARJ-DNI-{k:05d}" for k in range(1, es_personal.sum() + 1)]
 
-        def solicitar(vehiculo, fecha, solicitados, autorizados, estado, observaciones=""):
-            rows.append({
-                "vehiculo_id": vehiculo, "dominio": dominio[vehiculo], "fecha_solicitud": fecha,
-                "litros_solicitados": round(solicitados, 2), "litros_autorizados": round(autorizados, 2),
-                "estado": estado, "centro_costo": f"CC-{rng.randint(1, 50):03d}",
-                "responsable": f"RESP-{rng.randint(1, 100)}", "observaciones": observaciones,
-            })
+        rows, pendientes_de_id = [], []
 
-        for c in cargas.itertuples():
-            rol = asignacion.get(c.id)
-            fecha = pd.Timestamp(c.fecha).to_pydatetime()
-            if rol == "CARGA_SIN_SOLICITUD":
-                self._registrar_anomalia("consumo", c.id, c.vehiculo_id, rol, "solicitud",
-                                         "carga sin ninguna solicitud del vehículo")
+        def registrar(c, fecha_carga, litros_reg, autorizados, rendido="SI", anulado="NO", estacion=None,
+                      personal=False, etiqueta=None):
+            pedido = fecha_carga - timedelta(minutes=rng.randint(5, 90))
+            rendicion = fecha_carga + timedelta(minutes=rng.randint(0, 20))
+            fila = {
+                "vehiculo_id": c["vehiculo_id"], "dominio": self._dominio_de[c["vehiculo_id"]],
+                "_orden": pedido, "fecha": pedido.strftime("%d/%m/%Y"), "hora": pedido.strftime("%H:%M:%S"),
+                "odometro": c["odometro"], "solicitante": c["conductor"], "tarjeta_personal": personal,
+                "litros_autorizados": autorizados, "litros_cargados": round(litros_reg, 2),
+                "nivel_tanque": elegir(NIVELES_TANQUE), "rendido": rendido,
+                "fecha_rendicion": rendicion.strftime("%d/%m/%Y") if rendido == "SI" else None,
+                "hora_rendicion": rendicion.strftime("%H:%M:%S") if rendido == "SI" else None,
+                "numero_ticket": f"{rng.randint(100000, 999999)}" if rendido == "SI" else None,
+                "anulado": anulado,
+                "fecha_anulado": (pedido + timedelta(hours=rng.randint(1, 48))).strftime("%d/%m/%Y")
+                if anulado == "SI" else None,
+                "estacion_servicio": estacion or c["estacion"],
+                "bandera_rendicion": elegir(BANDERAS_RENDICION), "relacion_consumo": elegir(RELACIONES_CONSUMO),
+            }
+            rows.append(fila)
+            if etiqueta:
+                pendientes_de_id.append((fila, etiqueta))
+
+        self._dominio_de = self.datasets["flota"].set_index("Matricula")["Dominio"].to_dict()
+        ajenas = []
+        for c in consumo[~consumo["id"].isin(set(consumo["id"]) - set(cargas["id"]))].to_dict("records"):
+            rol = asignacion.get(c["id"])
+            fecha_carga = datetime.combine(pd.Timestamp(c["fecha"]).date(),
+                                           datetime.strptime(c["hora"], "%H:%M:%S").time())
+            litros = c["litros"]
+            autorizados = float(round(litros + rng.uniform(0, 10)))
+            if rol == "CARGA_SIN_REGISTRO":
+                self._registrar_anomalia("consumo", c["id"], c["vehiculo_id"], rol, "registro",
+                                         "carga sin registro interno")
                 continue
-            previa = fecha - timedelta(days=rng.randint(0, 2))
-            solicitados = c.litros * rng.uniform(1.0, 1.25)
-            if rol == "CARGA_CON_SOLICITUD_RECHAZADA":
-                solicitar(c.vehiculo_id, previa, solicitados, 0.0, "RECHAZADA", "RECHAZADA POR SUPERVISOR")
-                self._registrar_anomalia("consumo", c.id, c.vehiculo_id, rol, "solicitud",
-                                         "la única solicitud cercana fue rechazada")
+            if rol == "ESTACION_AJENA":
+                # La carga se hizo en otra red: no está en el reporte del proveedor, solo en el registro
+                ajenas.append(c["id"])
+                registrar(c, fecha_carga, litros, autorizados, estacion=ESTACION_AJENA,
+                          etiqueta=("legitimo", rol, CATALOGO_LEGITIMOS[rol]))
                 continue
-            if rol == "REGULARIZACION_POSTERIOR":
-                solicitar(c.vehiculo_id, fecha + timedelta(days=rng.randint(1, 3)), solicitados, solicitados,
-                          "APROBADA", "REGULARIZACION")
-                self._registrar_legitimo(c.id, c.vehiculo_id, rol, CATALOGO_LEGITIMOS[rol])
-                continue
-            if rng.random() < 0.8:
-                autorizados = solicitados
-            else:
-                autorizados = max(c.litros, solicitados * rng.uniform(0.85, 1.0))
-            if rol == "CARGA_SUPERA_AUTORIZADO":
-                autorizados = c.litros / rng.uniform(1.15, 1.5)
-                self._registrar_anomalia("consumo", c.id, c.vehiculo_id, rol, "litros",
-                                         f"{c.litros:.2f} L con {autorizados:.2f} L autorizados")
+            if rol == "ANULADA_CON_CARGA":
+                registrar(c, fecha_carga, litros, autorizados, rendido="NO", anulado="SI")
+                self._registrar_anomalia("consumo", c["id"], c["vehiculo_id"], rol, "anulado",
+                                         "el registro se anuló pero la carga existe")
+            elif rol == "PENDIENTE_DE_RENDICION":
+                registrar(c, fecha_carga, litros, autorizados, rendido="NO")
+                self._registrar_legitimo(c["id"], c["vehiculo_id"], rol, CATALOGO_LEGITIMOS[rol])
+            elif rol == "DESACUERDO_DE_LITROS":
+                declarados = max(1.0, litros + rng.choice([-1, 1]) * rng.uniform(2, 18))
+                registrar(c, fecha_carga, declarados, max(autorizados, float(round(declarados))))
+                self._registrar_anomalia("consumo", c["id"], c["vehiculo_id"], rol, "litros",
+                                         f"el registro declara {declarados:.2f} L y se cargaron {litros:.2f} L")
+            elif rol == "CARGA_SUPERA_AUTORIZADO":
+                autorizados = round(litros / rng.uniform(1.15, 1.5), 1)
+                registrar(c, fecha_carga, litros, autorizados)
+                self._registrar_anomalia("consumo", c["id"], c["vehiculo_id"], rol, "litros",
+                                         f"{litros:.2f} L con {autorizados:.1f} L autorizados")
             elif rol == "TOLERANCIA_MEDICION":
-                autorizados = c.litros / rng.uniform(1.01, 1.03)
-                self._registrar_legitimo(c.id, c.vehiculo_id, rol,
-                                         f"{c.litros:.2f} L con {autorizados:.2f} L autorizados")
-            solicitar(c.vehiculo_id, previa, solicitados, autorizados, "APROBADA",
-                      rng.choice(["OK", "REVISADO", ""]))
+                autorizados = round(litros / rng.uniform(1.01, 1.03), 2)
+                registrar(c, fecha_carga, litros, autorizados)
+                self._registrar_legitimo(c["id"], c["vehiculo_id"], rol,
+                                         f"{litros:.2f} L con {autorizados:.2f} L autorizados")
+            elif rol == "REGISTRO_REHECHO":
+                # Primero un pedido que se anula, después el válido: los dos antes de la carga
+                anulado = fecha_carga - timedelta(minutes=rng.randint(95, 180))
+                registrar(c, anulado, litros, autorizados, rendido="NO", anulado="SI",
+                          etiqueta=("legitimo", rol, CATALOGO_LEGITIMOS[rol]))
+                registrar(c, fecha_carga, litros, autorizados)
+            elif rol == "TARJETA_PERSONAL":
+                registrar(c, fecha_carga, litros, autorizados, personal=True)
+                self._registrar_legitimo(c["id"], c["vehiculo_id"], rol, CATALOGO_LEGITIMOS[rol])
+            else:
+                registrar(c, fecha_carga, litros, autorizados)
 
-        vehiculos = list(dominio.index)
-        for _ in range(round(len(cargas) * TASA_SOLICITUDES_SIN_CARGA)):
-            estado = rng.choice(["RECHAZADA", "PENDIENTE"])
-            solicitar(rng.choice(vehiculos), FECHA_INICIO + timedelta(days=rng.randint(0, DIAS_VENTANA)),
-                      rng.uniform(10, 80), 0.0, estado, "SIN CUPO DISPONIBLE" if estado == "RECHAZADA" else "")
+        # Registros rendidos sin carga: pedidos de un vehículo en días en que no cargó
+        dias_con_carga = set(zip(consumo["vehiculo_id"], pd.to_datetime(consumo["fecha"]).dt.date))
+        activos = [c for c in cargas.to_dict("records") if c["id"] not in personales]
+        for _ in range(self._cantidad("RENDIDA_SIN_CARGA")):
+            base = rng.choice(activos)
+            for _intento in range(30):
+                dia = pd.Timestamp(base["fecha"]).date() + timedelta(days=rng.randint(1, 6))
+                if (base["vehiculo_id"], dia) not in dias_con_carga:
+                    break
+            fecha_carga = datetime.combine(dia, datetime.min.time()) + timedelta(hours=rng.randint(8, 20))
+            registrar(dict(base, odometro=None), fecha_carga, base["litros"], float(round(base["litros"] + 5)),
+                      etiqueta=("anomalia", "RENDIDA_SIN_CARGA", "registro rendido sin carga en el reporte"))
 
-        rows.sort(key=lambda r: (r["vehiculo_id"], r["fecha_solicitud"]))
+        self.datasets["consumo"] = consumo[~consumo["id"].isin(ajenas)].reset_index(drop=True)
+        rows.sort(key=lambda r: (r["vehiculo_id"], r["_orden"]))
         for i, r in enumerate(rows, 1):
             r["id"] = f"SOL-{i:08d}"
-        columnas = ["id", "vehiculo_id", "dominio", "fecha_solicitud", "litros_solicitados", "litros_autorizados",
-                    "estado", "centro_costo", "responsable", "observaciones"]
+        for fila, (clase, tipo, detalle) in pendientes_de_id:
+            if clase == "legitimo":
+                self._registrar_legitimo(fila["id"], fila["vehiculo_id"], tipo, detalle, tabla="solicitudes")
+            else:
+                self._registrar_anomalia("solicitudes", fila["id"], fila["vehiculo_id"], tipo, "registro", detalle)
+        columnas = ["id", "vehiculo_id", "dominio", "fecha", "hora", "odometro", "solicitante", "tarjeta_personal",
+                    "litros_autorizados", "litros_cargados", "nivel_tanque", "rendido", "fecha_rendicion",
+                    "hora_rendicion", "numero_ticket", "anulado", "fecha_anulado", "estacion_servicio",
+                    "bandera_rendicion", "relacion_consumo"]
         df = pd.DataFrame(rows)[columnas]
-        self.datasets['solicitudes'] = df
+        df["odometro"] = df["odometro"].astype("Int64")
+        self.datasets["solicitudes"] = df
         self.metadata['generadores_ejecutados'].append('solicitudes')
-        logger.info(f"✓ SOLICITUDES generada: {len(df)} solicitudes")
+        logger.info(f"✓ REGISTRO INTERNO generado: {len(df)} registros ({len(ajenas)} en estaciones de otra red)")
         return df
 
     def generar_facturacion_realista(self):
@@ -1607,12 +1717,12 @@ class GeneradorMaestro:
         return archivos
 
     def aplicar_formatos_de_origen(self):
-        """Realista: dominios escritos de otra forma y fechas en dos formatos.
+        """Realista: dominios escritos de otra forma en el reporte del proveedor.
 
-        No son anomalías sino cómo llegan los datos de cada fuente. Un dominio con espacios,
+        No son anomalías sino cómo llegan los datos de la fuente. Un dominio con espacios,
         guiones o minúsculas corresponde igual al vehículo: es un caso legítimo que la
-        vinculación exacta confunde con un dominio inválido (H1). Las fechas de solicitudes
-        en DD/MM/AAAA obligan a interpretar cada formato por separado (H8).
+        vinculación exacta confunde con un dominio inválido (H1). (Las fechas del registro
+        interno llegan en DD/MM/AAAA y las del reporte en AAAA-MM-DD, como en la fuente.)
 
         Usa un generador aleatorio propio y se aplica al final, así el resto del escenario
         queda igual que sin estos formatos.
@@ -1633,13 +1743,7 @@ class GeneradorMaestro:
             self._registrar_legitimo(consumo.at[i, "id"], consumo.at[i, "vehiculo_id"], "DOMINIO_CON_FORMATO",
                                      f"{original} registrado como '{escrito}'")
 
-        solicitudes = self.datasets['solicitudes']
-        fechas = pd.to_datetime(solicitudes["fecha_solicitud"])
-        otro_formato = [rng.random() < TASA_FECHA_OTRO_FORMATO for _ in range(len(solicitudes))]
-        solicitudes["fecha_solicitud"] = [f.strftime("%d/%m/%Y") if otro else f.strftime("%Y-%m-%d")
-                                          for f, otro in zip(fechas, otro_formato)]
-        logger.info(f"✓ Formatos de origen: {len(elegidas)} dominios con otro formato, "
-                    f"{sum(otro_formato)} fechas de solicitud en DD/MM/AAAA")
+        logger.info(f"✓ Formatos de origen: {len(elegidas)} dominios con otro formato")
 
     def generar_contratos_realista(self):
         """CONTRATOS y TRANSFERENCIAS: cupo mensual por contrato y transferencias preventivas.

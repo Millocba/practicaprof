@@ -11,7 +11,7 @@ from deteccion import priorizacion
 from deteccion.datos import cargar_dataset
 from deteccion.hipotesis import HIPOTESIS, contrastar_hipotesis
 from deteccion.modelo import ids_con_anomalia_de_comportamiento
-from deteccion.reglas import detectar_carga_sin_autorizacion, leer_fecha, normalizar_dominio, reglas_del_dataset
+from deteccion.reglas import leer_fecha, normalizar_dominio, reglas_del_dataset
 from generator_pipeline_maestro import (
     CATALOGO_LEGITIMOS,
     PERFILES_VEHICULO,
@@ -63,6 +63,7 @@ def test_etiquetas_referencian_registros_existentes_y_no_se_superponen(dataset):
     ids = {"consumo": set(dataset["consumo"]["id"]),
            "facturacion": set(dataset["facturacion"]["numero_factura"]),
            "facturacion_detalle": set(dataset["facturacion_detalle"]["numero_linea"]),
+           "solicitudes": set(dataset["solicitudes"]["id"]),
            "contrato_mes": {f"CTO-{c}|{m}" for c, m in zip(dataset["consumo"]["contrato"],
                                                            pd.to_datetime(dataset["consumo"]["fecha"]).dt.to_period("M"))}}
     for tabla_etiquetas in [dataset["ground_truth"], dataset["casos_legitimos"]]:
@@ -116,18 +117,31 @@ def test_gps_solo_de_vehiculos_con_dispositivo(dataset):
     assert (dataset["telemetria_diaria"]["km_gps"] >= 0).all()
 
 
-# --- Circuito solicitud -> carga -> factura ---------------------------------
+# --- Circuito registro interno -> carga -> factura -------------------------
 
-def test_cada_carga_limpia_tiene_su_solicitud_aprobada_previa(dataset):
-    consumo, solicitudes = dataset["consumo"].copy(), dataset["solicitudes"].copy()
+def test_cada_carga_limpia_tiene_su_pedido_rendido_previo(dataset):
+    consumo, registro = dataset["consumo"].copy(), dataset["solicitudes"].copy()
     etiquetadas = set(dataset["ground_truth"]["id_registro"]) | set(dataset["casos_legitimos"]["id_registro"])
-    consumo["fecha"] = pd.to_datetime(consumo["fecha"])
-    solicitudes["fecha_solicitud"] = leer_fecha(solicitudes["fecha_solicitud"])
-    limpias = consumo[~consumo["id"].isin(etiquetadas)]
-    pares = limpias.merge(solicitudes[solicitudes["estado"] == "APROBADA"], on="vehiculo_id", suffixes=("", "_sol"))
-    dias = (pares["fecha"] - pares["fecha_solicitud"]).dt.days
-    validas = pares[dias.between(0, 2) & (pares["litros_autorizados"] >= pares["litros"])]
+    limpias = consumo[~consumo["id"].isin(etiquetadas)].copy()
+    limpias["instante"] = pd.to_datetime(limpias["fecha"]) + pd.to_timedelta(limpias["hora"])
+    registro["instante"] = leer_fecha(registro["fecha"]) + pd.to_timedelta(registro["hora"])
+    pares = limpias.merge(registro[(registro["rendido"] == "SI") & (registro["anulado"] == "NO")],
+                          on="vehiculo_id", suffixes=("", "_reg"))
+    minutos = (pares["instante"] - pares["instante_reg"]).dt.total_seconds() / 60
+    validas = pares[minutos.between(5, 90) & (pares["litros_cargados"].round(2) == pares["litros"].round(2))]
     assert set(validas["id"]) == set(limpias["id"])
+
+
+def test_registro_interno_calibrado_con_la_fuente(dataset):
+    registro, consumo = dataset["solicitudes"], dataset["consumo"]
+    assert registro["fecha"].str.fullmatch(r"\d{2}/\d{2}/\d{4}").all()  # DD/MM/AAAA, como en la fuente
+    assert leer_fecha(registro["fecha"]).notna().all()
+    assert 0.97 < (registro["rendido"] == "SI").mean() < 1.0
+    assert 0.05 < (registro["estacion_servicio"] == "ESTACION AJENA").mean() < 0.09
+    assert 0.003 < (registro["anulado"] == "SI").mean() < 0.02
+    personales = consumo[consumo["tipo_identificacion"] == "DNI"]
+    assert 0.005 < len(personales) / len(consumo) < 0.02 and personales["dominio"].isna().all()
+
 
 
 def test_facturas_limpias_suman_sus_lineas(dataset):
@@ -191,22 +205,6 @@ def test_dominios_con_otro_formato_corresponden_a_su_vehiculo(dataset):
     assert (normalizar_dominio(consumo["dominio"]).values == consumo["vehiculo_id"].map(dominio_real).values).all()
     assert not consumo["dominio"].isin(dominio_real).any()  # tal como llegan, no vinculan
     assert not set(con_formato["id_registro"]) & set(dataset["ground_truth"]["id_registro"])
-
-
-def test_fechas_de_solicitud_en_dos_formatos_se_leen_todas(dataset):
-    fechas = dataset["solicitudes"]["fecha_solicitud"]
-    otro_formato = fechas.str.fullmatch(r"\d{2}/\d{2}/\d{4}")
-    assert 0.1 < otro_formato.mean() < 0.2
-    assert (otro_formato | fechas.str.fullmatch(r"\d{4}-\d{2}-\d{2}")).all()
-    assert leer_fecha(fechas).notna().all()
-
-
-def test_h8_no_depende_del_formato_de_las_fechas(dataset):
-    solicitudes = dataset["solicitudes"]
-    iso = solicitudes.assign(fecha_solicitud=leer_fecha(solicitudes["fecha_solicitud"]).dt.strftime("%Y-%m-%d"))
-    mezcladas = detectar_carga_sin_autorizacion(dataset["consumo"], solicitudes, aceptar_posterior=True)
-    uniformes = detectar_carga_sin_autorizacion(dataset["consumo"], iso, aceptar_posterior=True)
-    assert set(mezcladas["id_registro"]) == set(uniformes["id_registro"])
 
 
 # --- Reglas e hipótesis -----------------------------------------------------

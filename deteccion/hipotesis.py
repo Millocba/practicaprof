@@ -102,16 +102,18 @@ HIPOTESIS = [
     },
     {
         "codigo": "H8",
-        "titulo": "Cargas y solicitudes",
-        "enunciado": "Cruzar cada carga con las solicitudes detecta las que no tienen autorización o la "
-                     "superan; aceptar regularizaciones posteriores y la tolerancia de medición evita "
-                     "falsas alarmas.",
-        "tipos": ["CARGA_SIN_SOLICITUD", "CARGA_CON_SOLICITUD_RECHAZADA", "CARGA_SUPERA_AUTORIZADO"],
-        "reglas": [(["carga_sin_solicitud_previa", "litros_superan_autorizado"],
-                    "solicitud previa y litros autorizados exactos"),
-                   (["carga_sin_autorizacion", "supera_autorizado_con_tolerancia"],
-                    "acepta regularizaciones y 5% de tolerancia")],
-        "contexto": "solicitudes aprobadas y rechazadas",
+        "titulo": "Cargas y registro interno",
+        "enunciado": "El cruce diario por dominio, voraz y sin tolerancias, confunde las tarjetas personales y "
+                     "las rendiciones pendientes con cargas sin respaldo, y no ve los registros anulados, los "
+                     "desacuerdos de litros ni los excesos sobre lo autorizado; cruzar por dominio o persona y "
+                     "horario, con asignación óptima y tolerancias, los separa.",
+        "tipos": ["CARGA_SIN_REGISTRO", "ANULADA_CON_CARGA", "RENDIDA_SIN_CARGA", "DESACUERDO_DE_LITROS",
+                  "CARGA_SUPERA_AUTORIZADO"],
+        "reglas": [("cruce_por_dominio_y_dia", "cruce diario por dominio, voraz, sin tolerancias"),
+                   (["carga_sin_registro", "carga_de_registro_anulado", "rendida_sin_carga", "desacuerdo_de_litros",
+                     "supera_autorizado_con_tolerancia"],
+                    "dominio o persona y horario, asignación óptima, 0,5 L y 5% de tolerancia")],
+        "contexto": "registro interno completo: anulados, pendientes y tarjetas personales",
     },
     {
         "codigo": "H9",
