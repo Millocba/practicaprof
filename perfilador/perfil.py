@@ -35,7 +35,8 @@ PISTAS_SENSIBLES = {
                       "tarjeta", "msisdn", "ticket", "serie", "cuenta", "cbu", "legajo", "password", "hash",
                       "hashed", "token", "secret", "clave"],
     "persona": ["nombre", "nombres", "apellido", "apellidos", "conductor", "chofer", "responsable", "dni",
-                "cuit", "cuil", "email", "mail", "correo", "telefono", "celular", "usuario", "firma"],
+                "cuit", "cuil", "email", "mail", "correo", "telefono", "celular", "usuario", "firma",
+                "username", "user", "login", "solicitante", "cargador", "retira", "agente"],
     "vehiculo": ["dominio", "patente", "placa"],
     "ubicacion": ["lat", "lon", "lng", "latitud", "longitud", "direccion", "domicilio", "calle", "coordenada",
                   "coordenadas", "ubicacion", "geo"],
@@ -499,12 +500,15 @@ def reemplazar_textos(perfil, reemplazos):
     columna, relaciones y valores de categorías. Solo cambia etiquetas: los porcentajes y
     estadísticos siguen siendo los mismos.
     """
-    patrones = [(re.compile(re.escape(viejo), re.IGNORECASE), nuevo) for viejo, nuevo in reemplazos.items()]
+    if not reemplazos:
+        return perfil
+    # Una sola pasada, probando primero los textos más largos: si uno contiene a otro no quedan
+    # híbridos, y un reemplazo no vuelve a reemplazarse
+    por_texto = {viejo.lower(): nuevo for viejo, nuevo in reemplazos.items()}
+    patron = re.compile("|".join(re.escape(v) for v in sorted(por_texto, key=len, reverse=True)), re.IGNORECASE)
 
     def texto(s):
-        for patron, nuevo in patrones:
-            s = patron.sub(nuevo, s)
-        return s
+        return patron.sub(lambda m: por_texto[m.group(0).lower()], s)
 
     def recorrer(x):
         if isinstance(x, dict):

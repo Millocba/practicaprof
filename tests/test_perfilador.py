@@ -323,3 +323,14 @@ def test_error_de_conexion_no_muestra_la_cadena(tmp_path):
     assert proceso.returncode != 0
     assert "clave_ficticia" not in proceso.stdout + proceso.stderr
     assert "No se pudo leer la base" in proceso.stdout + proceso.stderr
+
+
+def test_reemplazos_en_una_pasada_y_pistas_de_usuario():
+    from perfilador.perfil import reemplazar_textos, sensibilidad_por_nombre
+
+    perfil = {"base.tabla_ypf": ["CONTRATO X", "CONTRATO X LARGO", "Ypf Norte"]}
+    reemplazos = {"contrato x": "CONTRATO_1", "contrato x largo": "CONTRATO_2", "ypf": "proveedor_1",
+                  "proveedor_1": "NO_DEBE_APLICARSE"}
+    assert reemplazar_textos(perfil, reemplazos) == {
+        "base.tabla_proveedor_1": ["CONTRATO_1", "CONTRATO_2", "proveedor_1 Norte"]}
+    assert all(sensibilidad_por_nombre(n) == "persona" for n in ["username", "Solicitante", "Cargador", "login"])
