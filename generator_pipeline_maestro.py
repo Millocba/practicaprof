@@ -38,6 +38,9 @@ DIRECTORIOS_ESCENARIO = {
 
 # Seed para reproducibilidad
 SEED = 42
+# Versión de los datos que produce el generador: cambiarla cuando cambie lo que genera, así la
+# aplicación regenera los datos que tenga en disco de una versión anterior
+VERSION_GENERADOR = "2.0"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md)
 
 # Ventana temporal de los datos: consumos y solicitudes entre FECHA_INICIO y
 # FECHA_INICIO + DIAS_VENTANA. FECHA_REFERENCIA hace de "ahora" para la telemetría.
@@ -626,6 +629,7 @@ class GeneradorMaestro:
         self.anomalias = []
         self.casos_legitimos = []
         self.metadata = {
+            "version_generador": VERSION_GENERADOR,
             "fecha_generacion": datetime.now().isoformat(),
             "fecha_referencia": FECHA_REFERENCIA.isoformat(),
             "escenario": escenario,
@@ -2105,6 +2109,9 @@ class GeneradorMaestro:
 
 if __name__ == "__main__":
     import argparse
+
+    # La consola de Windows no siempre usa UTF-8: sin esto, los mensajes con acentos o emojis fallan
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
     parser = argparse.ArgumentParser(
         description="Pipeline Maestro - Generador de datos sintéticos",

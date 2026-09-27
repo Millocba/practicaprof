@@ -49,6 +49,13 @@ def directorio(escenario):
     return DIRECTORIOS[escenario]
 
 
+def _version_en_disco(carpeta):
+    try:
+        return json.loads((carpeta / "metadata.json").read_text(encoding="utf-8")).get("version_generador")
+    except (OSError, ValueError):
+        return None
+
+
 def asegurar_datos_maestro(escenario="didactico"):
     """Genera el dataset por defecto del escenario si todavía no existe.
 
@@ -56,18 +63,18 @@ def asegurar_datos_maestro(escenario="didactico"):
     cada página encuentra datos sin que haya que abrir primero el Generador. Con
     la misma semilla el resultado es siempre el mismo.
 
-    También regenera si a los datos en disco les falta algún archivo del escenario:
-    son de una versión anterior del generador.
+    También regenera si los datos en disco son de otra versión del generador (según
+    `metadata.json`) o les falta algún archivo del escenario.
 
     Devuelve True si generó datos en esta llamada.
     """
     carpeta = DIRECTORIOS[escenario]
-    if all((carpeta / archivo).exists() for archivo in ARCHIVOS_REQUERIDOS[escenario]):
-        return False
-
     if str(BASE_DIR) not in sys.path:
         sys.path.insert(0, str(BASE_DIR))
-    from generator_pipeline_maestro import GeneradorMaestro, SEED
+    from generator_pipeline_maestro import SEED, VERSION_GENERADOR, GeneradorMaestro
+
+    if all((carpeta / archivo).exists() for archivo in ARCHIVOS_REQUERIDOS[escenario])             and _version_en_disco(carpeta) == VERSION_GENERADOR:
+        return False
 
     with st.spinner(f"Generando el dataset {NOMBRES_ESCENARIO[escenario].lower()} por defecto (una sola vez)..."):
         resultado = GeneradorMaestro(

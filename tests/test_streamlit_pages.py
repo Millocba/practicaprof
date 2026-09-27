@@ -99,3 +99,19 @@ def test_analisis_h10_cuenta_contratos_mes():
     at.selectbox(key="hipotesis_analisis").set_value("H10").run()
     assert not at.exception
     assert any(m.label == "Contratos-mes con hallazgos" for m in at.metric)
+
+
+def test_datos_de_otra_version_del_generador_se_regeneran(tmp_path, monkeypatch):
+    import json
+
+    from generator_pipeline_maestro import VERSION_GENERADOR
+
+    monkeypatch.setitem(data_loader.DIRECTORIOS, "didactico", tmp_path)
+    monkeypatch.setattr(data_loader, "N_FLOTA_POR_DEFECTO", 30)
+    assert data_loader.asegurar_datos_maestro("didactico") is True           # disco vacío: genera
+    metadata = tmp_path / "metadata.json"
+    assert json.loads(metadata.read_text(encoding="utf-8"))["version_generador"] == VERSION_GENERADOR
+    assert data_loader.asegurar_datos_maestro("didactico") is False          # misma versión: no regenera
+    viejo = json.loads(metadata.read_text(encoding="utf-8")) | {"version_generador": "1.0"}
+    metadata.write_text(json.dumps(viejo), encoding="utf-8")
+    assert data_loader.asegurar_datos_maestro("didactico") is True           # otra versión: regenera
