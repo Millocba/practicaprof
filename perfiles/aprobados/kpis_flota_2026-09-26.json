@@ -1,0 +1,53 @@
+{
+  "tipo": "calibracion",
+  "fuente": "tablero de KPI de flota del sistema en uso (captura provista por el usuario)",
+  "leido": "2026-09-26",
+  "revision": {
+    "revisado": true,
+    "responsable": "Héctor",
+    "fecha": "2026-09-26",
+    "notas": "KPI agregados del tablero de flota; usados para estados y telemetría por estado"
+  },
+  "criterio": "solo agregados de la flota completa; totales redondeados a dos cifras significativas y proporciones con un decimal",
+  "flota_total_aprox": 6600,
+  "estado_pct": {
+    "en_servicio": 51.5,
+    "fuera_de_servicio": 12.7,
+    "baja": 35.8
+  },
+  "zona_pct": {
+    "capital": 46.9,
+    "interior": 53.1
+  },
+  "identificables_pct": 79.6,
+  "telemetria": {
+    "con_telemetria_pct": 48.9,
+    "por_estado_pct_con_telemetria": {
+      "en_servicio": 80.4,
+      "fuera_de_servicio": 47.0,
+      "baja": 4.3
+    },
+    "reparto_de_dispositivos_pct": {
+      "en_servicio": 84.7,
+      "fuera_de_servicio": 12.2,
+      "baja": 3.1
+    },
+    "por_zona_pct_con_telemetria": {
+      "capital": 51.7,
+      "interior": 46.4
+    },
+    "por_identificable_pct_con_telemetria": {
+      "identificables": 52.3,
+      "no_identificables": 35.7
+    }
+  },
+  "anio_modelo": {
+    "promedio": 2018.6,
+    "mediana": 2018,
+    "nota": "el padrón tiene 7,6% de años en 0; el tablero los excluye"
+  },
+  "completitud": {
+    "sin_direccion_general": 0,
+    "sin_dependencia": 0
+  }
+}
