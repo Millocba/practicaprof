@@ -13,8 +13,10 @@ import sys
 # Add utils to path
 utils_path = Path(__file__).parent / "utils"
 sys.path.insert(0, str(utils_path))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from ayudas import seccion
+from deteccion.reglas import normalizar_dominio  # noqa: E402
+from ayudas import seccion  # noqa: E402
 from data_loader import (
     NOMBRES_ESCENARIO,
     selector_escenario,
@@ -101,7 +103,7 @@ try:
         if not flota.empty:
             st.metric("Vehículos", f"{len(flota):,}")
             if "Estado" in flota.columns:
-                activos = (flota["Estado"] != "BAJA").sum()
+                activos = (~flota["Estado"].astype(str).str.contains("BAJA")).sum()
                 st.caption(f"{activos:,} no dados de baja")
         else:
             st.metric("Vehículos", "—")
@@ -121,8 +123,10 @@ try:
         if hay_datos and {"dominio"} <= set(consumo.columns) and {"Dominio"} <= set(flota.columns):
             vinculadas = consumo["dominio"].isin(flota["Dominio"]).sum()
             pct = vinculadas / len(consumo) * 100
+            normalizadas = normalizar_dominio(consumo["dominio"]).isin(set(normalizar_dominio(flota["Dominio"]))).sum()
             st.metric("Vinculación consumo ↔ flota", f"{pct:.1f}%")
-            st.caption(f"{vinculadas:,} de {len(consumo):,} transacciones")
+            st.caption(f"{vinculadas:,} de {len(consumo):,} transacciones; "
+                       f"{normalizadas / len(consumo):.1%} al normalizar el dominio")
         else:
             st.metric("Vinculación consumo ↔ flota", "—")
             st.caption("sin datos")
@@ -172,7 +176,7 @@ with col3:
     ### 🔍 3. Análisis por hipótesis
     Qué encuentran las reglas en los datos
     - Calidad de datos y vinculación
-    - Una pestaña por hipótesis (H1 a H9)
+    - Una vista por hipótesis (H1 a H11)
     - Antes y después: regla ingenua vs. con contexto
     """)
 
@@ -223,6 +227,15 @@ with col2:
     - Estado actual del proyecto
     - Bitácora de cambios
     - Descarga en .md o .zip
+    """)
+
+with col3:
+    st.markdown("""
+    ### 🔬 9. Perfil de fuentes
+    Qué le falta al generador
+    - Estructura y calidad, sin guardar datos
+    - Comparación con los datos sintéticos
+    - Informe de brechas con sugerencias
     """)
 
 # Status boxes (computed from the loaded data, not hardcoded)

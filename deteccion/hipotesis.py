@@ -16,6 +16,17 @@ MEJORA_MINIMA_F1 = 0.10
 # una línea irregular cuenta como una factura con problemas.
 HIPOTESIS = [
     {
+        "codigo": "H1",
+        "titulo": "Vinculación con la flota",
+        "enunciado": "Buscar el dominio tal como llega confunde un dominio escrito con espacios, guiones o "
+                     "minúsculas con uno inexistente; normalizarlo antes de vincular deja solo los "
+                     "dominios que no corresponden a ningún vehículo.",
+        "tipos": ["DOMINIO_INVALIDO"],
+        "reglas": [("dominio_sin_vinculo", "dominio tal como llega"),
+                   ("dominio_sin_vinculo_normalizado", "dominio normalizado")],
+        "contexto": "normalización del dominio",
+    },
+    {
         "codigo": "H2b",
         "titulo": "Retrocesos de odómetro",
         "enunciado": "Los retrocesos por un odómetro nuevo o por un error de tipeo generan falsas "
@@ -91,29 +102,59 @@ HIPOTESIS = [
     },
     {
         "codigo": "H8",
-        "titulo": "Cargas y solicitudes",
-        "enunciado": "Cruzar cada carga con las solicitudes detecta las que no tienen autorización o la "
-                     "superan; aceptar regularizaciones posteriores y la tolerancia de medición evita "
-                     "falsas alarmas.",
-        "tipos": ["CARGA_SIN_SOLICITUD", "CARGA_CON_SOLICITUD_RECHAZADA", "CARGA_SUPERA_AUTORIZADO"],
-        "reglas": [(["carga_sin_solicitud_previa", "litros_superan_autorizado"],
-                    "solicitud previa y litros autorizados exactos"),
-                   (["carga_sin_autorizacion", "supera_autorizado_con_tolerancia"],
-                    "acepta regularizaciones y 5% de tolerancia")],
-        "contexto": "solicitudes aprobadas y rechazadas",
+        "titulo": "Cargas y registro interno",
+        "enunciado": "El cruce diario por dominio, voraz y sin tolerancias, confunde las tarjetas personales y "
+                     "las rendiciones pendientes con cargas sin respaldo, y no ve los registros anulados, los "
+                     "desacuerdos de litros ni los excesos sobre lo autorizado; cruzar por dominio o persona y "
+                     "horario, con asignación óptima y tolerancias, los separa.",
+        "tipos": ["CARGA_SIN_REGISTRO", "ANULADA_CON_CARGA", "RENDIDA_SIN_CARGA", "DESACUERDO_DE_LITROS",
+                  "CARGA_SUPERA_AUTORIZADO"],
+        "reglas": [("cruce_por_dominio_y_dia", "cruce diario por dominio, voraz, sin tolerancias"),
+                   (["carga_sin_registro", "carga_de_registro_anulado", "rendida_sin_carga", "desacuerdo_de_litros",
+                     "supera_autorizado_con_tolerancia"],
+                    "dominio o persona y horario, asignación óptima, 0,5 L y 5% de tolerancia")],
+        "contexto": "registro interno completo: anulados, pendientes y tarjetas personales",
     },
     {
         "codigo": "H9",
         "titulo": "Conciliación de facturas",
-        "enunciado": "Comparar el total mensual facturado con el consumo registrado confunde desfases de "
-                     "corte y ajustes documentados, y no ve irregularidades chicas; conciliar la factura "
-                     "línea por línea contra las cargas las detecta.",
-        "tipos": ["TOTAL_INFLADO", "LINEA_SIN_CONSUMO", "LINEA_DUPLICADA", "SOBREPRECIO"],
-        "reglas": [("conciliacion_mensual", "total del mes vs. consumo del mes"),
-                   (["factura_no_concilia", "linea_sin_consumo", "linea_duplicada", "sobreprecio"],
-                    "encabezado vs. líneas y cada línea vs. su carga")],
+        "enunciado": "Comparar lo facturado a cada contrato en el mes con su consumo a precio del surtidor "
+                     "confunde el descuento de empresa, los desfases de corte y los ajustes documentados con "
+                     "diferencias, y no ve irregularidades chicas; la conciliación triple (deuda, PDF y "
+                     "consumo) y cada línea contra su carga las detectan.",
+        "tipos": ["TOTAL_INFLADO", "LINEA_SIN_CONSUMO", "LINEA_DUPLICADA", "SOBREPRECIO",
+                  "FACTURADA_A_PRECIO_DE_SURTIDOR", "DIFERENCIA_DEUDA_PDF", "PRODUCTO_NO_COMBUSTIBLE"],
+        "reglas": [("conciliacion_mensual", "facturado del mes vs. consumo del contrato a precio del surtidor"),
+                   (["factura_no_concilia", "pdf_no_concilia", "linea_sin_consumo", "linea_duplicada", "sobreprecio",
+                     "precio_de_surtidor", "producto_no_combustible"],
+                    "deuda vs. líneas, PDF vs. deuda y cada línea vs. su carga, a precio de empresa")],
         "contexto": "detalle de facturación",
         "nivel": "factura",
+    },
+    {
+        "codigo": "H10",
+        "titulo": "Cupo de los contratos",
+        "enunciado": "Comparar el consumo del mes con el tope marca como problema cada transferencia de saldo "
+                     "legítima y no ve las innecesarias; seguir el saldo diario con la proyección a fin de mes "
+                     "separa las transferencias justificadas de las que no, y encuentra las cargas con el saldo "
+                     "agotado.",
+        "tipos": ["CARGA_CON_CUPO_AGOTADO", "TRANSFERENCIA_SIN_NECESIDAD"],
+        "reglas": [("ejecucion_supera_tope", "consumo del mes contra el tope"),
+                   (["carga_con_saldo_agotado", "transferencia_no_justificada"],
+                    "saldo diario con transferencias y proyección a fin de mes")],
+        "contexto": "tope, transferencias y saldo diario de cada contrato",
+        "nivel": "contrato_mes",
+    },
+    {
+        "codigo": "H11",
+        "titulo": "Telemetría de los móviles de baja",
+        "enunciado": "Marcar todo móvil de baja con dispositivo confunde los aparatos ya retirados al depósito con "
+                     "los que siguen funcionando; mirar el grupo del dispositivo y su última transmisión deja solo "
+                     "los móviles que irían a desguace con el aparato activo.",
+        "tipos": ["DISPOSITIVO_ACTIVO_EN_BAJA"],
+        "reglas": [("baja_con_dispositivo", "móvil de baja con dispositivo asociado"),
+                   ("dispositivo_activo_en_baja", "fuera del grupo de depósito y con transmisión en la última semana")],
+        "contexto": "grupo del dispositivo y última transmisión",
     },
 ]
 
@@ -203,9 +244,8 @@ def contrastar_hipotesis(alertas, ground_truth, casos_legitimos, facturacion_det
 # Catálogo único para la app
 #
 # Las hipótesis de HIPOTESIS se contrastan contra el ground truth (escenario
-# realista). Las de HIPOTESIS_DESCRIPTIVAS completan el catálogo: H1 aplica a
-# ambos escenarios y H2 y H3a son las versiones del escenario didáctico, donde
-# no hay casos legítimos con los que contrastar.
+# realista). Las de HIPOTESIS_DESCRIPTIVAS son las versiones del escenario
+# didáctico (H1, H2 y H3a), donde no hay casos legítimos con los que contrastar.
 # ============================================================================
 
 HIPOTESIS_DESCRIPTIVAS = {
@@ -242,7 +282,7 @@ HIPOTESIS_DESCRIPTIVAS = {
 def hipotesis_del_escenario(escenario):
     """Hipótesis que aplican a un escenario, en el orden en que se presentan."""
     if escenario == "realista":
-        return [HIPOTESIS_DESCRIPTIVAS["H1"]] + HIPOTESIS
+        return HIPOTESIS
     return [HIPOTESIS_DESCRIPTIVAS[c] for c in ["H1", "H2", "H3a"]]
 
 

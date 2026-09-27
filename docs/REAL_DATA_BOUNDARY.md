@@ -45,6 +45,10 @@ El entorno del proyecto no recibe filas reales. Un futuro perfilador autorizado 
 7. Revocar la credencial temporal.
 8. Registrar fecha, responsable y versión del perfil, no sus datos de origen.
 
+## Herramienta
+
+El paquete `perfilador/` aplica estas reglas a archivos CSV o Excel: se ejecuta en la máquina donde están los archivos, los lee en memoria y escribe solo el perfil agregado en `perfiles/pendientes/`, que no se versiona. Un perfil pasa a `perfiles/aprobados/` únicamente con la revisión manual registrada (responsable y fecha). La página **Perfil de fuentes** de la aplicación solo acepta archivos cuando corre en la máquina local; en la aplicación publicada acepta perfiles ya generados. El procedimiento está en [perfiles/README.md](../perfiles/README.md).
+
 ## Criterio de detención
 
 Si una estadística permite reconocer una persona, activo, lugar o evento, no sale del entorno controlado. Si existe duda, se considera sensible.

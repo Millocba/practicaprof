@@ -69,3 +69,11 @@ notebooks/
 .tmp/
 *.bak
 archive/
+
+# Perfiles de fuentes sin revisar (solo se versionan los aprobados)
+perfiles/pendientes/
+
+# Bases de datos locales (se recrean desde los CSV con python -m base_datos cargar)
+*.db
+*.sqlite
+*.sqlite3

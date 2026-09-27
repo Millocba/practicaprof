@@ -82,7 +82,7 @@ def test_diccionario_describe_cada_tabla_generada(escenario, discos_vacios):
 def test_hipotesis_muestra_un_veredicto_por_hipotesis():
     at = abrir("pages/07_hipotesis.py", "realista")
     assert any("Se sostiene" in e.label or "No se sostiene" in e.label for e in at.expander)
-    assert len([e for e in at.expander if e.label.startswith(("✅", "❌"))]) == 9
+    assert len([e for e in at.expander if e.label.startswith(("✅", "❌"))]) == 12  # H1 a H11, con H2b, H2c y H3b
 
 
 def test_modelo_ml_realista_arma_la_cola_de_revision():
@@ -91,3 +91,27 @@ def test_modelo_ml_realista_arma_la_cola_de_revision():
     assert any(m.label.startswith("Encontradas revisando 50") for m in at.metric)
     assert any(m.label == "Facturas con hallazgos" for m in at.metric)
     assert len(at.dataframe) >= 4  # resumen, cola, vehículos y facturas
+
+
+def test_analisis_h10_cuenta_contratos_mes():
+    at = abrir("pages/05_analisis_por_hipotesis.py", "realista")
+    at.radio(key="vista_analisis").set_value("🔍 Por hipótesis").run()
+    at.selectbox(key="hipotesis_analisis").set_value("H10").run()
+    assert not at.exception
+    assert any(m.label == "Contratos-mes con hallazgos" for m in at.metric)
+
+
+def test_datos_de_otra_version_del_generador_se_regeneran(tmp_path, monkeypatch):
+    import json
+
+    from generator_pipeline_maestro import VERSION_GENERADOR
+
+    monkeypatch.setitem(data_loader.DIRECTORIOS, "didactico", tmp_path)
+    monkeypatch.setattr(data_loader, "N_FLOTA_POR_DEFECTO", 30)
+    assert data_loader.asegurar_datos_maestro("didactico") is True           # disco vacío: genera
+    metadata = tmp_path / "metadata.json"
+    assert json.loads(metadata.read_text(encoding="utf-8"))["version_generador"] == VERSION_GENERADOR
+    assert data_loader.asegurar_datos_maestro("didactico") is False          # misma versión: no regenera
+    viejo = json.loads(metadata.read_text(encoding="utf-8")) | {"version_generador": "1.0"}
+    metadata.write_text(json.dumps(viejo), encoding="utf-8")
+    assert data_loader.asegurar_datos_maestro("didactico") is True           # otra versión: regenera

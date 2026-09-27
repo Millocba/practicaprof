@@ -23,7 +23,8 @@ ESCENARIO_POR_DEFECTO = "realista"
 ARCHIVOS_REQUERIDOS = {
     "didactico": ["flota.csv", "consumo.csv", "ground_truth.csv", "diccionario.json"],
     "realista": ["flota.csv", "consumo.csv", "ground_truth.csv", "casos_legitimos.csv", "estaciones.csv",
-                 "telemetria_diaria.csv", "facturacion_detalle.csv", "diccionario.json"],
+                 "telemetria_diaria.csv", "facturacion_detalle.csv", "contratos.csv", "transferencias.csv",
+                 "diccionario.json"],
 }
 
 # Parámetros del dataset que se genera automáticamente si no hay datos
@@ -48,6 +49,13 @@ def directorio(escenario):
     return DIRECTORIOS[escenario]
 
 
+def _version_en_disco(carpeta):
+    try:
+        return json.loads((carpeta / "metadata.json").read_text(encoding="utf-8")).get("version_generador")
+    except (OSError, ValueError):
+        return None
+
+
 def asegurar_datos_maestro(escenario="didactico"):
     """Genera el dataset por defecto del escenario si todavía no existe.
 
@@ -55,18 +63,18 @@ def asegurar_datos_maestro(escenario="didactico"):
     cada página encuentra datos sin que haya que abrir primero el Generador. Con
     la misma semilla el resultado es siempre el mismo.
 
-    También regenera si a los datos en disco les falta algún archivo del escenario:
-    son de una versión anterior del generador.
+    También regenera si los datos en disco son de otra versión del generador (según
+    `metadata.json`) o les falta algún archivo del escenario.
 
     Devuelve True si generó datos en esta llamada.
     """
     carpeta = DIRECTORIOS[escenario]
-    if all((carpeta / archivo).exists() for archivo in ARCHIVOS_REQUERIDOS[escenario]):
-        return False
-
     if str(BASE_DIR) not in sys.path:
         sys.path.insert(0, str(BASE_DIR))
-    from generator_pipeline_maestro import GeneradorMaestro, SEED
+    from generator_pipeline_maestro import SEED, VERSION_GENERADOR, GeneradorMaestro
+
+    if all((carpeta / archivo).exists() for archivo in ARCHIVOS_REQUERIDOS[escenario])             and _version_en_disco(carpeta) == VERSION_GENERADOR:
+        return False
 
     with st.spinner(f"Generando el dataset {NOMBRES_ESCENARIO[escenario].lower()} por defecto (una sola vez)..."):
         resultado = GeneradorMaestro(
@@ -175,6 +183,18 @@ def load_telemetria_diaria(escenario="realista"):
     return _leer_csv("telemetria_diaria", escenario)
 
 
+@st.cache_data
+def load_contratos(escenario="realista"):
+    """Contratos con su tope mensual (solo escenario realista)."""
+    return _leer_csv("contratos", escenario)
+
+
+@st.cache_data
+def load_transferencias(escenario="realista"):
+    """Transferencias de saldo entre contratos (solo escenario realista)."""
+    return _leer_csv("transferencias", escenario)
+
+
 def load_dataset_deteccion(escenario):
     """Las tablas que usan la detección y la evaluación, como dict (None si no existen)."""
     def o_none(df):
@@ -191,6 +211,9 @@ def load_dataset_deteccion(escenario):
         "solicitudes": o_none(load_solicitudes(escenario)) if realista else None,
         "facturacion": o_none(load_facturacion(escenario)) if realista else None,
         "facturacion_detalle": o_none(load_facturacion_detalle(escenario)),
+        "contratos": o_none(load_contratos(escenario)) if realista else None,
+        "transferencias": o_none(load_transferencias(escenario)) if realista else None,
+        "telemetria": o_none(load_telemetria(escenario)) if realista else None,
     }
 
 

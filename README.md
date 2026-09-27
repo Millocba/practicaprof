@@ -87,23 +87,28 @@ Promedio de 5 semillas, 200 vehículos cada una.
 - En los saltos de odómetro (H2), comparar con el historial del propio vehículo detecta el 100% de los casos, contra el 25% de un umbral fijo.
 - Isolation Forest encuentra todas las anomalías de odómetro, pero solo el 76% de los excesos volumétricos: los vehículos con exceso forman un grupo denso que deja de parecer atípico.
 
-**Escenario realista: hipótesis.** Cada una compara una regla ingenua con una regla con contexto; se sostiene si el F1 mejora al menos 0,10. Las 9 se sostienen en las 5 semillas.
+**Escenario realista: hipótesis.** La flota está calibrada con el perfil agregado de las fuentes reales: 52% en servicio, 13% fuera de servicio y 36% en trámite de baja; telemetría en el 80% de los vehículos en servicio y casi ninguno de baja; sedanes, pick-ups y motos; cargas con mediana de 35 L. Cada hipótesis compara una regla ingenua con una regla con contexto; se sostiene si el F1 mejora al menos 0,10. Las 12 se sostienen en las 5 semillas.
 
 | | Hipótesis | F1 ingenua → con contexto | Falsas alarmas por casos legítimos |
 |---|---|---|---|
-| H2b | Distinguir un odómetro nuevo o un error de tipeo elimina las falsas alarmas de retroceso, sin perder adulteraciones leves | 0,67 → 1,00 | 20 → 0 |
-| H2c | Un salto sobre el ritmo habitual se confirma descartando errores de tipeo y cruzando con el GPS | 0,01 (umbral fijo) · 0,55 (historial) → 1,00 | 67 · 15 → 0 |
-| H3b | Solo el exceso volumétrico que aparece después indica un problema; el que existe desde el inicio es un tanque no registrado | 0,20 → 1,00 | 208 → 0 |
-| H4 | El fraccionamiento evade el control por transacción; lo revela la suma del día y el recorrido separa los viajes largos | 0,00 (por carga) · 0,84 (por día) → 0,99 | 22 → 0 |
-| H5 | Una carga sin recorrido que la justifique solo se ve con el rendimiento km/L frente al habitual | 0,00 → 0,61 | 0 → 0 |
+| H1 | Normalizar el dominio (mayúsculas, sin espacios ni guiones) antes de vincular con la flota deja solo los dominios que no corresponden a ningún vehículo; las tarjetas personales se identifican por la persona | 0,26 → 1,00 | 273 → 0 |
+| H2b | Distinguir un odómetro nuevo o un error de tipeo elimina las falsas alarmas de retroceso, sin perder adulteraciones leves | 0,65 → 0,94 | 23 → 0 |
+| H2c | Un salto sobre el ritmo habitual se confirma descartando errores de tipeo y cruzando con el GPS | 0,02 (umbral fijo) · 0,55 (historial) → 0,97 | 33 · 12 → 1 |
+| H3b | Solo el exceso volumétrico que aparece después indica un problema; el que existe desde el inicio es un tanque no registrado | 0,27 → 1,00 | 226 → 0 |
+| H4 | El fraccionamiento evade el control por transacción; lo revela la suma del día y el recorrido separa los viajes largos | 0,00 (por carga) · 0,86 (por día) → 0,93 | 18 → 2 |
+| H5 | Una carga sin recorrido que la justifique solo se ve con el rendimiento km/L frente al habitual | 0,00 → 0,64 | 0 → 1 |
 | H6 | Las cargas a vehículos de baja o fuera de servicio solo se detectan cruzando con el estado de la flota | 0,00 → 1,00 | — |
-| H7 | El recorrido del GPS distingue una tarjeta usada en otro lado de un viaje real | 0,58 → 0,89 | 43 → 5 |
-| H8 | Cruzar cargas con solicitudes detecta las no autorizadas o que superan lo autorizado; aceptar regularizaciones posteriores y la tolerancia del surtidor evita falsas alarmas | 0,63 → 0,98 | 90 → 0 |
-| H9 | Conciliar la factura línea por línea detecta cargas inexistentes, duplicadas, sobreprecios y totales inflados que la comparación de totales mensuales no ve o confunde con desfases de corte y ajustes (evaluada por factura) | 0,49 → 1,00 | 66 → 0 |
+| H7 | El recorrido del GPS distingue una tarjeta usada en otro lado de un viaje real | 0,61 → 0,91 | 41 → 5 |
+| H8 | El cruce diario por dominio de un sistema operativo, voraz y sin tolerancias, confunde las tarjetas personales y las rendiciones pendientes con cargas sin respaldo y no ve los registros anulados, los desacuerdos de litros ni los excesos; cruzar por dominio (el del vehículo de la tarjeta) o persona y horario, con asignación óptima y tolerancias, los separa | 0,17 → 1,00 | 385 → 0 |
+| H9 | Comparar lo facturado a cada contrato con su consumo a precio del surtidor confunde el descuento de empresa, los desfases de corte y los ajustes con diferencias; la conciliación triple (deuda, PDF y consumo) y cada línea contra su carga detectan cargas inexistentes, duplicadas, sobreprecios, cobros al precio del surtidor, renglones que no son combustible, deudas infladas y PDF que no coinciden (evaluada por factura) | 0,27 → 1,00 | 66 → 0 |
+| H10 | Comparar el consumo del mes con el tope confunde las transferencias de saldo legítimas con problemas y no ve las innecesarias; el saldo diario con la proyección a fin de mes separa unas de otras y encuentra las cargas con el saldo agotado (evaluada por contrato y mes) | 0,16 → 0,92 | 45 → 3 |
+| H11 | Marcar todo móvil de baja con dispositivo confunde los aparatos retirados al depósito con los que siguen funcionando; el grupo del dispositivo y su última transmisión dejan solo los móviles que irían a desguace con el aparato activo (pocos casos: 2 anomalías y unos 3 dispositivos en depósito por dataset) | 0,57 → 1,00 | 15 → 0 |
 
 - En H5 el GPS no mejora al odómetro, porque en esos vehículos el odómetro no está adulterado. La mayoría de sus falsos positivos son otras anomalías que también cargan sin recorrido (vehículos inactivos, cargas lejos, fraccionamiento).
 - El umbral fijo de saltos es inutilizable con uso realista: genera unas 400 falsas alarmas por dataset, porque un camión recorre 500 km en pocos días.
-- Las solicitudes no traen el número de carga: se emparejan por vehículo con una asignación óptima (método húngaro) por fecha y litros. Con un emparejamiento simple, una solicitud "se la llevaba" otra carga cercana y H8 no se sostenía.
+- En H1, el 0,5% de las cargas trae el dominio escrito de otra forma, la ganancia que muestra la fuente real al normalizar (`za123bc`, `ZA 123 BC`, `ZA-123-BC`): la vinculación exacta las confunde con dominios inválidos. El registro interno trae la fecha en `DD/MM/AAAA` y el reporte en `AAAA-MM-DD`, como en la fuente: cada formato se interpreta por separado.
+- En H10, cada tarjeta pertenece a uno de seis contratos con tope mensual. Dos veces por semana se proyecta el consumo a fin de mes y, si no alcanza, se transfiere saldo desde el contrato al que más le sobra (unas 5 transferencias por mes). La fuente real no registra las transferencias; su frecuencia y su margen son supuestos del diseño.
+- El registro interno (pedido y rendición de cada carga, como en la fuente) no comparte ningún identificador con el reporte del proveedor. La regla ingenua de H8 reproduce el cruce de un sistema operativo: por dominio y día, cada pedido toma la carga más cercana, sin tolerancias. La regla con contexto usa el dominio del vehículo dueño de la tarjeta (o la persona, si la tarjeta es personal), una ventana de 3 horas antes a media hora después y una asignación óptima (método húngaro) que prefiere pedidos no anulados y con los mismos litros.
 - La comparación de totales mensuales (H9) solo detecta 69% de las facturas con irregularidades: un sobreprecio o una línea de más cambian menos del 1% del total, mientras que los desfases de corte y los ajustes documentados sí superan ese umbral.
 
 **Escenario realista: priorización de la revisión.** Qué encuentra cada método según cuántas cargas se revisan, de unas 67 anomalías de comportamiento en las cargas por dataset (prevalencia 1,3%). Con 50 revisiones, el máximo posible es 75%.
@@ -142,6 +147,8 @@ streamlit run streamlit_app/app.py              # abre la aplicación
 - La aplicación genera los datos por su cuenta si no existen.
 - `datasets/` está excluido de Git: se versionan el generador, las pruebas y la configuración, y los datos se recrean con la semilla.
 
+Para mejorar el generador a partir de fuentes externas sin traer sus datos al proyecto, el [perfilador](perfiles/README.md) describe su estructura y calidad (tipos, formatos, faltantes, relaciones) de forma agregada y la compara con los datos sintéticos: `python -m perfilador perfilar archivo.xlsx`.
+
 Cada corrida del generador escribe también un `diccionario.json` con el grano, las columnas y las relaciones de las tablas generadas. El detalle de cada archivo, las relaciones entre tablas (con diagrama) y los tipos de anomalía están en el [diccionario de datos](docs/DICCIONARIO_DATOS.md).
 
 ## Estructura
@@ -149,6 +156,9 @@ Cada corrida del generador escribe también un `diccionario.json` con el grano, 
 ```text
 generator_pipeline_maestro.py   generador oficial
 deteccion/                      reglas, hipótesis, modelos de ML, priorización y evaluación
+base_datos/                     base SQLite del escenario realista: migraciones, carga y vistas de control
+perfilador/                     perfil agregado de fuentes y comparación con los datos sintéticos
+perfiles/                       perfiles aprobados e informes de brechas
 streamlit_app/                  aplicación (páginas y carga de datos)
 tests/                          tests del generador, la detección y la app
 docs/                           gobierno, arquitectura, diccionario, sprints y análisis
@@ -166,6 +176,7 @@ legacy/                         generadores, notebooks y etapa inicial anteriore
 - [Entorno de desarrollo](docs/DEVELOPMENT.md)
 - [Diccionario de datos del pipeline maestro](docs/DICCIONARIO_DATOS.md)
 - [Límite de metadatos reales](docs/REAL_DATA_BOUNDARY.md)
+- [Base de datos](docs/BASE_DE_DATOS.md)
 - [Evolución de los generadores](legacy/EVOLUCION.md)
 - [Registro del Sprint 1](docs/sprints/sprint-1/README.md)
 - [Estado actual](docs/ESTADO_ACTUAL.md) (con valores vivos en la página Documentación de la aplicación)

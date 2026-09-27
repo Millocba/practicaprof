@@ -1,0 +1,56 @@
+# Perfiles de fuentes
+
+Perfiles **agregados** de fuentes de datos externas: estructura y calidad, sin filas ni valores sueltos. Sirven para comparar esas fuentes con lo que produce el generador y decidir qué agregarle. Siguen las reglas de [REAL_DATA_BOUNDARY.md](../docs/REAL_DATA_BOUNDARY.md).
+
+| Carpeta | Contenido | ¿Se versiona? |
+|---|---|---|
+| `pendientes/` | Perfiles recién generados, todavía sin revisar | No (está en `.gitignore`) |
+| `aprobados/` | Perfiles revisados por una persona responsable, con su nombre y la fecha, y sus informes de brechas | Sí |
+
+## Qué contiene un perfil
+
+- **Por tabla:** filas en bandas (por ejemplo, "1.000–9.999"), cantidad de columnas, porcentaje de filas duplicadas y columnas candidatas a clave.
+- **Por columna:** tipo, porcentaje de faltantes, cardinalidad en bandas, formatos (`ABC123` → `AAA999`) con su frecuencia y defectos de calidad (espacios extra, vacíos escritos como texto, números guardados como texto…).
+- **Numéricas:** cuantiles con dos cifras significativas, sin mínimos ni máximos.
+- **Fechas:** formatos y cantidad por mes.
+- **Categorías:** solo las que tienen 20 casos o más; el resto se agrupa como `OTRA_CATEGORIA_SINTETIZABLE`.
+- **Columnas sensibles** (identificadores, personas, patentes, ubicaciones, texto libre): se detectan por el nombre o el formato y se describen **solo por su formato**, sin valores, cuantiles ni categorías.
+- **Tablas chicas** (menos de 20 filas, como un catálogo de contratos): sin estadísticas; de las columnas numéricas se informa cómo se reparte el total, en porcentajes ordenados sin asociarlos a ninguna fila, y el total redondeado. Una tabla vacía figura con `0` filas.
+- **Controles que cruzan tablas** (`controles`): conteos por categoría calculados junto a los datos, con los conteos de 1 a 19 informados como `1–19`. Hoy: `telemetria_vs_estado`, móviles por estado según tengan dispositivo, si está en el grupo de depósito (baja / reemplazos) y si transmitió en la última semana; la alerta cuenta los móviles en baja con el dispositivo fuera del depósito y transmitiendo.
+- **Relaciones:** qué porcentaje de los valores de una columna existe en la clave de otra tabla, exacto y después de normalizar (mayúsculas, sin espacios ni guiones).
+
+## Procedimiento
+
+1. **Generar**, junto a los datos (los archivos se leen en memoria y no se copian):
+   ```bash
+   python -m perfilador perfilar archivo1.xlsx archivo2.csv --origen "fuentes reales"
+   ```
+   O desde la página **🔬 Perfil de fuentes** con la app corriendo en la máquina local. En la app publicada esa opción está deshabilitada, porque los archivos viajarían a un servidor externo.
+   Se le pueden pasar carpetas: se recorren completas y se leen solo los CSV, los Excel y las bases SQLite (`.db`, `.sqlite`: cada tabla, abierta en modo solo lectura). Los archivos con las mismas columnas (uno por día, copias descargadas varias veces, exportaciones del mismo padrón) forman una sola tabla, que se llama como el nombre de archivo más frecuente del grupo sin copias ni fechas: `ReporteConsumos (12)` y `consumo_2025-09-01` quedan como `ReporteConsumos` y `consumo`. Así el perfil no guarda fechas ni otros números de los nombres.
+
+   - Si los nombres son solo identificadores (UUID), la tabla se llama `tabla_de_N_columnas`.
+   - Cada grupo se une como **versiones** o como **lotes**. Son versiones cuando la unión de las claves apenas supera (hasta un 10%) al archivo más grande, como un padrón exportado varias veces: se perfila solo el más reciente, para no multiplicar las filas. Si no, son lotes: se apilan del más reciente al más antiguo y se descartan los registros cuya clave ya vino en un archivo más reciente (exportaciones que se superponen). El perfil registra cuántos archivos tiene cada tabla, cómo se unieron y qué porcentaje de filas se descartó por repetirse entre archivos.
+   - Si un nombre de tabla incluye el de una organización o persona, se reemplaza al generar con `--renombrar "nombre=nuevo"`. Para un texto que aparece en cualquier parte del perfil (nombres de tabla o columna, relaciones o valores de categorías, como el nombre de un proveedor), `--reemplazar "texto=nuevo"`, sin distinguir mayúsculas. Editar el JSON a mano obliga a cambiarlo también en las relaciones.
+
+   **Si los archivos están en un servidor**, el perfilador se ejecuta allí, en una terminal del servicio, y solo sale el perfil:
+   ```bash
+   mkdir -p /tmp/p/perfilador && cd /tmp/p
+   for f in __init__ __main__ perfil comparar; do
+     curl -fsSL https://raw.githubusercontent.com/Millocba/practicaprof/dev-hector/perfilador/$f.py -o perfilador/$f.py
+   done
+   python -m perfilador perfilar /ruta/de/los/archivos --origen "fuentes reales" --salida /tmp/perfil.json
+   ```
+   Para sumar las tablas de la base de datos del servidor, se agrega `--base-url-env VARIABLE` con el nombre de la variable de entorno que tiene la cadena de conexión (no su valor): se leen todas las tablas en una transacción de solo lectura, con el prefijo `base.`, y la cadena no se muestra ni se guarda. Necesita `sqlalchemy` y el conector de la base (por ejemplo `pymysql`), que suelen estar en el servidor de la aplicación.
+
+   Necesita Python con `pandas` y `openpyxl`. Solo lee los archivos y escribe el perfil en `/tmp`, fuera de la carpeta de datos. Después se copia el perfil a `perfiles/pendientes/` y se borra `/tmp/p` y `/tmp/perfil.json` del servidor.
+2. **Revisar** el perfil en `pendientes/`: que no incluya nombres, identificadores, lugares ni combinaciones que permitan reconocer una entidad. Si hay dudas, no se aprueba.
+3. **Aprobar**, registrando quién lo revisó:
+   ```bash
+   python -m perfilador aprobar perfiles/pendientes/perfil_AAAA-MM-DD.json --responsable "Nombre" --notas "..."
+   ```
+4. **Comparar** con los datos sintéticos, desde la página o con:
+   ```bash
+   python -m perfilador comparar perfiles/aprobados/perfil_AAAA-MM-DD.json --escenario realista
+   ```
+   Se escribe `perfil_AAAA-MM-DD_brechas.md` junto al perfil, con cada brecha y su sugerencia para el generador.
+5. **Commitear** el perfil aprobado y su informe.

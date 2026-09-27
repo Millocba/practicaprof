@@ -25,7 +25,7 @@ from data_loader import (  # noqa: E402
     selector_escenario,
 )
 from deteccion.hipotesis import describir_regla, hipotesis_del_escenario, reglas_de  # noqa: E402
-from deteccion.reglas import CAMPOS_OBLIGATORIOS, ejecutar_reglas  # noqa: E402
+from deteccion.reglas import CAMPOS_OBLIGATORIOS, ejecutar_reglas, normalizar_dominio  # noqa: E402
 
 st.set_page_config(page_title="Análisis por hipótesis", page_icon="🔍", layout="wide")
 
@@ -60,13 +60,16 @@ st.caption(f"Escenario: **{NOMBRES_ESCENARIO[escenario]}** (se cambia en la barr
 
 
 @st.cache_data
-def calcular_alertas(flota, consumo, estaciones, telemetria_diaria, solicitudes, facturacion, facturacion_detalle):
+def calcular_alertas(flota, consumo, estaciones, telemetria_diaria, solicitudes, facturacion, facturacion_detalle,
+                     contratos=None, transferencias=None, telemetria=None):
     return ejecutar_reglas(flota, consumo, estaciones, telemetria_diaria, solicitudes, facturacion,
-                           facturacion_detalle)
+                           facturacion_detalle, contratos=contratos, transferencias=transferencias,
+                           telemetria=telemetria)
 
 
 alertas = calcular_alertas(flota, consumo, datos["estaciones"], datos["telemetria_diaria"], datos["solicitudes"],
-                           facturas, detalle_factura)
+                           facturas, detalle_factura, datos["contratos"], datos["transferencias"],
+                           datos["telemetria"])
 catalogo = hipotesis_del_escenario(escenario)
 
 
@@ -104,7 +107,7 @@ fecha_de_carga = pd.to_datetime(consumo.set_index("id")["fecha"])
 def mostrar_resumen():
     seccion(
         "Resumen",
-        ayuda="Las nueve hipótesis en una tabla: qué dice cada una, cuántas alertas produce la "
+        ayuda="Las hipótesis del escenario en una tabla: qué dice cada una, cuántas alertas produce la "
               "regla ingenua y cuántas quedan con la regla que usa más contexto. Sirve para "
               "elegir por dónde empezar. La última columna avisa si el conteo va en **facturas** "
               "o en **registros**, porque no es lo mismo: una factura con tres líneas "
@@ -120,7 +123,7 @@ def mostrar_resumen():
             "Regla ingenua": describir_regla(ingenua) if len(h["reglas"]) > 1 else "—",
             "Marcadas (ingenua)": f"{n_ingenua:,}" if len(h["reglas"]) > 1 else "—",
             "Regla con contexto": describir_regla(contexto), "Marcadas (con contexto)": n_contexto,
-            "Unidad": "facturas" if h.get("nivel") == "factura" else "registros",
+            "Unidad": {"factura": "facturas", "contrato_mes": "contratos-mes"}.get(h.get("nivel"), "registros"),
         })
     resumen = pd.DataFrame(filas)
     st.dataframe(resumen, use_container_width=True, hide_index=True)
@@ -187,6 +190,7 @@ def mostrar_hipotesis(h):
     st.markdown(f"**Hipótesis.** {h['enunciado']}")
     st.caption(f"Contexto que usa: {h['contexto']}.")
     por_factura = h.get("nivel") == "factura"
+    por_contrato = h.get("nivel") == "contrato_mes"
     reglas_contexto = reglas_de(h["reglas"][-1][0])
     hallazgos = alertas[alertas["regla"].isin(reglas_contexto)]
     ids = set(hallazgos["id_registro"])
@@ -200,6 +204,11 @@ def mostrar_hipotesis(h):
         col1.metric("Facturas con hallazgos", f"{len(facturas_marcadas)} de {len(facturas)}")
         col2.metric("Líneas irregulares", len(ids & set(importe.index)))
         col3.metric("Importe de esas líneas", f"${importe.reindex(list(ids & set(importe.index))).sum():,.0f}")
+    elif por_contrato:
+        transferencias = datos["transferencias"]
+        col1.metric("Contratos-mes con hallazgos", len(ids))
+        col2.metric("Contratos involucrados", len({i.split("|")[0] for i in ids}))
+        col3.metric("Transferencias de saldo", len(transferencias) if transferencias is not None else 0)
     else:
         vehiculos = {vehiculo_de_carga.get(i) for i in ids} - {None}
         col1.metric("Cargas marcadas", f"{len(ids):,}")
@@ -221,7 +230,7 @@ def mostrar_hipotesis(h):
             st.caption("Contado en facturas: una línea irregular cuenta como su factura.")
         st.dataframe(pasos, use_container_width=True, hide_index=True)
         antes, despues = pasos["Marcadas"].iloc[0], pasos["Marcadas"].iloc[-1]
-        unidad = "facturas" if por_factura else "registros"
+        unidad = "facturas" if por_factura else "contratos-mes" if por_contrato else "registros"
         if antes > despues:
             st.markdown(f"Con contexto se descartan **{antes - despues:,}** de las **{antes:,}** {unidad} que "
                         f"marcaría la regla ingenua ({(antes - despues) / antes:.0%}).")
@@ -238,15 +247,19 @@ def mostrar_hipotesis(h):
                   "aparecer solo en el consumo y no en la telemetría, y esa diferencia es la que "
                   "permite detectarla sin adivinar.")
         dominios = set(flota["Dominio"])
+        normalizados = set(normalizar_dominio(flota["Dominio"]))
         fuentes = [("⛽ Consumo → flota", consumo["dominio"]),
                    ("📡 Telemetría → flota", telemetria["Placa"] if not telemetria.empty else pd.Series(dtype=str)),
                    ("📋 Solicitudes → flota", solicitudes["dominio"] if not solicitudes.empty else pd.Series(dtype=str))]
         vinculos = pd.DataFrame([{"Fuente": nombre, "Registros": len(serie),
-                                  "Vinculados": int(serie.isin(dominios).sum()),
-                                  "% vinculado": serie.isin(dominios).mean() if len(serie) else float("nan")}
+                                  "% vinculado tal como llega": serie.isin(dominios).mean() if len(serie) else float("nan"),
+                                  "% vinculado normalizado": (normalizar_dominio(serie).isin(normalizados).mean()
+                                                              if len(serie) else float("nan"))}
                                  for nombre, serie in fuentes])
-        st.dataframe(vinculos.style.format({"% vinculado": "{:.1%}"}, na_rep="—"),
+        st.dataframe(vinculos.style.format({"% vinculado tal como llega": "{:.1%}",
+                                            "% vinculado normalizado": "{:.1%}"}, na_rep="—"),
                      use_container_width=True, hide_index=True)
+        st.caption("Normalizado: en mayúsculas y sin espacios, guiones ni puntos.")
 
     # Hallazgos
     seccion(
@@ -258,7 +271,7 @@ def mostrar_hipotesis(h):
     if hallazgos.empty:
         st.success("✅ Las reglas no encontraron casos en estos datos.")
         return
-    if por_factura:
+    if por_factura or por_contrato:
         por_regla = hallazgos.groupby("regla")["id_registro"].nunique().reset_index(name="Hallazgos")
         fig = px.bar(por_regla, x="regla", y="Hallazgos", text_auto=True, height=320, labels={"regla": ""})
     else:

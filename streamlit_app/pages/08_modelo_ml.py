@@ -166,7 +166,7 @@ def pagina_realista():
             "- **Reglas ingenuas**: litros > tanque, cualquier retroceso, suma del día > tanque, carga lejos "
             "de la zona habitual… Marcan o no marcan.\n"
             "- **Reglas con contexto**: las de la página *Hipótesis* (historial, estado de la flota, GPS, "
-            "solicitudes).\n"
+            "registro interno).\n"
             "- **Isolation Forest**: no supervisado; ordena por rareza sin ver ninguna etiqueta.\n"
             "- **Modelo supervisado** (Random Forest): entrenado con datasets de *otras* semillas, como si "
             "aprendiera de auditorías anteriores ya resueltas y se aplicara al período actual.\n"

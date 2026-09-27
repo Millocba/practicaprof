@@ -37,12 +37,16 @@ flowchart LR
   consumo -->|"dominio (N:1)"| flota
   consumo -->|"numero_tarjeta (N:1)"| flota
   consumo -->|"estacion (N:1)"| estaciones
+  consumo -->|"contrato (N:1)"| contratos
+  flota -->|"NumeroContrato (N:1)"| contratos
+  transferencias -->|"contrato_origen (N:1)"| contratos
+  transferencias -->|"contrato_destino (N:1)"| contratos
   solicitudes -->|"vehiculo_id (N:1)"| flota
-  solicitudes -.->|"vehiculo_id + fecha_solicitud + litros_autorizados (1:1)"| consumo
+  solicitudes -.->|"dominio + fecha + hora (1:1)"| consumo
   telemetria -->|"Placa (N:1)"| flota
   telemetria_diaria -->|"Placa (N:1)"| telemetria
   facturacion -->|"proveedor (N:1)"| estaciones
-  facturacion_detalle -.->|"numero_factura (N:1)"| facturacion
+  facturacion_detalle -->|"numero_factura (N:1)"| facturacion
   facturacion_detalle -->|"referencia_consumo (N:1)"| consumo
   ground_truth -->|"id_registro (N:1)"| consumo
   ground_truth -->|"id_registro (N:1)"| facturacion
@@ -50,7 +54,6 @@ flowchart LR
   casos_legitimos -->|"id_registro (N:1)"| consumo
   casos_legitimos -->|"id_registro (N:1)"| facturacion
   casos_legitimos -->|"id_registro (N:1)"| facturacion_detalle
-  facturacion -.->|"periodo (1:N)"| consumo
   classDef evaluacion fill:#fdf1dc,stroke:#c9a15a
   class ground_truth,casos_legitimos evaluacion
 ```
@@ -61,16 +64,20 @@ flowchart LR
 | `consumo` | `dominio` | `flota` (`Dominio`) | N:1 | ambos | se rompe en DOMINIO_INVALIDO |
 | `consumo` | `numero_tarjeta` | `flota` (`NumeroTarjeta`) | N:1 | ambos | — |
 | `consumo` | `estacion` | `estaciones` (`codigo`) | N:1 | realista | — |
+| `consumo` | `contrato` | `contratos` (`indice`) | N:1 | realista | cada carga descuenta del saldo del mes |
+| `flota` | `NumeroContrato` | `contratos` (`indice`) | N:1 | realista | — |
+| `transferencias` | `contrato_origen` | `contratos` (`indice`) | N:1 | realista | — |
+| `transferencias` | `contrato_destino` | `contratos` (`indice`) | N:1 | realista | — |
 | `solicitudes` | `vehiculo_id` | `flota` (`Matricula`) | N:1 | ambos | — |
-| `solicitudes` | `vehiculo_id + fecha_solicitud + litros_autorizados` | `consumo` (`vehiculo_id + fecha + litros`) | 1:1 | realista | sin clave: se empareja por vehículo, fecha y litros |
+| `solicitudes` | `dominio + fecha + hora` | `consumo` (`dominio + fecha + hora`) | 1:1 | realista | sin clave común: se cruza por dominio y horario; en las tarjetas personales, por solicitante y conductor |
 | `telemetria` | `Placa` | `flota` (`Dominio`) | N:1 | ambos | uno por vehículo en el realista |
 | `telemetria_diaria` | `Placa` | `telemetria` (`Placa`) | N:1 | realista | — |
+| `facturacion` | `periodo` | `consumo` (`fecha (mes)`) | 1:N | didactico | suma de las cargas del mes |
 | `facturacion` | `proveedor` | `estaciones` (`marca`) | N:1 | realista | — |
 | `facturacion_detalle` | `numero_factura` | `facturacion` (`numero_factura`) | N:1 | realista | la suma de las líneas es el total (salvo TOTAL_INFLADO) |
 | `facturacion_detalle` | `referencia_consumo` | `consumo` (`id`) | N:1 | realista | se rompe en LINEA_SIN_CONSUMO; dos líneas en LINEA_DUPLICADA |
-| `ground_truth` | `id_registro` | `consumo / facturacion / facturacion_detalle` (`id`) | N:1 | ambos | según la columna tabla |
-| `casos_legitimos` | `id_registro` | `consumo / facturacion / facturacion_detalle` (`id`) | N:1 | realista | según la columna tabla |
-| `facturacion` | `periodo` | `consumo` (`fecha (mes)`) | 1:N | didáctico | suma de las cargas del mes |
+| `ground_truth` | `id_registro` | `consumo` / `facturacion` / `facturacion_detalle` (`id`) | N:1 | ambos | según la columna tabla; en tabla contrato_mes, el id es CTO-N|AAAA-MM |
+| `casos_legitimos` | `id_registro` | `consumo` / `facturacion` / `facturacion_detalle` (`id`) | N:1 | realista | según la columna tabla; en tabla contrato_mes, el id es CTO-N|AAAA-MM |
 
 En el escenario didáctico, `ground_truth` solo referencia cargas (`consumo`).
 
@@ -196,7 +203,7 @@ Las siguientes incoherencias **no son anomalías inyectadas** y no figuran en el
 - `litros_autorizados` puede superar a `litros_solicitados`, porque ambos se generan por separado.
 - El odómetro de telemetría no se relaciona con el de consumo.
 - Hay una sola factura por mes para toda la flota; no se inyectan anomalías de facturación.
-- La telemetría siempre apunta a dominios válidos, así que la vinculación de dispositivos (H1) es del 100%.
+- La telemetría siempre apunta a dominios válidos, así que la vinculación de dispositivos (H1) es del 100%. En el escenario realista, el 2% de las cargas trae el dominio con otro formato (ver *Formatos de origen*).
 
 ## Escenario realista
 
@@ -210,32 +217,41 @@ Cada vehículo se simula día por día desde un perfil propio que no forma parte
 |---|---|---|
 | `flota.csv` | un vehículo | 200 |
 | `estaciones.csv` | una estación de servicio | 65 (40 en la zona de operación, 25 sobre rutas) |
-| `telemetria.csv` | un dispositivo GPS | 176 (uno por vehículo, 88% de la flota) |
-| `telemetria_diaria.csv` | un dispositivo y un día | ~46.000 (3% de los días sin señal) |
-| `consumo.csv` | una carga de combustible | ~5.200 (unas 25 por vehículo) |
-| `solicitudes.csv` | una solicitud de combustible | ~5.600 (una por carga, más rechazadas y pendientes) |
-| `facturacion.csv` | una factura mensual de un proveedor | 45 (5 proveedores × 9 meses) |
-| `facturacion_detalle.csv` | una línea de factura | ~5.200 (una por carga facturada, más ajustes) |
-| `ground_truth.csv` | una anomalía inyectada | ~145 |
-| `casos_legitimos.csv` | un caso legítimo que parece anomalía | ~180 |
+| `telemetria.csv` | un dispositivo GPS | ~100 (80% de los vehículos en servicio, 47% de los fuera de servicio, casi ninguno de baja) |
+| `telemetria_diaria.csv` | un dispositivo y un día | ~26.000 (3% de los días sin señal) |
+| `consumo.csv` | una carga del reporte del proveedor | ~3.200 (los vehículos fuera de servicio o de baja dejan de cargar; las cargas en otra red solo están en el registro interno) |
+| `solicitudes.csv` | un pedido del registro interno | ~3.400 (uno por carga, más los de estaciones de otra red y los anulados) |
+| `facturacion.csv` | una factura del proveedor por contrato, mes y familia de combustible | ~105 (6 contratos × 2 familias × 9 meses) |
+| `facturacion_detalle.csv` | una línea de factura | ~3.400 (una por carga facturada, más ajustes) |
+| `contratos.csv` | un contrato de abastecimiento | 6, con su tope mensual en pesos |
+| `transferencias.csv` | una transferencia de saldo entre contratos | ~50 (unas 5 por mes) |
+| `ground_truth.csv` | una anomalía inyectada | ~125 |
+| `casos_legitimos.csv` | un caso legítimo que parece anomalía | ~200 |
 
 ### Diferencias con el escenario didáctico
 
 | Tabla | Columna | En el escenario realista |
 |---|---|---|
-| flota | `Estado` | 75% EN SERVICIO, 10% EN REPARACION, 5% FUERA DE SERVICIO, 10% BAJA |
-| flota | `CapacidadTanque` | Según el tipo: moto 10–18 L, sedán 45–60, pick-up 70–80, camioneta 60–80, utilitario 55–70, ambulancia 70–90, camión 150–300, bomberos 150–250 |
-| flota | `TipoCombustible` | Las motos siempre NAFTA |
-| flota | `LimiteLitros` | 3 a 6 tanques |
+| flota | `Estado` | Calibrado con la fuente: 51,5% EN SERVICIO, 12,7% FUERA DE SERVICIO, 35,8% TRAMITE EN BAJA. De los que no están en servicio, parte cambió de estado durante el período (40% de los fuera de servicio, 15% de los de baja) y el resto ya estaba así antes y no carga |
+| flota | `SubEstado` | Motivo de fuera de servicio (problema de motor, batería, siniestro…) o etapa del trámite de baja; vacío si está en servicio |
+| flota | `Dominio` | Formatos públicos marcados como sintéticos (empiezan con Z, serie no asignada): autos desde 2016 `ZA123BC`, anteriores `ZZA123`, motos `Z123ABC` |
+| flota | `TipoVehiculo` / `Marca` | 37% sedán, 36% pick-up, 25% moto, 1% utilitario, 1% camión; marcas según el tipo |
+| flota | `Año` / `Identificable` | Año con moda en 2020 (mediana ~2018); 80% identificables |
+| flota | `CapacidadTanque` | Según el tipo: moto 10–18 L, sedán 45–60, pick-up 70–80, utilitario 55–70, camión 150–300 |
+| flota | `TipoCombustible` | Motos NAFTA; sedanes 80% NAFTA; pick-ups 80% GASOIL; utilitarios y camiones GASOIL (62% NAFTA en total) |
+| flota | `NumeroContrato` / `Cupo` (nuevas) | Contrato de la tarjeta, 1 a 6; litros por carga (la capacidad del tanque) |
+| flota | `LimiteLitros` / `LimiteSaldo` | Límites mensuales de la tarjeta, fijados al registrarla: 15 a 35 tanques y su valor |
 | flota | `FechaEstado` (nueva) | Fecha del último cambio a un estado distinto de EN SERVICIO; vacía si está en servicio. El vehículo deja de usarse desde esa fecha |
 | consumo | `estacion` | Código de `estaciones.csv` (`EST-NNN`) |
-| consumo | `producto` | Según el combustible: GASOIL o INFINIA DIESEL; NAFTA, SUPER o INFINIA; GLP |
+| consumo | `producto` | 99% premium: INFINIA DIESEL o INFINIA; el resto GASOIL o SUPER |
 | consumo | `precio_unitario` | Precio base del producto con un aumento del 2% mensual |
 | consumo | `litros` / `odometro` | Resultan de la simulación: el odómetro avanza según los km recorridos y los litros reponen lo consumido |
+| consumo | `hora` / `tipo_identificacion` / `contrato` (nuevas) | Hora de la carga; PATENTE o DNI (tarjeta personal, sin dominio); contrato de la tarjeta |
 | telemetria | `Odometro` | km acumulados del vehículo al final del período |
-| solicitudes | todas | Coherentes con las cargas: cada carga tiene una solicitud APROBADA del mismo vehículo 0 a 2 días antes, por el 100% al 125% de los litros cargados. Además, un 8% de solicitudes RECHAZADA o PENDIENTE que no terminan en carga (`litros_autorizados` = 0) |
-| facturacion | `proveedor` (nueva) | Marca de la estación: cada proveedor emite una factura por mes |
-| facturacion | `total_monto` | Suma de las líneas de la factura (salvo en las anomalías `TOTAL_INFLADO`) |
+| telemetria | `Grupo` (nueva) | Grupo de la dependencia del móvil, o `BAJA / REEMPLAZOS` si el dispositivo está en depósito |
+| solicitudes | todas | Registro interno: pedido, rendición con ticket, anulaciones y estaciones de otra red (ver *Registro interno*) |
+| facturacion | `contrato` / `producto` / `total_pdf` / `vencimiento` (nuevas) | Una factura por contrato, mes y familia; total del PDF (vacío si no se cargó); vencimiento a 15 días (ver *Facturación*) |
+| facturacion | `total_monto` | Deuda: suma de las líneas a precio de empresa (salvo en las anomalías `TOTAL_INFLADO`) |
 
 ### estaciones.csv
 
@@ -287,10 +303,11 @@ Cargas que una regla ingenua marcaría como anomalía pero no lo son. No están 
 | `VIAJE_LARGO` | 4 vehículos | Un viaje de ida y vuelta por una ruta; carga en estaciones de ruta, lejos de su zona |
 | `CAMBIO_ODOMETRO` | 2 vehículos | El odómetro se reemplaza y vuelve a contar desde 0 a 3.000 km |
 | `ERROR_TIPEO_ODOMETRO` | 5 vehículos | Una lectura con dos dígitos intercambiados (difiere ≥1.000 km); las siguientes son correctas |
-| `REGULARIZACION_POSTERIOR` | 8 cargas | La solicitud se aprueba 1 a 3 días después de la carga (una urgencia regularizada) |
 | `TOLERANCIA_MEDICION` | 10 cargas | La carga supera lo autorizado entre 1% y 3%, dentro de la tolerancia del surtidor |
 | `DESFASE_DE_CORTE` | 50% de las cargas del último día de cada mes (línea de factura) | Se facturan en la factura del mes siguiente |
 | `AJUSTE_DOCUMENTADO` | 4 facturas | La factura incluye una línea AJUSTE (bonificación o recargo de 2% a 5%) |
+| `DOMINIO_CON_FORMATO` | 0,5% de las cargas | El dominio llega en minúsculas, con espacios o guiones, o con un espacio al final (`za123bc`, `ZA 123 BC`, `ZA-123-BC`); normalizado es el del vehículo |
+| `TRANSFERENCIA_DE_SALDO` | ~25 contratos-mes (`tabla` = contrato_mes) | El contrato recibió saldo porque la proyección del mes no alcanzaba |
 
 La columna `tabla` indica a qué tabla pertenece `id_registro`: `consumo`, `facturacion` o `facturacion_detalle`.
 
@@ -309,11 +326,55 @@ Incluye las del escenario didáctico, con otra forma de inyección, y cinco tipo
 | `ODOMETRO_REGRESIVO_LEVE` | H2 | 4 vehículos | Igual, pero de 50 a 200 km |
 | `ODOMETRO_SALTO` | H2 | 3 vehículos | La lectura suma de 1.500 a 9.000 km que el GPS no registra; las siguientes continúan desde ahí |
 | `DOMINIO_INVALIDO` / `VALOR_NULO` / `DUPLICADO` | H1 / CALIDAD | 0,3% / 0,5% / 0,3% de las cargas | Como en el escenario didáctico, solo sobre cargas sin otra anomalía ni caso legítimo |
-| `CARGA_SIN_SOLICITUD` | H8 | 6 cargas | La carga no tiene ninguna solicitud del vehículo |
-| `CARGA_CON_SOLICITUD_RECHAZADA` | H8 | 4 cargas | La única solicitud cercana fue rechazada |
-| `CARGA_SUPERA_AUTORIZADO` | H8 | 6 cargas | Se cargó entre 15% y 50% más de lo autorizado |
+| `CARGA_SIN_REGISTRO` / `ANULADA_CON_CARGA` / `RENDIDA_SIN_CARGA` / `DESACUERDO_DE_LITROS` / `CARGA_SUPERA_AUTORIZADO` | H8 | 6 / 4 / 5 / 6 / 6 | Ver *Registro interno* |
 | `TOTAL_INFLADO` | H9 | 2 facturas (`tabla` = facturacion) | El total supera en 3% a 10% la suma de sus líneas |
 | `LINEA_SIN_CONSUMO` | H9 | 6 líneas (`tabla` = facturacion_detalle) | Se factura una carga que no existe en el registro |
 | `LINEA_DUPLICADA` | H9 | 5 líneas | Una carga se factura dos veces |
 | `SOBREPRECIO` | H9 | 6 líneas | El precio por litro facturado supera en 8% a 20% el de la carga |
+| `CARGA_CON_CUPO_AGOTADO` | H10 | 1 contrato-mes (`tabla` = contrato_mes, id `CTO-N|AAAA-MM`) | Nadie revisa el saldo de un contrato ajustado: sus transferencias del mes llegan de 1 a 3 días después de que se agota, y esos días se carga igual |
+| `TRANSFERENCIA_SIN_NECESIDAD` | H10 | 2 contratos-mes | Transferencia a principio de mes a un contrato con holgura, que la proyección no justificaba |
+
+### Registro interno (escenario realista)
+
+En el escenario realista `solicitudes.csv` es el registro interno, como en la fuente: cada carga del reporte del proveedor tiene su pedido, hecho de 5 a 90 minutos antes, con los litros autorizados, los litros declarados y la rendición (ticket y hora). Fechas en DD/MM/AAAA, como en la fuente; el reporte usa AAAA-MM-DD y una hora aparte. No comparten ningún identificador: se cruzan por dominio y horario, o por persona en las tarjetas personales.
+
+| Tipo | Clase | Casos por cada 200 vehículos | Qué ocurre |
+|---|---|---|---|
+| `CARGA_SIN_REGISTRO` | anomalía (H8) | 6 cargas | La carga no tiene pedido |
+| `ANULADA_CON_CARGA` | anomalía (H8) | 4 cargas | El pedido se anuló, pero la carga existe |
+| `RENDIDA_SIN_CARGA` | anomalía (H8) | 5 pedidos (`tabla` = solicitudes) | Pedido rendido con ticket sin carga en el reporte |
+| `DESACUERDO_DE_LITROS` | anomalía (H8) | 6 cargas | El registro declara de 2 a 18 L distintos que la carga |
+| `CARGA_SUPERA_AUTORIZADO` | anomalía (H8) | 6 cargas | Se cargó entre 15% y 50% más de lo autorizado |
+| `TOLERANCIA_MEDICION` | legítimo | 10 cargas | Supera lo autorizado entre 1% y 3% |
+| `PENDIENTE_DE_RENDICION` | legítimo | ~1,1% de las cargas | El pedido todavía no se rindió |
+| `TARJETA_PERSONAL` | legítimo | ~1,2% de las cargas | Tarjeta personal: el reporte trae la persona (`tipo_identificacion` DNI) y el dominio vacío |
+| `ESTACION_AJENA` | legítimo | ~7% de los pedidos (`tabla` = solicitudes) | Carga en otra red: está en el registro y no en el reporte |
+| `REGISTRO_REHECHO` | legítimo | ~27 pedidos (`tabla` = solicitudes) | El pedido se anuló y se volvió a hacer antes de cargar |
+
+### Telemetría de los móviles de baja (escenario realista)
+
+A un móvil de baja no se le coloca telemetría; si la tenía, el dispositivo pasa al grupo `BAJA / REEMPLAZOS` (depósito), queda `OFFLINE` y deja de transmitir (caso legítimo `DISPOSITIVO_EN_DEPOSITO`, `tabla` = telemetria, id = `Alias`). Ningún móvil debe ir a desguace con el aparato funcionando: `DISPOSITIVO_ACTIVO_EN_BAJA` (2 por cada 200 vehículos) es un móvil de baja con el dispositivo en el grupo de su dependencia y transmitiendo. Los demás dispositivos están en el grupo `GRUPO <dependencia>` del móvil.
+
+### Facturación (escenario realista)
+
+Como en la fuente, el proveedor factura cada contrato: una factura por contrato, mes y familia (DIESEL o NAFTA), a **precio de empresa**, un 2% menor que el del surtidor que registra la carga. Cada factura tiene el monto de la deuda (`total_monto`) y el total de su PDF (`total_pdf`; el 15% no tiene el PDF cargado, como en la fuente). Cada línea de `facturacion_detalle` es una carga del reporte, un ajuste documentado o un renglón que no es combustible.
+
+La conciliación triple compara la deuda con la suma de las líneas, el PDF con la deuda y cada línea con su carga. Anomalías de H9: `TOTAL_INFLADO` (la deuda y el PDF superan en 3% a 10% las líneas), `DIFERENCIA_DEUDA_PDF` (2 facturas: el PDF difiere en 2% a 8% de la deuda), `LINEA_SIN_CONSUMO`, `LINEA_DUPLICADA`, `SOBREPRECIO` (8% a 20% sobre el precio del surtidor), `FACTURADA_A_PRECIO_DE_SURTIDOR` (6 líneas sin el descuento de empresa) y `PRODUCTO_NO_COMBUSTIBLE` (2 facturas con 1 a 3 renglones de lubricante).
+
+### Contratos, cupo y transferencias (escenario realista)
+
+Cada tarjeta pertenece a uno de seis contratos (`flota.NumeroContrato`, `consumo.contrato`). Los vehículos se reparten como el consumo de la fuente (49%, 24%, 9%, 8%, 7,5% y 2%) y cada contrato tiene un tope mensual en pesos: el consumo de su mes de mayor uso por un factor (0,9 en los dos grandes, que quedan cortos; 1,2 a 1,3 en los demás). La ejecución media del cupo total es cercana al 90%. Cada carga descuenta del saldo del mes.
+
+Los lunes y jueves, desde el quinto día del mes, se proyecta el consumo a fin de mes (promedio del mes combinado con el histórico del contrato). Si la proyección supera el saldo en un 5%, se transfiere la diferencia con holgura desde el contrato al que más le sobra, que conserva un 20% por encima de su propia proyección. Si un día no alcanzara, se transfiere en el momento. Las transferencias se acreditan antes de las cargas del día.
+
+La fuente real prevé una tabla de crédito por contrato pero no tiene transferencias registradas: la frecuencia y el margen son supuestos de este diseño. Las anomalías y los casos legítimos de H10 se evalúan por contrato y mes (`tabla` = contrato_mes).
+
+`flota.Cupo` son los litros por carga de la tarjeta (la capacidad del tanque); `LimiteLitros` y `LimiteSaldo`, los límites mensuales de la tarjeta, fijados al registrarla.
+
+### Formatos de origen del escenario realista
+
+No son anomalías: es cómo llegan los datos de cada fuente. Se aplican al final de la generación con un generador aleatorio propio, así el resto del escenario no cambia.
+
+- **Dominios con otro formato** en `consumo` (2% de las cargas, caso legítimo `DOMINIO_CON_FORMATO`). La vinculación exacta los confunde con dominios inválidos; normalizados (mayúsculas, sin espacios, guiones ni puntos) vinculan con su vehículo. Es lo que contrasta H1.
+- **Fechas en formatos distintos según la fuente:** el registro interno usa `DD/MM/AAAA` y el reporte del proveedor `AAAA-MM-DD`. Hay que interpretar cada formato por separado (`deteccion.reglas.leer_fecha`): con un único formato inferido, una fecha como `05/03/2024` puede leerse como 3 de mayo.
 

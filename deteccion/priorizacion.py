@@ -28,15 +28,17 @@ from deteccion.modelo import (
     entrenar_isolation_forest,
     ids_con_anomalia_de_comportamiento,
 )
-from deteccion.reglas import ejecutar_reglas
+from deteccion.reglas import reglas_del_dataset
 
 REGLAS_INGENUAS = ["litros_mayor_a_tanque", "odometro_disminuye", "salto_historial_vehiculo",
                    "fraccionamiento_diario", "rendimiento_bajo_odometro", "carga_lejos_de_base",
-                   "carga_sin_solicitud_previa", "litros_superan_autorizado"]
+                   "cruce_por_dominio_y_dia"]
 REGLAS_CONTEXTO = ["exceso_sin_antecedente", "retroceso_con_contexto", "salto_con_contexto",
                    "fraccionamiento_sin_recorrido", "rendimiento_bajo_gps", "carga_vehiculo_inactivo",
-                   "carga_lejos_del_gps", "carga_sin_autorizacion", "supera_autorizado_con_tolerancia"]
-REGLAS_FACTURACION = ["factura_no_concilia", "linea_sin_consumo", "linea_duplicada", "sobreprecio"]
+                   "carga_lejos_del_gps", "carga_sin_registro", "carga_de_registro_anulado", "desacuerdo_de_litros",
+                   "supera_autorizado_con_tolerancia"]
+REGLAS_FACTURACION = ["factura_no_concilia", "pdf_no_concilia", "linea_sin_consumo", "linea_duplicada", "sobreprecio",
+                      "precio_de_surtidor", "producto_no_combustible"]
 
 METODOS = ["Reglas ingenuas", "Reglas con contexto", "Isolation Forest", "Modelo supervisado", "Combinado"]
 PRESUPUESTOS = [25, 50, 100, 200]
@@ -47,9 +49,7 @@ SEMILLAS_ENTRENAMIENTO = [1001, 1002, 1003]
 def _variables_y_reglas(dataset):
     variables = construir_variables(dataset["flota"], dataset["consumo"], dataset.get("estaciones"),
                                     dataset.get("telemetria_diaria"), dataset.get("solicitudes"))
-    alertas = ejecutar_reglas(dataset["flota"], dataset["consumo"], dataset.get("estaciones"),
-                              dataset.get("telemetria_diaria"), dataset.get("solicitudes"),
-                              dataset.get("facturacion"), dataset.get("facturacion_detalle"))
+    alertas = reglas_del_dataset(dataset)
     return variables, alertas
 
 
@@ -159,7 +159,7 @@ def motivos(variables, alertas):
         agregar(v["retroceso_km"] > 0, "odómetro retrocede " + v["retroceso_km"].round().astype(int).astype(str) + " km")
         agregar(v["vehiculo_inactivo"] == 1, "vehículo inactivo")
     if "sin_solicitud" in v:
-        agregar(v["sin_solicitud"] == 1, "sin solicitud aprobada")
+        agregar(v["sin_solicitud"] == 1, "sin pedido en el registro interno")
         agregar(v["litros_vs_autorizado"] > 1.05,
                 "cargó " + (v["litros_vs_autorizado"] * 100).round().astype(int).astype(str) + "% de lo autorizado")
     agregar(v["exceso_km"] > 1000,

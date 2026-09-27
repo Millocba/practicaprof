@@ -93,3 +93,12 @@ def test_reglas_detectan_todas_sus_anomalias_sin_falsos_positivos(evaluacion, re
 
 def test_historial_del_vehiculo_supera_al_umbral_fijo_en_saltos(evaluacion):
     assert evaluacion.loc["salto_historial_vehiculo", "recall"] > evaluacion.loc["salto_umbral_fijo", "recall"]
+
+
+def test_normalizar_dominio_y_leer_fecha():
+    import pandas as pd
+    from deteccion.reglas import leer_fecha, normalizar_dominio
+
+    assert list(normalizar_dominio(pd.Series(["ab0001cd", "AB 0001 CD", "AB-0001-CD", "AB0001CD "]))) == ["AB0001CD"] * 4
+    fechas = leer_fecha(pd.Series(["2024-03-05", "05/03/2024", "31/12/2024"]))
+    assert list(fechas.dt.strftime("%Y-%m-%d")) == ["2024-03-05", "2024-03-05", "2024-12-31"]

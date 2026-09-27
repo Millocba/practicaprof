@@ -1,0 +1,417 @@
+"""Tests del perfilador: el perfil describe estructura y calidad sin filtrar valores.
+
+Todos los datos se generan en el test (sintéticos).
+"""
+import io
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+
+RAIZ = Path(__file__).parent.parent
+sys.path.insert(0, str(RAIZ))
+
+from perfilador.comparar import comparar, sugerir_emparejamiento  # noqa: E402
+from perfilador.perfil import (  # noqa: E402
+    MINIMO_GRUPO,
+    OTRA,
+    banda,
+    dos_cifras,
+    formato,
+    leer_tablas,
+    perfilar,
+    perfilar_columna,
+)
+
+
+@pytest.fixture(scope="module")
+def tablas():
+    rng = np.random.default_rng(7)
+    n = 400
+    dominios = [f"ZZ{i:03d}QQ" for i in range(n)]
+    vehiculos = pd.DataFrame({
+        "Dominio": dominios,
+        "Marca": rng.choice(["MARCA_A", "MARCA_B", "MARCA_C"], n).tolist(),
+        "Modelo": ["MODELO_RARO_UNICO" if i < 5 else "MODELO_COMUN" for i in range(n)],  # grupo de 5
+        "Chofer": [f"PERSONA_SINTETICA_{i}" for i in range(n)],
+        "Latitud": rng.uniform(-35, -30, n).round(6),
+        "Odometro": rng.integers(10_000, 300_000, n),
+    })
+    m = 1200
+    cargas = pd.DataFrame({
+        "id_carga": np.arange(1, m + 1),
+        # la mitad escrita con espacio y en minúsculas: solo coincide después de normalizar
+        "dominio": [d if i % 2 else d.lower()[:2] + " " + d.lower()[2:] for i, d in
+                    enumerate(rng.choice(dominios, m))],
+        "Fecha": pd.date_range("2025-01-01", periods=m, freq="6h").strftime("%d/%m/%Y"),
+        "Litros": rng.uniform(10, 80, m).round(2),
+        "Observaciones": [f"texto libre sintético número {i} con detalle largo" for i in range(m)],
+    })
+    return {"vehiculos": vehiculos, "cargas": cargas}
+
+
+@pytest.fixture(scope="module")
+def perfil(tablas):
+    return perfilar(tablas, origen="prueba")
+
+
+def columna(perfil, tabla, nombre):
+    return next(c for c in perfil["tablas"][tabla]["perfil_columnas"] if c["nombre"] == nombre)
+
+
+def test_no_filtra_valores_sensibles(perfil, tablas):
+    texto = json.dumps(perfil, ensure_ascii=False)
+    for valor in ["ZZ000QQ", "zz 001qq", "PERSONA_SINTETICA_0", "texto libre sintético", "MODELO_RARO_UNICO"]:
+        assert valor not in texto
+    lat = f"{tablas['vehiculos']['Latitud'].iloc[0]:.6f}"
+    assert lat not in texto
+
+
+def test_detecta_columnas_sensibles(perfil):
+    assert columna(perfil, "vehiculos", "Dominio")["sensible"] == "vehiculo"
+    assert columna(perfil, "vehiculos", "Chofer")["sensible"] == "persona"
+    assert columna(perfil, "vehiculos", "Latitud")["sensible"] == "ubicacion"
+    assert columna(perfil, "cargas", "Observaciones")["sensible"] == "texto libre"
+    for nombre in ["Dominio", "Chofer", "Latitud"]:
+        c = columna(perfil, "vehiculos", nombre)
+        assert "categorias" not in c and "numerico" not in c
+
+
+def test_formatos_y_tipos(perfil):
+    assert columna(perfil, "vehiculos", "Dominio")["formatos"][0]["formato"] == "AA999AA"
+    assert columna(perfil, "cargas", "Fecha")["tipo"] == "fecha como texto"
+    odometro = columna(perfil, "vehiculos", "Odometro")
+    assert odometro["tipo"] == "entero" and odometro["sensible"] is None
+    assert "min" not in odometro["numerico"] and "max" not in odometro["numerico"]
+    assert columna(perfil, "cargas", "Litros")["tipo"] == "decimal"
+    assert formato("AB 123 cd") == "AA 999 AA"
+
+
+def test_grupos_chicos_se_suprimen(perfil):
+    categorias = columna(perfil, "vehiculos", "Modelo")["categorias"]
+    assert all(c["valor"] in {"MODELO_COMUN", OTRA} for c in categorias)
+    marcas = {c["valor"] for c in columna(perfil, "vehiculos", "Marca")["categorias"]}
+    assert marcas == {"MARCA_A", "MARCA_B", "MARCA_C"}
+
+
+def test_cuantiles_redondeados():
+    assert dos_cifras(123456) == 120000
+    assert dos_cifras(0.0347) == 0.035
+    c = perfilar_columna("Importe", pd.Series(np.arange(1000, 1100)))
+    assert all(v == dos_cifras(v) for v in c["numerico"].values() if isinstance(v, float) and v > 100)
+
+
+def test_tabla_chica_sin_estadisticas_pero_con_reparto():
+    c = perfilar_columna("limite", pd.Series([4e6, 1e6, 1.4e6, 8.5e5, 1.8e5, 2.6e6]))
+    assert "numerico" not in c and "categorias" not in c
+    assert c["reparto_pct"] == [40, 26, 14, 10, 8, 2] and c["total_aprox"] == 10_000_000
+    assert "reparto_pct" not in perfilar_columna("dni", pd.Series([30111222, 30222333, 30333444]))
+    assert "reparto_pct" not in perfilar_columna("dependencia", pd.Series(["A", "B", "C"]))
+    p = perfilar({"chica": pd.DataFrame({"a": range(5)}), "vacia": pd.DataFrame({"a": []})})
+    assert p["tablas"]["chica"]["filas_aprox"] is None
+    assert p["tablas"]["chica"]["filas"] == "<20" and p["tablas"]["vacia"]["filas"] == "0"
+
+
+def test_relacion_exacta_y_normalizada(perfil):
+    rel = next(r for r in perfil["relaciones"] if r["origen"] == "cargas.dominio")
+    assert rel["destino"] == "vehiculos.Dominio"
+    assert rel["cobertura_normalizada_pct"] == 100.0
+    assert 40 <= rel["cobertura_exacta_pct"] <= 60
+
+
+def test_lee_csv_con_punto_y_coma_y_ceros_a_la_izquierda():
+    csv = "codigo;litros\n" + "\n".join(f"{i:05d};{i * 1.5}" for i in range(30))
+    df = leer_tablas(io.BytesIO(csv.encode()), "cargas.csv")["cargas"]
+    assert list(df.columns) == ["codigo", "litros"]
+    assert df["codigo"].dtype == object and pd.api.types.is_numeric_dtype(df["litros"])
+
+
+def test_comparador_detecta_brechas(perfil, tablas):
+    sintetico = dict(tablas)
+    sintetico["cargas"] = tablas["cargas"].drop(columns=["Observaciones"]).assign(
+        dominio=tablas["cargas"]["dominio"].str.upper().str.replace(" ", ""))
+    perfil_sint = perfilar(sintetico, origen="sintético")
+    emparejamiento = sugerir_emparejamiento(perfil, perfil_sint)
+    assert emparejamiento == {"vehiculos": "vehiculos", "cargas": "cargas"}
+    brechas = comparar(perfil, perfil_sint, emparejamiento)
+    assert ((brechas["columna"] == "Observaciones") & (brechas["aspecto"].str.contains("no modelada"))).any()
+    assert brechas["tabla_real"].eq("cargas").any()
+    assert (brechas["aspecto"].str.contains("relaci", case=False)).any()
+
+
+def test_cli_escribe_solo_el_perfil(tmp_path, tablas):
+    fuente = tmp_path / "vehiculos.csv"
+    tablas["vehiculos"].to_csv(fuente, index=False)
+    salida = tmp_path / "perfil.json"
+    antes = set(tmp_path.iterdir())
+    subprocess.run([sys.executable, "-m", "perfilador", "perfilar", str(fuente), "--salida", str(salida)],
+                   cwd=RAIZ, check=True, capture_output=True)
+    assert set(tmp_path.iterdir()) - antes == {salida}
+    assert "ZZ000QQ" not in salida.read_text(encoding="utf-8")
+
+
+def test_pagina_sin_carga_de_archivos_fuera_de_local(monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.delenv("PERFILADOR_PERMITIR_ARCHIVOS", raising=False)
+    at = AppTest.from_file(str(RAIZ / "streamlit_app" / "pages" / "04_perfil_de_fuentes.py"), default_timeout=60).run()
+    assert not at.exception
+    assert any("deshabilitado" in w.value for w in at.warning)
+
+
+def test_pagina_local_habilita_la_carga(monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setenv("PERFILADOR_PERMITIR_ARCHIVOS", "1")
+    at = AppTest.from_file(str(RAIZ / "streamlit_app" / "pages" / "04_perfil_de_fuentes.py"), default_timeout=60).run()
+    assert not at.exception
+    assert not any("deshabilitado" in w.value for w in at.warning)
+    assert any("en memoria" in i.value for i in at.info)
+
+
+def test_pagina_compara_un_perfil(monkeypatch, perfil):
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setenv("PERFILADOR_PERMITIR_ARCHIVOS", "1")
+    at = AppTest.from_file(str(RAIZ / "streamlit_app" / "pages" / "04_perfil_de_fuentes.py"), default_timeout=180)
+    at.session_state["perfil_generado"] = perfil
+    at.run()
+    at.radio(key="vista_perfil").set_value("2️⃣ Comparar con el generador").run()
+    at.selectbox(key="perfil_elegido").set_value("Recién generado (sin guardar)").run()
+    assert not at.exception
+    assert [m.label for m in at.metric][:3] == ["Altas", "Medias", "Bajas"]
+
+
+def test_carpeta_agrupa_archivos_del_mismo_tipo_sin_guardar_sus_nombres(tmp_path, tablas):
+    volumen = tmp_path / "volumen"
+    (volumen / "uploads" / "2025-09").mkdir(parents=True)
+    cargas = tablas["cargas"]
+    for i, dia in enumerate(["2025-09-01", "2025-09-02", "2025-09-03"]):
+        cargas.iloc[i * 400:(i + 1) * 400].to_csv(volumen / "uploads" / "2025-09" / f"consumo_{dia}.csv", index=False)
+    tablas["vehiculos"].to_excel(volumen / "flota.xlsx", index=False)
+    (volumen / "factura.pdf").write_bytes(b"%PDF-1.4")        # se ignora: no es CSV ni Excel
+    (volumen / "roto.xlsx").write_bytes(b"no es un excel")      # se cuenta como no leído
+    salida = tmp_path / "perfil.json"
+    antes = {p: p.stat().st_mtime for p in volumen.rglob("*")}
+    subprocess.run([sys.executable, "-m", "perfilador", "perfilar", str(volumen), "--salida", str(salida)],
+                   cwd=RAIZ, check=True, capture_output=True)
+    perfil = json.loads(salida.read_text(encoding="utf-8"))
+    assert set(perfil["tablas"]) == {"consumo", "flota"}
+    assert perfil["lectura"]["archivos_por_tabla"] == {"consumo": 3, "flota": 1}
+    assert sum(perfil["lectura"]["no_leidos_por_error"].values()) == 1
+    assert perfil["tablas"]["consumo"]["filas_aprox"] == 1200
+    assert "2025-09-01" not in salida.read_text(encoding="utf-8")
+    assert {p: p.stat().st_mtime for p in volumen.rglob("*")} == antes  # no escribe junto a los archivos
+
+
+def test_nombres_opacos_se_agrupan_por_columnas_como_lotes_o_versiones(tmp_path, tablas):
+    import os
+    import uuid
+
+    volumen = tmp_path / "volumen"
+    volumen.mkdir()
+    cargas, vehiculos = tablas["cargas"], tablas["vehiculos"]
+    for i in range(3):  # lotes: cada archivo trae cargas distintas
+        cargas.iloc[i * 400:(i + 1) * 400].to_csv(volumen / f"{uuid.uuid4()}.csv", index=False)
+    for i, filas in enumerate([380, 390, 400]):  # versiones: el mismo padrón exportado tres veces
+        ruta = volumen / f"{uuid.uuid4()}.csv"
+        vehiculos.head(filas).to_csv(ruta, index=False)
+        os.utime(ruta, (1_700_000_000 + i, 1_700_000_000 + i))
+    cargas.head(100).drop(columns=["Observaciones"]).to_csv(volumen / "reporte ORGANIZACION_FICTICIA 01-02.csv",
+                                                            index=False)
+    salida = tmp_path / "perfil.json"
+    subprocess.run([sys.executable, "-m", "perfilador", "perfilar", str(volumen), "--salida", str(salida),
+                    "--renombrar", "reporte ORGANIZACION_FICTICIA=reporte_de_cargas"],
+                   cwd=RAIZ, check=True, capture_output=True)
+    perfil = json.loads(salida.read_text(encoding="utf-8"))
+    lectura = perfil["lectura"]
+    assert lectura["archivos_por_tabla"] == {"tabla_de_5_columnas": 3, "tabla_de_6_columnas": 3,
+                                             "reporte_de_cargas": 1}
+    assert lectura["combinacion_por_tabla"]["tabla_de_5_columnas"] == "lotes"
+    assert lectura["combinacion_por_tabla"]["tabla_de_6_columnas"] == "versiones"
+    assert perfil["tablas"]["tabla_de_5_columnas"]["filas_aprox"] == 1200
+    assert perfil["tablas"]["tabla_de_6_columnas"]["filas_aprox"] == 400  # la versión más reciente
+    assert "ORGANIZACION_FICTICIA" not in salida.read_text(encoding="utf-8")
+
+
+def test_lotes_superpuestos_no_se_confunden_con_versiones():
+    import pandas as pd
+    from perfilador.perfil import combinar_archivos
+
+    def lote(ids):
+        return pd.DataFrame({"Id": [f"SOL-{i:06d}" for i in ids], "litros": [float(i % 50) for i in ids]})
+
+    grande = lote(range(600))
+    subconjuntos = [lote(range(k * 100, k * 100 + 80)) for k in range(5)]    # contenidos en el grande
+    sueltos = [lote(range(1000 + k * 30, 1000 + (k + 1) * 30)) for k in range(4)]  # sin claves en común
+    # El más reciente es un lote chico: no puede ganar como "versión"
+    partes = [(1, grande)] + [(2 + i, s) for i, s in enumerate(subconjuntos)] + [(10 + i, s) for i, s in enumerate(sueltos)]
+    tabla, modo, descartadas = combinar_archivos(partes)
+    assert modo == "lotes"
+    assert len(tabla) == 600 + 4 * 30 and tabla["Id"].is_unique
+    assert descartadas == round(100 * 5 * 80 / (600 + 5 * 80 + 4 * 30), 1)
+
+
+def test_copias_del_mismo_reporte_se_unen_y_los_nombres_se_neutralizan(tmp_path, tablas):
+    volumen = tmp_path / "volumen"
+    volumen.mkdir()
+    cargas = tablas["cargas"].assign(Proveedor="PROVEEDOR_REAL_FICTICIO")
+    nombres = ["ReporteConsumos.csv", "ReporteConsumos (1).csv", "ReporteConsumos (12) (3).csv",
+               "ReporteConsumos - 2025-09-01T101530.123.csv"]
+    for i, nombre in enumerate(nombres):
+        cargas.iloc[i * 300:(i + 1) * 300].to_csv(volumen / nombre, index=False)
+    salida = tmp_path / "perfil.json"
+    subprocess.run([sys.executable, "-m", "perfilador", "perfilar", str(volumen), "--salida", str(salida),
+                    "--reemplazar", "proveedor_real_ficticio=PROVEEDOR_1"],
+                   cwd=RAIZ, check=True, capture_output=True)
+    texto = salida.read_text(encoding="utf-8")
+    perfil = json.loads(texto)
+    assert perfil["lectura"]["archivos_por_tabla"] == {"ReporteConsumos": 4}
+    assert perfil["tablas"]["ReporteConsumos"]["filas_aprox"] == 1200
+    assert "PROVEEDOR_REAL_FICTICIO" not in texto.upper()
+    proveedor = columna(perfil, "ReporteConsumos", "Proveedor")
+    assert proveedor["categorias"][0]["valor"] == "PROVEEDOR_1" and proveedor["categorias"][0]["pct"] == 100.0
+
+
+
+def test_suma_las_tablas_de_una_base_sin_mostrar_la_conexion(tmp_path, tablas):
+    pytest.importorskip("sqlalchemy")
+    import hashlib
+    import os
+    import sqlite3
+
+    volumen = tmp_path / "volumen"
+    volumen.mkdir()
+    tarjetas = [f"TARJ{i:08d}" for i in range(300)]
+    pd.DataFrame({"NumeroTarjeta": tarjetas, "LimiteLitros": [200.0] * 300}).to_csv(volumen / "padron.csv", index=False)
+    base = tmp_path / "base_secreta_ficticia.db"
+    with sqlite3.connect(base) as conexion:
+        pd.DataFrame({"id": range(900), "tarjeta": [tarjetas[i % 300] for i in range(900)],
+                      "es_contingencia": [i % 50 == 0 for i in range(900)]}).to_sql(
+            "fact_transacciones", conexion, index=False)
+        pd.DataFrame({"dia": [f"2025-09-{d:02d}" for d in range(1, 31)],
+                      "data_json": ['{"filas": [' + ",".join('{"litros": %d}' % j for j in range(200)) + "]}"] * 30}
+                     ).to_sql("consumo_reportes", conexion, index=False)
+    huella = hashlib.sha256(base.read_bytes()).hexdigest()
+    url = f"sqlite:///{base.as_posix()}"
+    salida = tmp_path / "perfil.json"
+    proceso = subprocess.run([sys.executable, "-m", "perfilador", "perfilar", str(volumen), "--salida", str(salida),
+                              "--base-url-env", "PERFILADOR_URL_PRUEBA"],
+                             cwd=RAIZ, check=True, capture_output=True, text=True,
+                             env={**os.environ, "PERFILADOR_URL_PRUEBA": url})
+    texto = salida.read_text(encoding="utf-8")
+    perfil = json.loads(texto)
+    assert {"padron", "base.fact_transacciones", "base.consumo_reportes"} <= set(perfil["tablas"])
+    assert perfil["lectura"]["tablas_de_base"] == 2
+    assert any(r["origen"] == "base.fact_transacciones.tarjeta" and r["destino"] == "padron.NumeroTarjeta"
+               for r in perfil["relaciones"])
+    bloque = columna(perfil, "base.consumo_reportes", "data_json")
+    assert all(len(f["formato"]) <= 61 for f in bloque["formatos"])
+    for secreto in ["base_secreta_ficticia", "sqlite:///"]:
+        assert secreto not in texto and secreto not in proceso.stdout and secreto not in proceso.stderr
+    assert hashlib.sha256(base.read_bytes()).hexdigest() == huella
+
+
+def test_error_de_conexion_no_muestra_la_cadena(tmp_path):
+    pytest.importorskip("sqlalchemy")
+    import os
+
+    url = "sqlite:///" + (tmp_path / "no_existe" / "clave_ficticia.db").as_posix()
+    proceso = subprocess.run([sys.executable, "-m", "perfilador", "perfilar", "--salida", str(tmp_path / "p.json"),
+                              "--base-url-env", "PERFILADOR_URL_PRUEBA"],
+                             cwd=RAIZ, capture_output=True, text=True, env={**os.environ, "PERFILADOR_URL_PRUEBA": url})
+    assert proceso.returncode != 0
+    assert "clave_ficticia" not in proceso.stdout + proceso.stderr
+    assert "No se pudo leer la base" in proceso.stdout + proceso.stderr
+
+
+def test_reemplazos_en_una_pasada_y_pistas_de_usuario():
+    from perfilador.perfil import reemplazar_textos, sensibilidad_por_nombre
+
+    perfil = {"base.tabla_ypf": ["CONTRATO X", "CONTRATO X LARGO", "Ypf Norte"]}
+    reemplazos = {"contrato x": "CONTRATO_1", "contrato x largo": "CONTRATO_2", "ypf": "proveedor_1",
+                  "proveedor_1": "NO_DEBE_APLICARSE"}
+    assert reemplazar_textos(perfil, reemplazos) == {
+        "base.tabla_proveedor_1": ["CONTRATO_1", "CONTRATO_2", "proveedor_1 Norte"]}
+    assert all(sensibilidad_por_nombre(n) == "persona" for n in ["username", "Solicitante", "Cargador", "login"])
+
+
+def test_base_sqlite_se_lee_en_modo_solo_lectura(tmp_path, tablas):
+    import hashlib
+    import sqlite3
+
+    volumen = tmp_path / "volumen"
+    volumen.mkdir()
+    base = volumen / "app.db"
+    with sqlite3.connect(base) as conexion:
+        tablas["cargas"].drop(columns=["Observaciones"]).to_sql("fact_transacciones", conexion, index=False)
+        pd.DataFrame({"numero": range(1, 7), "limite": [4e6, 1e6, 1.4e6, 8.5e5, 1.8e5, 2.6e6]}).to_sql(
+            "fact_contratos", conexion, index=False)
+        conexion.execute("CREATE TABLE fact_contratos_credito (contrato_id INTEGER, limite REAL, disponible REAL)")
+        pd.DataFrame({"email": [f"persona{i}@ejemplo.invalid" for i in range(40)],
+                      "hashed_password": [f"$2b$12$HASHSINTETICO{i:040d}" for i in range(40)]}).to_sql(
+            "users", conexion, index=False)
+    huella = hashlib.sha256(base.read_bytes()).hexdigest(), base.stat().st_mtime
+    salida = tmp_path / "perfil.json"
+    subprocess.run([sys.executable, "-m", "perfilador", "perfilar", str(volumen), "--salida", str(salida)],
+                   cwd=RAIZ, check=True, capture_output=True)
+    texto = salida.read_text(encoding="utf-8")
+    perfil = json.loads(texto)
+    assert {"fact_transacciones", "fact_contratos", "fact_contratos_credito", "users"} <= set(perfil["tablas"])
+    assert perfil["tablas"]["fact_transacciones"]["filas_aprox"] == 1200
+    assert perfil["tablas"]["fact_contratos_credito"]["filas"] == banda(0)
+    assert columna(perfil, "users", "hashed_password")["sensible"] == "identificador"
+    assert "HASHSINTETICO" not in texto and "@ejemplo.invalid" not in texto
+    assert (hashlib.sha256(base.read_bytes()).hexdigest(), base.stat().st_mtime) == huella
+    assert sorted(p.name for p in volumen.iterdir()) == ["app.db"]  # sin archivos -wal ni -journal
+
+
+def test_reemplazos_no_tocan_formatos_y_relaciones_solo_entre_claves():
+    from perfilador.perfil import reemplazar_textos, relaciones_entre_tablas
+
+    perfil = {"formatos": [{"formato": "AAAA-9999", "pct": 100.0}], "categorias": [{"valor": "AAAA norte", "pct": 100.0}]}
+    salida = reemplazar_textos(perfil, {"aaaa": "ORGANISMO"})
+    assert salida["formatos"][0]["formato"] == "AAAA-9999" and salida["categorias"][0]["valor"] == "ORGANISMO norte"
+    orden = pd.DataFrame({"Secuencia": range(1, 3001), "Placa": [f"ZZ{i:04d}" for i in range(3000)]})
+    flota = pd.DataFrame({"Dominio": [f"ZZ{i:04d}" for i in range(0, 3000, 3)],
+                          "CapacidadTanque": [(i % 80) + 1 for i in range(1000)], "Año": [2000 + i % 25 for i in range(1000)]})
+    relaciones = {(r["origen"], r["destino"]) for r in relaciones_entre_tablas({"orden": orden, "flota": flota})}
+    assert ("flota.Dominio", "orden.Placa") in relaciones
+    assert not any(o.startswith(("flota.CapacidadTanque", "flota.Año")) for o, _ in relaciones)
+
+
+def test_control_telemetria_vs_estado():
+    from perfilador.controles import telemetria_vs_estado
+
+    n = 300
+    estados = ["En Servicio"] * 150 + ["Tramite en Baja"] * 120 + ["Fuera de Servicio"] * 30
+    padron = pd.DataFrame({"Matricula": [str(1000 + i) for i in range(n)], "Dominio": [f"ZZ{i:03d}QQ" for i in range(n)],
+                           "Estado": estados, "SubEstado": ["x"] * n})
+    filas = []
+    for i in range(150):              # en servicio: todos con dispositivo que transmite
+        filas.append((f"ZZ{i:03d}QQ", "", "GRUPO 1", "viernes, 12 de septiembre de 2025 9:05:03"))
+    for i in range(150, 190):         # 40 en baja con el dispositivo en depósito, sin transmitir
+        filas.append((f"ZZ{i:03d}QQ", "", "BAJA / REEMPLAZOS", "lunes, 2 de junio de 2025 10:00:00"))
+    for i in range(190, 195):         # 5 en baja con dispositivo fuera del depósito y transmitiendo: alerta
+        filas.append(("", str(1000 + i), "GRUPO 2", "jueves, 11 de septiembre de 2025 18:30:00"))
+    filas.append(("XX999XX", "", "GRUPO 3", "viernes, 12 de septiembre de 2025 8:00:00"))  # sin móvil
+    dispositivos = pd.DataFrame(filas, columns=["Placa", "Alias", "Grupo", "Hora de última transmisión"])
+    control = telemetria_vs_estado({"padron": padron, "dispositivos": dispositivos})
+    servicio, baja = control["por_estado"]["EN SERVICIO"], control["por_estado"]["TRAMITE EN BAJA"]
+    assert servicio["otro_grupo_transmite"] == 150 and servicio["sin_dispositivo"] == 0
+    assert baja["deposito_sin_transmitir"] == 40 and baja["sin_dispositivo"] == 75
+    assert baja["otro_grupo_transmite"] == "1–19" and control["alerta_baja_con_dispositivo_activo"] == "1–19"
+    assert control["dispositivos_sin_movil"] == "1–19" and control["mes_de_referencia"] == "2025-09"
+    assert control["por_estado"]["FUERA DE SERVICIO"]["sin_dispositivo"] == 30
+    texto = json.dumps(control, ensure_ascii=False)
+    assert "ZZ0" not in texto and "1190" not in texto
+
+
+def test_columnas_cero_uno_son_booleanas():
+    c = perfilar_columna("es_contingencia", pd.Series([0] * 97 + [1] * 3))
+    assert c["tipo"] == "booleano" and c["verdaderos_pct"] == 3.0 and "numerico" not in c
