@@ -14,6 +14,7 @@ APP_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(APP_DIR / "utils"))
 sys.path.insert(0, str(APP_DIR.parent))
 
+from ayudas import seccion  # noqa: E402
 from data_loader import (  # noqa: E402
     NOMBRES_ESCENARIO,
     asegurar_datos_maestro,
@@ -32,7 +33,13 @@ from generator_pipeline_maestro import (  # noqa: E402
 
 st.set_page_config(page_title="Diccionario de datos", page_icon="📖", layout="wide")
 
-st.markdown("# 📖 Diccionario de datos")
+seccion(
+    "📖 Diccionario de datos", nivel=1,
+    ayuda="El mapa de los datos: qué contiene cada tabla, cómo se unen y qué defectos se les "
+          "metieron a propósito. Todo sale del `diccionario.json` que escribe el generador en cada "
+          "carrida, así que describe exactamente los archivos que están en disco, no una "
+          "documentación que puede quedar vieja. Si no encontrás una tabla o una columna, no "
+          "existe en estos datos.")
 st.markdown(
     "Qué contiene cada tabla, cómo se relacionan y qué anomalías y casos legítimos se inyectan. "
     "Lo escribe el generador en cada corrida (`diccionario.json`), así que describe exactamente los "
@@ -69,7 +76,12 @@ def filas_de(tabla):
 
 
 # ---------------------------------------------------------------- Tablas
-st.markdown("## Tablas")
+seccion(
+    "Tablas",
+    ayuda="Una fila por tabla, con su **grano** (qué representa una fila) y su **clave** (qué la "
+          "identifica). El grano es lo más importante: sin él no se puede cruzar nada, porque dos "
+          "tablas que parecen duplicadas pueden tener grano distinto. La columna de filas se lee "
+          "contando los datos, no el tamaño del archivo.")
 resumen = pd.DataFrame([{
     "Tabla": nombre, "Rol": rol(nombre), "Grano (una fila por…)": tabla["grano"], "Clave": tabla["clave"],
     "Columnas": len(tabla["columnas"]), "Filas": filas_de(nombre),
@@ -80,7 +92,13 @@ st.caption("**Entidad**: lo que se audita. **Detalle**: la misma entidad con má
            "**Evaluación**: verdad de referencia; no es entrada de las reglas ni de los modelos.")
 
 # ---------------------------------------------------------------- Relaciones
-st.markdown("## Relaciones")
+seccion(
+    "Relaciones",
+    ayuda="El diagrama muestra cómo se une cada tabla con las demás. Una flecha con cardinalidad "
+          "**N:1** significa que muchas filas apuntan a una; una **1:1**, que el vínculo es único. "
+          "Las flechas **punteadas no son claves**: son relaciones que existen en la realidad pero "
+          "no se pueden resolver con una columna, así que hay que emparejarlas a mano. La tabla "
+          "de abajo lista cada vínculo con su nota.")
 st.graphviz_chart(diagrama_relaciones(diccionario), use_container_width=True)
 st.caption("Las líneas punteadas no son claves: se resuelven por emparejamiento o agregación. "
            "En naranja, las tablas de evaluación.")
@@ -90,7 +108,12 @@ relaciones = pd.DataFrame(diccionario["relaciones"]).rename(columns={
 st.dataframe(relaciones, use_container_width=True, hide_index=True)
 
 # ---------------------------------------------------------------- Columnas
-st.markdown("## Columnas")
+seccion(
+    "Columnas",
+    ayuda="Elegí una tabla y queda el detalle de cada columna con su tipo y qué significa. Debajo "
+          "aparecen solo las relaciones que **tocan esa tabla**, para no tener que filtrar la "
+          "tabla grande. Es la página a la que hay que ir cuando una regla falla y no se entiende "
+          "de dónde salió el dato.")
 col1, col2 = st.columns([3, 1])
 with col1:
     tabla_sel = st.selectbox("Tabla", list(diccionario["tablas"]), key="tabla_diccionario",
@@ -112,7 +135,12 @@ if not vinculos.empty:
     st.dataframe(vinculos, use_container_width=True, hide_index=True)
 
 # ---------------------------------------------------------------- Catálogos
-st.markdown("## Anomalías inyectadas")
+seccion(
+    "Anomalías inyectadas",
+    ayuda="Catálogo de los defectos que el generador metió a propósito, con la hipótesis a la que "
+          "pertenecen, su severidad y **cuántas hay en los datos actuales**. Esta lista es la que "
+          "permite medir si una regla funciona: es la verdad de referencia contra la que se "
+          "evalúa todo en la página Detección.")
 ground_truth = load_ground_truth_maestro(escenario)
 cantidad = ground_truth["tipo_anomalia"].value_counts() if not ground_truth.empty else pd.Series(dtype=int)
 tabla_de = ground_truth.groupby("tipo_anomalia")["tabla"].first() if not ground_truth.empty else pd.Series(dtype=str)
@@ -125,7 +153,13 @@ st.caption("Cómo se inyecta cada una: `docs/DICCIONARIO_DATOS.md`. El detalle d
            "`ground_truth`.")
 
 if escenario == "realista":
-    st.markdown("## Casos legítimos que se parecen a anomalías")
+    seccion(
+        "Casos legítimos que se parecen a anomalías",
+        ayuda="Cargas que son perfectamente normales pero que una regla ingenua marcaría: un "
+              "camión en un viaje largo, un odómetro nuevo, un tanque auxiliar no registrado. No "
+              "están en la lista de anomalías y no hay que corregirlas; están para medir **cuántas "
+              "falsas alarmas** produce cada regla. Si una técnica las confunde con anomalías, "
+              "pierde valor aunque acierte en el resto.")
     legitimos = load_casos_legitimos(escenario)
     casos = legitimos["tipo_caso"].value_counts() if not legitimos.empty else pd.Series(dtype=int)
     st.dataframe(pd.DataFrame([{"Tipo": tipo, "Qué ocurre": descripcion, "En los datos": int(casos.get(tipo, 0))}

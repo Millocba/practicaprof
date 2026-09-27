@@ -33,6 +33,8 @@ En la barra lateral se elige el **escenario**, y la elección vale para todas la
 | Documentación | `pages/09_documentacion.py` | Los `.md` del proyecto con variables que toman los valores actuales (`docs/ESTADO_ACTUAL.md`), la bitácora (`docs/BITACORA.md`) más el historial de git, y descarga de un documento o de todos en `.zip` |
 | Modelo de ML | `pages/08_modelo_ml.py` | Realista: qué revisar primero según un presupuesto de revisión, curva de esfuerzo de cinco métodos, cola de revisión con motivos (descargable), vehículos a auditar y facturas a revisar ordenadas por importe en juego. Didáctico: Isolation Forest comparado con las reglas |
 
+Cada sección tiene un botón **?** que explica qué muestra y cómo leerlo (`utils/ayudas.py`: `seccion(titulo, ayuda)`).
+
 ## Datos
 
 - Las páginas leen `datasets/synthetics_realista/` o `datasets/synthetics_maestro/` (didáctico), según el escenario; ver el [diccionario de datos](../docs/DICCIONARIO_DATOS.md).

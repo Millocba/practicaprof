@@ -12,6 +12,7 @@ from datetime import datetime
 utils_path = Path(__file__).parent.parent / "utils"
 sys.path.insert(0, str(utils_path))
 
+from ayudas import seccion
 from data_loader import (
     NOMBRES_ESCENARIO,
     directorio,
@@ -27,7 +28,12 @@ from data_loader import (
 
 st.set_page_config(page_title="Generador", page_icon="⚙️", layout="wide")
 
-st.markdown("# ⚙️ Generador de Datos - Pipeline Maestro")
+seccion(
+    "⚙️ Generador de Datos - Pipeline Maestro", nivel=1,
+    ayuda="Esta página crea los datos con los que trabaja todo el proyecto. No hay datos reales: "
+          "el generador produce tablas sintéticas desde cero, con anomalías inyectadas a propósito "
+          "y su lista de verdad de referencia. Todo lo que se ve después en las otras páginas sale "
+          "de acá, así que cambiás un parámetro y cambiás el escenario de análisis completo.")
 st.markdown("Configura y ejecuta el generador de entidades sintéticas")
 
 escenario = selector_escenario()
@@ -242,7 +248,12 @@ print(json.dumps(resultado, indent=2, default=str))
 
 # Display current datasets status
 st.markdown("---")
-st.markdown("### 📋 Estado Actual de Datos")
+seccion(
+    "📋 Estado Actual de Datos", nivel=3,
+    ayuda="Qué hay en disco ahora mismo. La **semilla** es el número que hace reproducible el "
+          "generador: con la misma semilla y la misma cantidad de vehículos, los archivos salen "
+          "idénticos byte a byte. Si la fecha es vieja respecto de la última corrida, es que los "
+          "datos corresponden a otros parámetros.")
 
 try:
     # Load current metadata
@@ -275,8 +286,12 @@ try:
         st.info("Sin datos generados aún. Ejecuta el generador para crear los datasets.")
 
     # Dataset summary table
-    st.markdown("### 📊 Resumen de Datasets")
-
+    seccion(
+        "📊 Resumen de Datasets", nivel=3,
+        ayuda="Inventario de los archivos generados: cuántas filas y columnas tiene cada tabla, "
+              "cuánto pesa y cuántos valores nulos contiene. Un **nulo** no siempre es un error: "
+              "el generador deja vacíos algunos campos a propósito para que las reglas de "
+              "calidad tengan algo que encontrar, y `metadata.json` registra esa fecha de corte.")
     datasets_info = get_maestro_datasets_info(escenario)
 
     if not datasets_info.empty:
@@ -295,7 +310,12 @@ try:
         )
 
         # Cross-entity validation
-        st.markdown("### ✅ Validación de Integridad")
+        seccion(
+            "✅ Validación de Integridad", nivel=3,
+            ayuda="Comprueba que cada entidad que dice tener un vehículo, efectivamente tenga un "
+                  "vehículo en la flota. Una cobertura menor al 100% no siempre es un defecto del "
+                  "generador: el escenario realista inyecta dominios inválidos a propósito, y esa "
+                  "columna mide justamente cuánto hay de eso.")
 
         flota = load_flota(escenario)
         consumo = load_consumo_maestro(escenario)

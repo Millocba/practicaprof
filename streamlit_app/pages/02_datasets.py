@@ -8,6 +8,7 @@ import sys
 utils_path = Path(__file__).parent.parent / "utils"
 sys.path.insert(0, str(utils_path))
 
+from ayudas import seccion
 from data_loader import (
     selector_escenario,
     load_diccionario,
@@ -27,7 +28,11 @@ from data_loader import (
 
 st.set_page_config(page_title="Datasets", page_icon="📋", layout="wide")
 
-st.markdown("# 📋 Exploración de Datasets")
+seccion(
+    "📋 Exploración de Datasets", nivel=1,
+    ayuda="La herramienta para mirar los datos crudos antes de analizarlos. Sirve para verificar "
+          "a mano un caso concreto que una regla marcó, o para explorar una tabla sin idea previa "
+          "de qué tiene. No calcula métricas de detección: eso está en las páginas de análisis.")
 st.markdown("Visualiza, filtra y analiza todos los datasets del proyecto")
 
 escenario = selector_escenario()
@@ -91,8 +96,12 @@ if df.empty:
     st.stop()
 
 # Metrics
-st.markdown(f"## 📊 {selected_dataset}")
-
+seccion(
+    f"📊 {selected_dataset}",
+    ayuda="Resumen de la tabla elegida, calculado **sobre los datos ya filtrados**, no sobre el "
+          "total. **Memoria** es el consumo de pandas al cargarla, no el tamaño del archivo. "
+          "**Datos faltantes** suma los nulos de todas las columnas: un valor alto acá puede ser "
+          "normal, según qué campos deba traer esa tabla.")
 col1, col2, col3, col4 = st.columns(4)
 with col1:
     st.metric("Registros", len(df))
@@ -105,7 +114,12 @@ with col4:
 
 # Filters
 st.markdown("---")
-st.markdown("## 🔍 Filtros")
+seccion(
+    "🔍 Filtros",
+    ayuda="Dos formas de recortar: la **búsqueda de texto** revisa todas las columnas a la vez y "
+          "sirve para encontrar una placa o un número; los **filtros por columna** se eligen de "
+          "los valores que existen de verdad en esa columna, así que no hay que adivinar el "
+          "formato. Los dos se aplican juntos: primero la búsqueda, después los filtros de columna.")
 
 col1, col2 = st.columns(2)
 
@@ -126,7 +140,12 @@ if search_text:
     st.success(f"✅ {len(filtered_df)} registros coinciden con la búsqueda")
 
 # Column-specific filters
-st.markdown("### Filtros por columna")
+seccion(
+    "Filtros por columna", nivel=3,
+    ayuda="Elegí una columna y aparecen sus valores reales para tildar. Solo se ofrecen los "
+          "primeros 100 valores distintos: en una columna con miles de categorías, la lista "
+          "es un recorte y no el total. Para filtrar por algo raro conviene la búsqueda de "
+          "texto de arriba.")
 
 filter_cols = st.multiselect(
     "Selecciona columnas para filtrar",
@@ -164,9 +183,13 @@ if filters:
 
 # Data display
 st.markdown("---")
-st.markdown(f"## 📈 Datos ({len(filtered_df)} registros)")
+seccion(
+    f"📈 Datos ({len(filtered_df)} registros)",
+    ayuda="La tabla con lo que quedó después de los filtros. El deslizador de arriba no cambia "
+          "qué se calcula, solo cuántas filas se dibujan: los filtros y las estadísticas usan el "
+          "conjunto completo, aunque en pantalla se vean menos. Para ver todo, subí el "
+          "deslizador o exportá.")
 
-# Display options
 col1, col2, col3 = st.columns(3)
 with col1:
     rows_to_show = st.slider("Registros a mostrar", 10, 1000, 100, step=10)
@@ -184,8 +207,12 @@ st.dataframe(
 
 # Statistics
 if show_stats and len(filtered_df) > 0:
-    st.markdown("### 📊 Estadísticas")
-
+    seccion(
+        "📊 Estadísticas", nivel=3,
+        ayuda="Resumen de las columnas numéricas de lo filtrado: media, desvío, cuartiles y "
+              "mínimos. Sirve para ver si una distribución tiene sentido o si hay valores "
+              "extremos. Ojo: si filtraste mucho, estas estadísticas son de un grupo chico y no "
+              "representan al resto de la tabla.")
     numeric_cols = filtered_df.select_dtypes(include=['number']).columns
     if len(numeric_cols) > 0:
         st.dataframe(
@@ -197,8 +224,12 @@ if show_stats and len(filtered_df) > 0:
 
 # Column info
 if show_info and len(filtered_df) > 0:
-    st.markdown("### 📋 Información de Columnas")
-
+    seccion(
+        "📋 Información de Columnas", nivel=3,
+        ayuda="Por columna: tipo, cuántos valores tiene, cuántos faltan y cuántos son distintos. "
+              "La columna **Únicos** es la que más sirve: si es 1 o 2, esa columna es casi una "
+              "constante y no aporta nada al análisis; si se acerca al total de filas, es un "
+              "identificador.")
     col_info = pd.DataFrame({
         'Columna': filtered_df.columns,
         'Tipo': filtered_df.dtypes.astype(str),
@@ -211,8 +242,12 @@ if show_info and len(filtered_df) > 0:
 
 # Export
 st.markdown("---")
-st.markdown("## 💾 Exportar")
-
+seccion(
+    "💾 Exportar",
+    ayuda="Descarga exactamente lo que se está viendo, con los filtros ya aplicados. Sirve para "
+          "llevar un subconjunto a otra herramienta o para dejar evidencia de una revisión. Ojo: "
+          "se exporta el conjunto filtrado completo, no solo las filas que el deslizador muestra "
+          "en pantalla.")
 export_format = st.selectbox(
     "Formato de exportación",
     ["CSV", "Excel", "JSON"],
