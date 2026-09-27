@@ -115,3 +115,16 @@ def test_datos_de_otra_version_del_generador_se_regeneran(tmp_path, monkeypatch)
     viejo = json.loads(metadata.read_text(encoding="utf-8")) | {"version_generador": "1.0"}
     metadata.write_text(json.dumps(viejo), encoding="utf-8")
     assert data_loader.asegurar_datos_maestro("didactico") is True           # otra versión: regenera
+
+
+def test_portada_tiene_una_ayuda_por_modulo():
+    at = abrir("app.py", "realista")
+    assert not at.exception
+
+    def popovers(nodo):
+        propios = [nodo] if getattr(nodo, "type", None) == "popover" else []
+        return propios + [p for h in getattr(nodo, "children", {}).values() for p in popovers(h)]
+
+    titulos = [m.value for m in at.markdown if m.value.startswith("### ")]
+    assert [t.split(". ")[0][-1] for t in titulos if ". " in t][:9] == list("123456789")
+    assert len(popovers(at._tree)) >= 9 + 1  # una por módulo y la de la sección
