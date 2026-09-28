@@ -142,3 +142,15 @@ def test_el_adaptador_tolera_tipos_y_tarjetas_repetidas_de_la_fuente(sintetico):
                                  ignore_index=True)
     resultado = auditar(tablas, proveedor="proveedor zeta", semillas=(1001,), n_flota=60)
     assert "H8" in resultado["hipotesis"]
+
+
+def test_los_meses_sin_reporte_se_informan_y_no_inflan_los_pedidos_sin_carga(sintetico):
+    """El reporte puede tener meses sin descargar: sus pedidos se cuentan por mes pero no se cruzan."""
+    tablas = con_forma_real(sintetico)
+    fecha = pd.to_datetime(tablas["reporte"]["FECHA"], format="%d/%m/%Y %H:%M:%S")
+    tablas["reporte"] = tablas["reporte"][fecha.dt.month != 4]
+    resultado = auditar(tablas, proveedor="proveedor zeta", semillas=(1001,), n_flota=60)
+    abril = resultado["diagnostico"]["cobertura"]["por_mes"]["2024-04"]
+    assert abril["cargas_del_reporte"] == 0 and abril["pedidos_del_proveedor"] not in (0, "1–19")
+    rendidas = resultado["reglas"].get("rendida_sin_carga", {"pct": 0})["pct"] or 0
+    assert rendidas < 5

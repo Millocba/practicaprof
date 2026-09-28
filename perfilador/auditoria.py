@@ -74,24 +74,28 @@ def _unidad(ids, datos):
     return None, 0
 
 
-def _cobertura(datos, alertas):
+def _cobertura(datos, alertas, registro_del_periodo=None):
     """Qué parte del consumo ve la auditoría.
 
     El reporte de consumo, la facturación y los contratos son de un solo proveedor; el registro
     interno anota las cargas de todas las redes. Por mes, cuántas cargas trae el reporte frente a
     los pedidos del registro, y si los pedidos rendidos sin carga son de vehículos que el reporte
-    no trae ese mes (falta cobertura) o que sí trae (falta la carga).
+    no trae ese mes (falta cobertura) o que sí trae (falta la carga). Los meses cuentan todos los
+    pedidos del período (`registro_del_periodo`), también los de días sin cargas en el reporte.
     """
     consumo, registro = datos["consumo"], datos.get("solicitudes")
     mes_carga = pd.to_datetime(consumo["fecha"]).dt.strftime("%Y-%m")
     cobertura = {"alcance": {"reporte_de_consumo": "un proveedor", "facturacion": "un proveedor",
                              "contratos": "un proveedor", "registro_interno": "todas las redes"}}
-    por_mes = pd.DataFrame({"cargas_del_reporte": mes_carga.value_counts()})
+    por_mes = {"cargas_del_reporte": mes_carga.value_counts()}
     if registro is not None and len(registro):
+        todos = registro if registro_del_periodo is None else registro_del_periodo
+        mes_todos = leer_fecha(todos["fecha"]).dt.strftime("%Y-%m")
+        otra_red_todos = todos["estacion_servicio"] == ESTACION_AJENA
+        por_mes["pedidos_del_proveedor"] = mes_todos[~otra_red_todos].value_counts()
+        por_mes["pedidos_de_otra_red"] = mes_todos[otra_red_todos].value_counts()
         mes_pedido = leer_fecha(registro["fecha"]).dt.strftime("%Y-%m")
         otra_red = registro["estacion_servicio"] == ESTACION_AJENA
-        por_mes["pedidos_del_proveedor"] = mes_pedido[~otra_red].value_counts()
-        por_mes["pedidos_de_otra_red"] = mes_pedido[otra_red].value_counts()
         del_proveedor = registro[~otra_red]
         con_carga = set(zip(consumo["vehiculo_id"], mes_carga))
         sin_carga = set(alertas.loc[alertas["regla"] == "rendida_sin_carga", "id_registro"])
@@ -110,8 +114,9 @@ def _cobertura(datos, alertas):
     if facturas is not None and detalle is not None:
         por_mes["lineas_facturadas"] = detalle["numero_factura"].map(
             facturas.set_index("numero_factura")["periodo"]).value_counts()
-    cobertura["por_mes"] = {mes: {c: acotar(int(v)) for c, v in fila.fillna(0).items()}
-                            for mes, fila in por_mes.sort_index().iterrows()}
+    # concat y no asignación de columnas: así quedan también los meses sin cargas en el reporte
+    tabla = pd.concat(por_mes, axis=1).fillna(0).sort_index()
+    cobertura["por_mes"] = {mes: {c: acotar(int(v)) for c, v in fila.items()} for mes, fila in tabla.iterrows()}
     return cobertura
 
 
@@ -120,12 +125,19 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
     consumo = datos["consumo"]
     registro = datos.get("solicitudes")
     if registro is not None:
-        # Solo el período que cubre el reporte: fuera de él, todo pedido quedaría "sin carga"
-        fechas = leer_fecha(registro["fecha"])
-        desde, hasta = pd.to_datetime(consumo["fecha"]).min(), pd.to_datetime(consumo["fecha"]).max()
-        registro = registro[fechas.between(desde, hasta)]
+        # Solo los días con cargas en el reporte: en un día que el reporte no trae, todo pedido
+        # quedaría "sin carga" (el reporte puede tener meses enteros sin descargar)
+        fechas = leer_fecha(registro["fecha"]).dt.normalize()
+        dias = pd.to_datetime(consumo["fecha"]).dt.normalize()
+        registro_del_periodo = registro[fechas.between(dias.min(), dias.max())]
+        registro = registro[fechas.isin(set(dias))]
         datos["solicitudes"] = registro
-        diagnostico["registro"]["pedidos_en_el_periodo_del_reporte"] = acotar(len(registro))
+        diagnostico["registro"] |= {
+            "pedidos_en_el_periodo_del_reporte": acotar(len(registro_del_periodo)),
+            "pedidos_en_dias_con_cargas_del_reporte": acotar(len(registro)),
+            "dias_con_cargas_del_reporte": acotar(dias.nunique()),
+            "dias_del_periodo": acotar((dias.max() - dias.min()).days + 1),
+        }
 
     facturas = datos.get("facturacion")
     if facturas is not None:
@@ -143,7 +155,7 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
             len(datos["facturacion_detalle"])) if len(datos["facturacion_detalle"]) else None
 
     alertas = reglas_del_dataset(datos)
-    diagnostico["cobertura"] = _cobertura(datos, alertas)
+    diagnostico["cobertura"] = _cobertura(datos, alertas, registro_del_periodo if registro is not None else None)
     por_regla = {}
     for regla, grupo in alertas.groupby("regla"):
         ids = set(grupo["id_registro"])
