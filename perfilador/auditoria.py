@@ -86,6 +86,21 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
         datos["solicitudes"] = registro
         diagnostico["registro"]["pedidos_en_el_periodo_del_reporte"] = acotar(len(registro))
 
+    facturas = datos.get("facturacion")
+    if facturas is not None:
+        # Solo las facturas de los meses que cubre el reporte: si no, sus líneas quedarían "sin carga"
+        meses = set(pd.to_datetime(consumo["fecha"]).dt.strftime("%Y-%m"))
+        antes = len(facturas)
+        facturas = facturas[facturas["periodo"].isin(meses)]
+        datos["facturacion"] = facturas
+        datos["facturacion_detalle"] = datos["facturacion_detalle"][
+            datos["facturacion_detalle"]["numero_factura"].isin(facturas["numero_factura"])]
+        diagnostico["facturacion"]["facturas_en_el_periodo_del_reporte"] = acotar(len(facturas))
+        diagnostico["facturacion"]["facturas_fuera_del_periodo"] = acotar(antes - len(facturas))
+        diagnostico["facturacion"]["lineas_con_carga_del_reporte_en_el_periodo_pct"] = _pct(
+            int(datos["facturacion_detalle"]["referencia_consumo"].isin(consumo["id"]).sum()),
+            len(datos["facturacion_detalle"])) if len(datos["facturacion_detalle"]) else None
+
     alertas = reglas_del_dataset(datos)
     por_regla = {}
     for regla, grupo in alertas.groupby("regla"):
