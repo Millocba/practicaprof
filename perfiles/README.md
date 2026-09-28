@@ -70,9 +70,11 @@ python -m perfilador auditar /ruta/de/los/archivos --base-url-env VARIABLE --pro
   - qué proporción de cargas cruza con el registro interno y con qué diferencia de horario;
   - cuantiles de las variables del modelo, reales frente a sintéticos, para ver si el modelo generaliza;
   - coincidencias entre los métodos en las 100 cargas más prioritarias;
-  - diagnósticos de la traducción.
+  - diagnósticos de la traducción;
+  - **alcance y cobertura** (`diagnostico.cobertura`): de qué red es cada fuente (el reporte, la facturación y los contratos, de un proveedor; el registro interno, de todas), cargas, pedidos y líneas facturadas por mes, qué parte de los vehículos del registro aparece en el reporte, si los pedidos rendidos sin carga son de vehículos que el reporte trae ese mes y cuántas cargas de otra red cierran tramos de odómetro.
 - **Privacidad:** los conteos de 1 a 19 se informan como `1–19`. No sale ningún identificador, carga, vehículo ni persona.
 - **Qué no corre:** las hipótesis cuyos datos no están en la fuente, es decir, la ubicación de las estaciones (H7), el GPS diario, la fecha del cambio de estado (H6) y las transferencias (H10). El diagnóstico lo informa.
+- **Otras redes:** las cargas en estaciones de otra red que anota el registro interno se intercalan en la secuencia de cada vehículo para las reglas con contexto y las variables del modelo. Sus reportes y su facturación no están, así que no se concilian.
 - **Qué no mide:** sin etiquetas reales no hay precisión ni recall. Mide cuánto marca cada regla, cuánto se parecen los datos y cuánto coinciden los métodos.
 - **Requisitos:** necesita el repositorio completo (el generador, `deteccion/` y `perfilador/`) y las librerías `scipy` y `scikit-learn`.
 - **Aprobación:** el resultado se revisa y se aprueba igual que un perfil (`aprobar`).

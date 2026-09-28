@@ -25,10 +25,10 @@ Escenario realista, semilla 42: 3.191 cargas, 79 anomalías de comportamiento.
 | Método | Revisando 50: encontradas | Precisión | Casos legítimos revisados | Revisando 100: encontradas |
 |---|---|---|---|---|
 | Reglas ingenuas | 15 (19%) | 30% | 28 | 28 (35%) |
-| Isolation Forest | 17 (22%) | 34% | 12 | 30 (38%) |
-| Reglas con contexto | 46 (58%) | 92% | 1 | 73 (92%) |
-| Modelo supervisado | 47 (59%) | 94% | 1 | 63 (80%) |
-| **Combinado** | **49 (62%)** | **98%** | **0** | **73 (92%)** |
+| Isolation Forest | 17 (22%) | 34% | 12 | 31 (39%) |
+| Reglas con contexto | 46 (58%) | 92% | 1 | 74 (94%) |
+| Modelo supervisado | 47 (59%) | 94% | 1 | 64 (81%) |
+| **Combinado** | **49 (62%)** | **98%** | **0** | **74 (94%)** |
 
 - El **Isolation Forest** rinde casi como las reglas ingenuas: las anomalías del escenario realista son sutiles, y los casos legítimos que se les parecen (tanques auxiliares, viajes largos) también son raros. Ser raro no alcanza para ser sospechoso.
 - El **combinado** encuentra lo mismo que las reglas con contexto o algo más, con menos casos legítimos revisados: las reglas aportan lo que sabemos explicar y el modelo, el orden.
@@ -55,7 +55,7 @@ Variables que más pesan en el modelo supervisado:
 |---|---|
 | Cambio de odómetro desde la carga anterior | 16% |
 | Litros cargados / litros autorizados | 15% |
-| Rendimiento km/L frente al habitual del vehículo | 14% |
+| Rendimiento km/L frente al habitual del vehículo | 15% |
 | Tanques cargados en el día | 12% |
 
 Tienen sentido para un auditor, y eso permite confiar en el orden que propone.
@@ -72,6 +72,7 @@ Tienen sentido para un auditor, y eso permite confiar en el orden que propone.
   - vehículo inactivo;
   - sin pedido en el registro interno;
   - litros frente a lo autorizado.
+- **Cargas en otra red:** el registro interno anota también las cargas en estaciones de otros proveedores, con odómetro y litros. Se intercalan en la secuencia de cada vehículo para calcular los km y el rendimiento, pero no se puntúan: no están en el reporte.
 - **Etiqueta:** la carga tiene una anomalía de comportamiento. Las de calidad de datos y facturación quedan fuera: las cubren las reglas.
 - **Modelo:** Random Forest con 300 árboles; tarda unos 13 segundos. Se aplica al dataset actual, cuyas etiquetas **nunca ve**.
 - **Isolation Forest:** se ajusta sobre el mismo dataset que puntúa, porque no usa etiquetas.

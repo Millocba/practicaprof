@@ -92,10 +92,10 @@ Promedio de 5 semillas, 200 vehículos cada una.
 | | Hipótesis | F1 ingenua → con contexto | Falsas alarmas por casos legítimos |
 |---|---|---|---|
 | H1 | Normalizar el dominio (mayúsculas, sin espacios ni guiones) antes de vincular con la flota deja solo los dominios que no corresponden a ningún vehículo; las tarjetas personales se identifican por la persona | 0,26 → 1,00 | 273 → 0 |
-| H2b | Distinguir un odómetro nuevo o un error de tipeo elimina las falsas alarmas de retroceso, sin perder adulteraciones leves | 0,65 → 0,94 | 23 → 0 |
-| H2c | Un salto sobre el ritmo habitual se confirma descartando errores de tipeo y cruzando con el GPS | 0,02 (umbral fijo) · 0,55 (historial) → 0,97 | 33 · 12 → 1 |
+| H2b | Distinguir un odómetro nuevo o un error de tipeo elimina las falsas alarmas de retroceso, sin perder adulteraciones leves | 0,65 → 0,97 | 23 → 0 |
+| H2c | Un salto sobre el ritmo habitual se confirma descartando errores de tipeo y cruzando con el GPS | 0,02 (umbral fijo) · 0,55 (historial) → 1,00 | 33 · 12 → 0 |
 | H3b | Solo el exceso volumétrico que aparece después indica un problema; el que existe desde el inicio es un tanque no registrado | 0,27 → 1,00 | 226 → 0 |
-| H4 | El fraccionamiento evade el control por transacción; lo revela la suma del día y el recorrido separa los viajes largos | 0,00 (por carga) · 0,86 (por día) → 0,93 | 18 → 2 |
+| H4 | El fraccionamiento evade el control por transacción; lo revela la suma del día y el recorrido separa los viajes largos | 0,00 (por carga) · 0,86 (por día) → 0,94 | 18 → 2 |
 | H5 | Una carga sin recorrido que la justifique solo se ve con el rendimiento km/L frente al habitual | 0,00 → 0,64 | 0 → 1 |
 | H6 | Las cargas a vehículos de baja o fuera de servicio solo se detectan cruzando con el estado de la flota | 0,00 → 1,00 | — |
 | H7 | El recorrido del GPS distingue una tarjeta usada en otro lado de un viaje real | 0,61 → 0,91 | 41 → 5 |
@@ -105,6 +105,7 @@ Promedio de 5 semillas, 200 vehículos cada una.
 | H11 | Marcar todo móvil de baja con dispositivo confunde los aparatos retirados al depósito con los que siguen funcionando; el grupo del dispositivo y su última transmisión dejan solo los móviles que irían a desguace con el aparato activo (pocos casos: 2 anomalías y unos 3 dispositivos en depósito por dataset) | 0,57 → 1,00 | 15 → 0 |
 
 - En H5 el GPS no mejora al odómetro, porque en esos vehículos el odómetro no está adulterado. La mayoría de sus falsos positivos son otras anomalías que también cargan sin recorrido (vehículos inactivos, cargas lejos, fraccionamiento).
+- El reporte de consumo es de un solo proveedor, pero el registro interno anota las cargas de todas las redes con su odómetro y sus litros. Las reglas con contexto de H2b, H2c, H4 y H5 intercalan esas cargas en la secuencia de cada vehículo: sin ellas, el tramo entre dos cargas del reporte incluye lo recorrido con combustible de otra red y parece un salto o un rendimiento imposible. Las reglas ingenuas usan solo el reporte.
 - El umbral fijo de saltos es inutilizable con uso realista: genera unas 400 falsas alarmas por dataset, porque un camión recorre 500 km en pocos días.
 - En H1, el 0,5% de las cargas trae el dominio escrito de otra forma, la ganancia que muestra la fuente real al normalizar (`za123bc`, `ZA 123 BC`, `ZA-123-BC`): la vinculación exacta las confunde con dominios inválidos. El registro interno trae la fecha en `DD/MM/AAAA` y el reporte en `AAAA-MM-DD`, como en la fuente: cada formato se interpreta por separado.
 - En H10, cada tarjeta pertenece a uno de seis contratos con tope mensual. Dos veces por semana se proyecta el consumo a fin de mes y, si no alcanza, se transfiere saldo desde el contrato al que más le sobra (unas 5 transferencias por mes). La fuente real no registra las transferencias; su frecuencia y su margen son supuestos del diseño.
@@ -205,3 +206,5 @@ Las personas integrantes conservan la autoridad final sobre las decisiones y sob
 ## Limitaciones iniciales
 
 Los datos sintéticos permiten experimentar sin exponer información sensible, pero sus patrones dependen de los supuestos del generador. Los resultados no podrán generalizarse automáticamente a flotas reales y deberán interpretarse dentro del escenario simulado.
+
+Con las fuentes reales disponibles, el reporte de consumo, la facturación y los contratos son de un solo proveedor, mientras que las cargas se hacen en tres redes. La auditoría agregada ve el consumo total solo a través del registro interno: puede auditar lo que factura ese proveedor y completar los tramos de odómetro, pero no conciliar el consumo ni la facturación de las otras redes.

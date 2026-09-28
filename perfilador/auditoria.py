@@ -19,7 +19,7 @@ from deteccion.datos import cargar_dataset
 from deteccion.hipotesis import hipotesis_del_escenario, reglas_de
 from deteccion.modelo import construir_variables, entrenar_isolation_forest, ids_con_anomalia_de_comportamiento
 from deteccion.priorizacion import REGLAS_CONTEXTO, entrenar_supervisado
-from deteccion.reglas import cruzar_registro, leer_fecha, reglas_del_dataset
+from deteccion.reglas import ESTACION_AJENA, cargas_fuera_del_reporte, cruzar_registro, leer_fecha, reglas_del_dataset
 from perfilador.adaptador import adaptar
 from perfilador.controles import acotar
 from perfilador.perfil import MINIMO_GRUPO, VERSION, dos_cifras
@@ -74,6 +74,47 @@ def _unidad(ids, datos):
     return None, 0
 
 
+def _cobertura(datos, alertas):
+    """Qué parte del consumo ve la auditoría.
+
+    El reporte de consumo, la facturación y los contratos son de un solo proveedor; el registro
+    interno anota las cargas de todas las redes. Por mes, cuántas cargas trae el reporte frente a
+    los pedidos del registro, y si los pedidos rendidos sin carga son de vehículos que el reporte
+    no trae ese mes (falta cobertura) o que sí trae (falta la carga).
+    """
+    consumo, registro = datos["consumo"], datos.get("solicitudes")
+    mes_carga = pd.to_datetime(consumo["fecha"]).dt.strftime("%Y-%m")
+    cobertura = {"alcance": {"reporte_de_consumo": "un proveedor", "facturacion": "un proveedor",
+                             "contratos": "un proveedor", "registro_interno": "todas las redes"}}
+    por_mes = pd.DataFrame({"cargas_del_reporte": mes_carga.value_counts()})
+    if registro is not None and len(registro):
+        mes_pedido = leer_fecha(registro["fecha"]).dt.strftime("%Y-%m")
+        otra_red = registro["estacion_servicio"] == ESTACION_AJENA
+        por_mes["pedidos_del_proveedor"] = mes_pedido[~otra_red].value_counts()
+        por_mes["pedidos_de_otra_red"] = mes_pedido[otra_red].value_counts()
+        del_proveedor = registro[~otra_red]
+        con_carga = set(zip(consumo["vehiculo_id"], mes_carga))
+        sin_carga = set(alertas.loc[alertas["regla"] == "rendida_sin_carga", "id_registro"])
+        huerfanos = del_proveedor[del_proveedor["id"].isin(sin_carga)]
+        en_el_reporte = [(v, m) in con_carga for v, m in zip(huerfanos["vehiculo_id"], mes_pedido[huerfanos.index])]
+        vehiculos = set(del_proveedor["vehiculo_id"].dropna())
+        fuera = cargas_fuera_del_reporte(registro)
+        cobertura |= {
+            "pedidos_del_proveedor_por_carga_del_reporte": dos_cifras(len(del_proveedor) / max(len(consumo), 1)),
+            "vehiculos_con_pedidos_del_proveedor_en_el_reporte_pct": _pct(
+                len(vehiculos & set(consumo["vehiculo_id"])), len(vehiculos)),
+            "rendidos_sin_carga_con_el_vehiculo_en_el_reporte_ese_mes_pct": _pct(sum(en_el_reporte), len(en_el_reporte)),
+            "cargas_de_otra_red_que_cierran_tramos": acotar(int(fuera["odometro"].notna().sum()) if fuera is not None else 0),
+        }
+    facturas, detalle = datos.get("facturacion"), datos.get("facturacion_detalle")
+    if facturas is not None and detalle is not None:
+        por_mes["lineas_facturadas"] = detalle["numero_factura"].map(
+            facturas.set_index("numero_factura")["periodo"]).value_counts()
+    cobertura["por_mes"] = {mes: {c: acotar(int(v)) for c, v in fila.fillna(0).items()}
+                            for mes, fila in por_mes.sort_index().iterrows()}
+    return cobertura
+
+
 def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200):
     datos, diagnostico = adaptar(tablas, proveedor)
     consumo = datos["consumo"]
@@ -102,6 +143,7 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
             len(datos["facturacion_detalle"])) if len(datos["facturacion_detalle"]) else None
 
     alertas = reglas_del_dataset(datos)
+    diagnostico["cobertura"] = _cobertura(datos, alertas)
     por_regla = {}
     for regla, grupo in alertas.groupby("regla"):
         ids = set(grupo["id_registro"])

@@ -113,6 +113,15 @@ def test_la_auditoria_corre_las_hipotesis_con_datos(resultado):
     assert resultado["modelos"]["variables"]["ratio_litros_tanque"]["real"] is not None
 
 
+def test_la_auditoria_informa_el_alcance_y_la_cobertura(resultado):
+    cobertura = resultado["diagnostico"]["cobertura"]
+    assert cobertura["alcance"]["registro_interno"] == "todas las redes"
+    assert cobertura["vehiculos_con_pedidos_del_proveedor_en_el_reporte_pct"] > 90
+    assert cobertura["cargas_de_otra_red_que_cierran_tramos"] != 0
+    for mes in cobertura["por_mes"].values():
+        assert all(v == 0 or v == "1–19" or (isinstance(v, int) and v >= 20) for v in mes.values())
+
+
 def test_la_salida_no_tiene_identificadores(resultado, sintetico):
     texto = json.dumps(resultado, ensure_ascii=False)
     for valor in [sintetico["consumo"]["id"].iloc[0], sintetico["solicitudes"]["id"].iloc[0],

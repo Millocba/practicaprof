@@ -6,6 +6,7 @@ Registro de los cambios importantes y del **por qué** de cada uno. El detalle t
 
 | Fecha | Cambio | Por qué | Decidió |
 |---|---|---|---|
+| 2026-09-28 | Las reglas con contexto y el modelo intercalan las cargas de otra red del registro interno; la auditoría informa el alcance y la cobertura de cada fuente; en el generador, las cargas del mismo día siguen en horario el orden del odómetro (versión 2.1) | Las fuentes reales de consumo y facturación son de un solo proveedor y las cargas se hacen en tres redes: sin las otras, los tramos entre cargas parecen saltos o rendimientos imposibles | Equipo |
 | 2026-09-27 | Auditoría agregada: adaptador de las fuentes reales al esquema del generador y corrida de reglas y modelos con salida solo agregada | Medir, sin traer datos reales, cuánto marcan las reglas en la realidad y si el modelo entrenado con datos sintéticos generaliza | Equipo |
 | 2026-09-27 | Documento del modelo de ML: métodos, por qué se eligieron, entrenamiento y plan de implementación con datos reales | Explicar el componente de priorización para la presentación y dejar escrito cómo llevarlo a operación | Equipo |
 | 2026-09-26 | Base de datos SQLite del escenario realista: migraciones versionadas, maestros con vigencia, carga repetible e incremental y vistas de control | Hacer verificable la integridad, dejar los controles en SQL portable y documentar una propuesta de mejora para la fuente real | Equipo |

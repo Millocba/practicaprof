@@ -21,6 +21,7 @@ from deteccion.reglas import (
     distancia_a_zona_habitual,
     distancia_al_recorrido_gps,
     ejecutar_reglas,
+    cargas_fuera_del_reporte,
     cruzar_registro,
     secuencia_odometro,
 )
@@ -64,7 +65,9 @@ def construir_variables(flota, consumo, estaciones=None, telemetria_diaria=None,
     """
     capacidad = consumo["vehiculo_id"].map(flota.set_index("Matricula")["CapacidadTanque"])
     duplicados = detectar_duplicados(consumo)["id_registro"]
-    seq = secuencia_odometro(consumo, excluir_ids=duplicados).set_index("id")
+    # Las cargas de otra red del registro interno cierran los tramos de odómetro y rendimiento
+    fuera = cargas_fuera_del_reporte(solicitudes) if "FechaEstado" in flota.columns else None
+    seq = secuencia_odometro(consumo, excluir_ids=duplicados, fuera=fuera).set_index("id")
 
     variables = pd.DataFrame({"id": consumo["id"]}).set_index("id")
     variables["ratio_litros_tanque"] = (consumo["litros"] / capacidad).values
@@ -77,7 +80,7 @@ def construir_variables(flota, consumo, estaciones=None, telemetria_diaria=None,
     variables["litros_vs_habitual"] = (consumo["litros"] / habitual).values
     variables["retroceso_km"] = (-variables["km"]).clip(lower=0)
 
-    dias = cargas_por_dia(consumo, flota, excluir_ids=duplicados, gps_diario=telemetria_diaria)
+    dias = cargas_por_dia(consumo, flota, excluir_ids=duplicados, gps_diario=telemetria_diaria, fuera=fuera)
     dias["rendimiento_relativo"] = dias["rendimiento_gps_relativo"].fillna(dias["rendimiento_odometro_relativo"])
     dias["tanques_en_el_dia"] = dias["litros"] / dias["capacidad"]
     por_id = (dias.explode("ids").drop_duplicates("ids").set_index("ids")

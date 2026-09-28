@@ -116,17 +116,57 @@ def detectar_exceso_volumetrico(consumo, flota):
                     + d["capacidad"].round(2).astype(str) + " L")
 
 
-def secuencia_odometro(consumo, excluir_ids=()):
+def cargas_fuera_del_reporte(solicitudes):
+    """Cargas en estaciones de otra red, según el registro interno: pedidos rendidos y no anulados.
+
+    El reporte es de un solo proveedor, pero el registro interno anota las cargas de todas las
+    redes con su odómetro y sus litros. Sirven para cerrar los tramos de cada vehículo: sin ellas,
+    los km entre dos cargas del reporte incluyen lo recorrido con combustible de otra red.
+    """
+    if solicitudes is None or "estacion_servicio" not in solicitudes.columns:
+        return None
+    fuera = solicitudes[(solicitudes["estacion_servicio"] == ESTACION_AJENA)
+                        & (solicitudes["rendido"].astype(str).str.upper() == "SI")
+                        & (solicitudes["anulado"].astype(str).str.upper() != "SI")
+                        & solicitudes["vehiculo_id"].notna()]
+    litros = pd.to_numeric(fuera["litros_cargados"], errors="coerce").fillna(
+        pd.to_numeric(fuera["litros_autorizados"], errors="coerce"))
+    return pd.DataFrame({
+        "id": "FUERA-" + fuera["id"].astype(str), "vehiculo_id": fuera["vehiculo_id"],
+        "fecha": leer_fecha(fuera["fecha"]).dt.normalize(), "hora": fuera["hora"].astype("string").fillna("00:00:00"),
+        "odometro": pd.to_numeric(fuera["odometro"], errors="coerce"), "litros": litros,
+    }).dropna(subset=["fecha", "litros"])
+
+
+def _con_cargas_fuera(consumo, fuera):
+    """El consumo con las cargas de otra red intercaladas, marcadas en la columna `fuera`."""
+    datos = consumo.assign(fuera=False)
+    if fuera is None or fuera.empty:
+        return datos
+    return pd.concat([datos, fuera.assign(fuera=True)], ignore_index=True)
+
+
+def secuencia_odometro(consumo, excluir_ids=(), fuera=None):
     """Cambio de odómetro de cada transacción respecto de la lectura válida anterior.
 
     Se descartan las lecturas vacías y las transacciones en `excluir_ids` (por ejemplo,
     duplicados ya detectados), para comparar cada carga con la anterior real.
     Agrega: km (cambio), dias (días transcurridos) y km_esperados (según la mediana
     de km por día del propio vehículo).
+
+    Con `fuera` (ver `cargas_fuera_del_reporte`) se intercalan las cargas de otra red, ordenadas
+    por fecha y hora: cierran los tramos y quedan en la secuencia con `fuera=True`, para que las
+    reglas las usen como vecinas pero no las marquen.
     """
     datos = consumo[consumo["odometro"].notna() & ~consumo["id"].isin(set(excluir_ids))].copy()
     datos["fecha"] = pd.to_datetime(datos["fecha"])
-    datos = datos.sort_values(["vehiculo_id", "fecha", "id"])
+    if fuera is None:
+        datos = datos.sort_values(["vehiculo_id", "fecha", "id"])
+    else:
+        datos = _con_cargas_fuera(datos, fuera[fuera["odometro"].notna()])
+        horas = datos["hora"].astype("string").fillna("00:00:00") if "hora" in datos.columns else "00:00:00"
+        datos["_instante"] = datos["fecha"] + pd.to_timedelta(horas)
+        datos = datos.sort_values(["vehiculo_id", "_instante", "id"]).drop(columns="_instante")
     grupo = datos.groupby("vehiculo_id")
     datos["km"] = grupo["odometro"].diff()
     datos["dias"] = grupo["fecha"].diff().dt.days
@@ -215,6 +255,10 @@ def _es_error_de_tipeo(s):
     return hueco | rebote_tras_pico | pico | rebote_tras_hueco
 
 
+def _es_de_otra_red(s):
+    return s["fuera"].fillna(False).astype(bool) if "fuera" in s.columns else pd.Series(False, index=s.index)
+
+
 def detectar_retroceso_con_contexto(secuencia):
     """H2b: retroceso que no se explica por un odómetro nuevo ni por un error de tipeo.
 
@@ -223,7 +267,7 @@ def detectar_retroceso_con_contexto(secuencia):
     """
     s = _vecinos_de_odometro(secuencia)
     reinicio = s["odometro"] < REINICIO_ODOMETRO_KM
-    return _alertas_de_retroceso(s[(s["km"] < 0) & ~reinicio & ~_es_error_de_tipeo(s)],
+    return _alertas_de_retroceso(s[(s["km"] < 0) & ~reinicio & ~_es_error_de_tipeo(s) & ~_es_de_otra_red(s)],
                                  "retroceso_con_contexto")
 
 
@@ -236,10 +280,10 @@ def detectar_salto_con_contexto(secuencia, gps_por_intervalo=None):
     """
     s = _vecinos_de_odometro(secuencia)
     exceso = s["km"] - s["km_esperados"]
-    candidato = (exceso > SALTO_HISTORIAL_EXCESO_KM) & ~_es_error_de_tipeo(s)
+    candidato = (exceso > SALTO_HISTORIAL_EXCESO_KM) & ~_es_error_de_tipeo(s) & ~_es_de_otra_red(s)
     if gps_por_intervalo is not None:
         gps = s["id"].map(gps_por_intervalo["km_gps"])
-        completo = s["id"].map(gps_por_intervalo["completo"]).fillna(False).astype(bool)
+        completo = s["id"].map(gps_por_intervalo["completo"]).eq(True)
         confirmado_por_gps = completo & ((s["km"] - gps) <= SALTO_HISTORIAL_EXCESO_KM)
         candidato &= ~confirmado_por_gps
     salto = s[candidato].assign(exceso=exceso)
@@ -284,20 +328,26 @@ def detectar_carga_vehiculo_inactivo(consumo, flota):
                     + " desde " + d["desde"].dt.strftime("%Y-%m-%d"))
 
 
-def cargas_por_dia(consumo, flota, excluir_ids=(), gps_diario=None):
+def cargas_por_dia(consumo, flota, excluir_ids=(), gps_diario=None, fuera=None):
     """Resumen por vehículo y día con carga: litros, cantidad de cargas y rendimiento.
 
     El rendimiento del día es km recorridos desde el día de carga anterior / litros
     cargados en el día. Se calcula con el odómetro y, si hay GPS completo en el
     intervalo, también con los km del GPS. Cada rendimiento se compara con la mediana
     del propio vehículo.
+
+    Con `fuera` (ver `cargas_fuera_del_reporte`) se suman las cargas de otra red: sus litros
+    cuentan en el día y sus lecturas cierran los tramos, pero `ids` lista solo las del reporte y
+    los días sin cargas del reporte no se devuelven.
     """
     capacidad = flota.set_index("Matricula")["CapacidadTanque"]
     datos = consumo[~consumo["id"].isin(set(excluir_ids))].copy()
     datos["fecha"] = pd.to_datetime(datos["fecha"])
+    datos = _con_cargas_fuera(datos, fuera)
+    datos["id_del_reporte"] = datos["id"].where(~datos["fuera"].astype(bool))
     dias = (datos.groupby(["vehiculo_id", "fecha"])
             .agg(litros=("litros", "sum"), cargas=("id", "count"), odometro=("odometro", "max"),
-                 ids=("id", list))
+                 ids=("id_del_reporte", lambda x: list(x.dropna())))
             .reset_index().sort_values(["vehiculo_id", "fecha"]))
     dias["capacidad"] = dias["vehiculo_id"].map(capacidad)
     grupo = dias.groupby("vehiculo_id")
@@ -320,7 +370,7 @@ def cargas_por_dia(consumo, flota, excluir_ids=(), gps_diario=None):
     for columna in ["rendimiento_odometro", "rendimiento_gps"]:
         habitual = dias.groupby("vehiculo_id")[columna].transform("median")
         dias[columna + "_relativo"] = dias[columna] / habitual
-    return dias
+    return dias[dias["ids"].str.len() > 0].reset_index(drop=True)
 
 
 def _km_gps_entre_fechas(placa, desde, hasta, gps_diario):
@@ -807,16 +857,21 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
     ]
 
     if "FechaEstado" in flota.columns:
+        # Las reglas con contexto ven también las cargas de otra red que anota el registro interno
+        fuera = cargas_fuera_del_reporte(solicitudes)
+        completa = secuencia_odometro(consumo, excluir_ids=duplicados["id_registro"], fuera=fuera)
+        dias_del_reporte = cargas_por_dia(consumo, flota, excluir_ids=duplicados["id_registro"],
+                                          gps_diario=telemetria_diaria)
         dias = cargas_por_dia(consumo, flota, excluir_ids=duplicados["id_registro"],
-                              gps_diario=telemetria_diaria)
+                              gps_diario=telemetria_diaria, fuera=fuera)
         intervalos = gps_por_intervalo(dias) if telemetria_diaria is not None else None
         partes += [
             detectar_dominio_invalido(consumo, flota, normalizado=True),
-            detectar_retroceso_con_contexto(secuencia),
-            detectar_salto_con_contexto(secuencia, intervalos),
+            detectar_retroceso_con_contexto(completa),
+            detectar_salto_con_contexto(completa, intervalos),
             detectar_exceso_sin_antecedente(consumo, flota),
             detectar_carga_vehiculo_inactivo(consumo, flota),
-            detectar_fraccionamiento(dias),
+            detectar_fraccionamiento(dias_del_reporte),
             detectar_fraccionamiento(dias, con_rendimiento=True),
             detectar_rendimiento_bajo(dias, "odometro"),
         ]
