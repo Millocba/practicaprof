@@ -40,7 +40,7 @@ DIRECTORIOS_ESCENARIO = {
 SEED = 42
 # Versión de los datos que produce el generador: cambiarla cuando cambie lo que genera, así la
 # aplicación regenera los datos que tenga en disco de una versión anterior
-VERSION_GENERADOR = "2.0"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md)
+VERSION_GENERADOR = "2.1"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md); 2.1: horas del día en el orden del odómetro
 
 # Ventana temporal de los datos: consumos y solicitudes entre FECHA_INICIO y
 # FECHA_INICIO + DIAS_VENTANA. FECHA_REFERENCIA hace de "ahora" para la telemetría.
@@ -1429,6 +1429,10 @@ class GeneradorMaestro:
 
         consumo["hora"] = [f"{min(23, int(rng.triangular(6, 24, 12))):02d}:{rng.randint(0, 59):02d}:"
                            f"{rng.randint(0, 59):02d}" for _ in range(len(consumo))]
+        # Las cargas del mismo vehículo en el día siguen, en horario, el orden del odómetro
+        orden = consumo.sort_values(["vehiculo_id", "fecha", "id"]).index
+        horas = consumo.loc[orden, "hora"].groupby([consumo.loc[orden, "vehiculo_id"], consumo.loc[orden, "fecha"]])
+        consumo.loc[orden, "hora"] = horas.transform(lambda h: pd.Series(sorted(h), index=h.index)).values
         # Un duplicado repite también la hora de su original
         original_de = {a["id_registro"]: a["descripcion"].removeprefix("copia de ")
                        for a in self.anomalias if a["tipo_anomalia"] == "DUPLICADO"}
