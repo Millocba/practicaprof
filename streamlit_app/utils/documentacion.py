@@ -30,6 +30,7 @@ DOCUMENTOS = [
     ("Datos", "Perfiles de fuentes", "perfiles/README.md"),
     ("Datos", "Base de datos", "docs/BASE_DE_DATOS.md"),
     ("Técnica", "Arquitectura", "docs/ARCHITECTURE.md"),
+    ("Técnica", "Modelo de ML", "docs/MODELO_ML.md"),
     ("Técnica", "Entorno de desarrollo", "docs/DEVELOPMENT.md"),
     ("Trabajo en equipo", "Reglas para agentes de IA", "AGENTS.md"),
     ("Trabajo en equipo", "Guía de contribución", "CONTRIBUTING.md"),

@@ -6,6 +6,7 @@ Registro de los cambios importantes y del **por qué** de cada uno. El detalle t
 
 | Fecha | Cambio | Por qué | Decidió |
 |---|---|---|---|
+| 2026-09-27 | Documento del modelo de ML: métodos, por qué se eligieron, entrenamiento y plan de implementación con datos reales | Explicar el componente de priorización para la presentación y dejar escrito cómo llevarlo a operación | Equipo |
 | 2026-09-26 | Base de datos SQLite del escenario realista: migraciones versionadas, maestros con vigencia, carga repetible e incremental y vistas de control | Hacer verificable la integridad, dejar los controles en SQL portable y documentar una propuesta de mejora para la fuente real | Equipo |
 | 2026-09-26 | Grupo de cada dispositivo, dispositivos en depósito de los móviles de baja e H11 | Regla de la fuente: los móviles de baja no llevan telemetría y, si la tuvieron, el dispositivo debe quedar en depósito; uno activo en un móvil de baja es una alerta | Equipo |
 | 2026-09-26 | Facturación por contrato, mes y familia a precio de empresa, con deuda, PDF y conciliación triple; H9 ampliada | En la fuente el proveedor factura cada contrato a precio de empresa y la deuda, el PDF y el consumo deben coincidir | Equipo |

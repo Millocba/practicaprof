@@ -177,6 +177,7 @@ legacy/                         generadores, notebooks y etapa inicial anteriore
 - [Diccionario de datos del pipeline maestro](docs/DICCIONARIO_DATOS.md)
 - [Límite de metadatos reales](docs/REAL_DATA_BOUNDARY.md)
 - [Base de datos](docs/BASE_DE_DATOS.md)
+- [Modelo de ML: qué revisar primero](docs/MODELO_ML.md)
 - [Evolución de los generadores](legacy/EVOLUCION.md)
 - [Registro del Sprint 1](docs/sprints/sprint-1/README.md)
 - [Estado actual](docs/ESTADO_ACTUAL.md) (con valores vivos en la página Documentación de la aplicación)
