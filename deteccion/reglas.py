@@ -498,7 +498,10 @@ def cruzar_registro(consumo, registro, excluir_ids=(), voraz=False, flota=None):
         personal_p = pedidos["tarjeta_personal"].astype(str).str.upper().eq("TRUE")
         dominio = cargas["dominio"]
         if flota is not None:
-            dominio = cargas["numero_tarjeta"].map(flota.set_index("NumeroTarjeta")["Dominio"]).fillna(dominio)
+            # Una tarjeta puede figurar en más de un vehículo del padrón: se toma el primero
+            dominio_de = flota.dropna(subset=["NumeroTarjeta"]).drop_duplicates("NumeroTarjeta").set_index(
+                "NumeroTarjeta")["Dominio"]
+            dominio = cargas["numero_tarjeta"].map(dominio_de).fillna(dominio)
         cargas["clave"] = np.where(personal_c, "P:" + cargas["conductor"].astype(str),
                                    "D:" + normalizar_dominio(dominio).astype(str))
         pedidos["clave"] = np.where(personal_p, "P:" + pedidos["solicitante"].astype(str),

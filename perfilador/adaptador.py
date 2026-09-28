@@ -92,7 +92,8 @@ def adaptar(tablas, proveedor=None):
             "importe_total": _numero(fuente["IMP TOT PVP ESTABLECIMIENTO"]),
             "numero_tarjeta": tarjeta,
             # La persona se identifica por su documento, para cruzarla con el registro interno
-            "conductor": _digitos(identificacion.where(personal, fuente.get("NRO IDENTIFICACION CONDUCTOR"))),
+            "conductor": _digitos(identificacion.where(personal, _texto(fuente.get(
+                "NRO IDENTIFICACION CONDUCTOR", pd.Series(pd.NA, index=fuente.index))))),
             "odometro": _numero(fuente["ODOMETRO"]).round().astype("Int64"),
             "tipo_identificacion": personal.map({True: "DNI", False: "PATENTE"}),
             "contrato": matricula.map(flota.set_index("Matricula")["NumeroContrato"]).astype("Int64"),

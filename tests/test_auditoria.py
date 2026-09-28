@@ -122,3 +122,14 @@ def test_la_salida_no_tiene_identificadores(resultado, sintetico):
         assert str(valor) not in texto
     for regla in resultado["reglas"].values():
         assert isinstance(regla["alertas"], str) or regla["alertas"] == 0 or regla["alertas"] >= 20
+
+
+def test_el_adaptador_tolera_tipos_y_tarjetas_repetidas_de_la_fuente(sintetico):
+    """La fuente trae el documento del conductor como número y tarjetas repetidas en el padrón."""
+    tablas = con_forma_real(sintetico)
+    tablas["reporte"]["NRO IDENTIFICACION CONDUCTOR"] = pd.to_numeric(tablas["reporte"]["NRO IDENTIFICACION CONDUCTOR"])
+    padron = tablas["padron"]
+    tablas["padron"] = pd.concat([padron, padron.head(3).assign(Matricula=lambda d: d["Matricula"] + "-B")],
+                                 ignore_index=True)
+    resultado = auditar(tablas, proveedor="proveedor zeta", semillas=(1001,), n_flota=60)
+    assert "H8" in resultado["hipotesis"]
