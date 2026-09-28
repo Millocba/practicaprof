@@ -275,7 +275,9 @@ def detectar_carga_vehiculo_inactivo(consumo, flota):
     inactivos = flota[(flota["Estado"] != "EN SERVICIO") & flota["FechaEstado"].notna()]
     desde = pd.to_datetime(inactivos.set_index("Matricula")["FechaEstado"])
     estado = inactivos.set_index("Matricula")["Estado"]
-    datos = consumo.assign(fecha=pd.to_datetime(consumo["fecha"]), desde=consumo["vehiculo_id"].map(desde))
+    # reindex y no map: con pandas 3, map falla si no hay ningún vehículo inactivo con fecha
+    datos = consumo.assign(fecha=pd.to_datetime(consumo["fecha"]),
+                           desde=desde.reindex(consumo["vehiculo_id"]).to_numpy())
     posteriores = datos[datos["desde"].notna() & (datos["fecha"] >= datos["desde"])]
     return _alertas(posteriores, "CARGA_VEHICULO_INACTIVO", "carga_vehiculo_inactivo",
                     lambda d: "vehículo " + d["vehiculo_id"].map(estado).str.lower()

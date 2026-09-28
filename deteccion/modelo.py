@@ -95,7 +95,9 @@ def construir_variables(flota, consumo, estaciones=None, telemetria_diaria=None,
             variables["sin_gps"] = distancia.isna().astype(int).values
 
     inactivos = flota[(flota["Estado"] != "EN SERVICIO") & flota["FechaEstado"].notna()]
-    desde = consumo["vehiculo_id"].map(pd.to_datetime(inactivos.set_index("Matricula")["FechaEstado"]))
+    # reindex y no map: con pandas 3, map falla si no hay ningún vehículo inactivo con fecha
+    desde = pd.Series(pd.to_datetime(inactivos.set_index("Matricula")["FechaEstado"])
+                      .reindex(consumo["vehiculo_id"]).to_numpy(), index=consumo.index)
     variables["vehiculo_inactivo"] = (pd.to_datetime(consumo["fecha"]) >= desde).astype(int).values
 
     if solicitudes is not None and "rendido" in solicitudes.columns:
