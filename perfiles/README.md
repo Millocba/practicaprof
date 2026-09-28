@@ -54,3 +54,26 @@ Perfiles **agregados** de fuentes de datos externas: estructura y calidad, sin f
    ```
    Se escribe `perfil_AAAA-MM-DD_brechas.md` junto al perfil, con cada brecha y su sugerencia para el generador.
 5. **Commitear** el perfil aprobado y su informe.
+
+## Auditoría agregada
+
+Con el mismo cuidado que el perfil, las reglas y los modelos del proyecto pueden correr sobre las fuentes, junto a los datos, y devolver **solo agregados**:
+
+```bash
+python -m perfilador auditar /ruta/de/los/archivos --base-url-env VARIABLE --proveedor "TEXTO" --salida /tmp/auditoria.json
+```
+
+- Un adaptador traduce cada fuente al esquema del generador. Cada fuente se reconoce por sus columnas, no por su nombre.
+- `--proveedor` es el texto que identifica las estaciones del proveedor en el registro interno. Se usa para separar las estaciones de otra red y no se guarda en ningún lado.
+- **Resultado:**
+  - cuántas cargas marca cada regla y cada hipótesis, con la versión ingenua y con contexto;
+  - qué proporción de cargas cruza con el registro interno y con qué diferencia de horario;
+  - cuantiles de las variables del modelo, reales frente a sintéticos, para ver si el modelo generaliza;
+  - coincidencias entre los métodos en las 100 cargas más prioritarias;
+  - diagnósticos de la traducción.
+- **Privacidad:** los conteos de 1 a 19 se informan como `1–19`. No sale ningún identificador, carga, vehículo ni persona.
+- **Qué no corre:** las hipótesis cuyos datos no están en la fuente, es decir, la ubicación de las estaciones (H7), el GPS diario, la fecha del cambio de estado (H6) y las transferencias (H10). El diagnóstico lo informa.
+- **Qué no mide:** sin etiquetas reales no hay precisión ni recall. Mide cuánto marca cada regla, cuánto se parecen los datos y cuánto coinciden los métodos.
+- **Requisitos:** necesita el repositorio completo (el generador, `deteccion/` y `perfilador/`) y las librerías `scipy` y `scikit-learn`.
+- **Aprobación:** el resultado se revisa y se aprueba igual que un perfil (`aprobar`).
+

@@ -95,6 +95,8 @@ La dificultad principal es que **las fuentes reales no traen etiquetas**: nadie 
      - los cambios en el perfil de las cargas (vehículos nuevos, precios);
      - que la cola no se concentre sin justificación en ciertas dependencias o tipos de vehículo.
 
+Antes de la etapa 1, la **auditoría agregada** corre las reglas y los modelos sobre las fuentes reales, junto a los datos, y devuelve solo agregados: cuánto marca cada regla y si las variables reales se parecen a las sintéticas. Ver [perfiles/README.md](../perfiles/README.md).
+
 ## Limitaciones
 
 - El modelo aprende las anomalías tal como las inyecta el generador. Con datos reales los patrones serán otros: estos resultados son un **techo de referencia**, no una promesa de desempeño.
