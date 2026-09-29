@@ -61,10 +61,10 @@ st.markdown("""
 # Title and introduction
 seccion(
     "📊 Pipeline Maestro de Datos Sintéticos", nivel=1,
-    ayuda="Portada del proyecto. Resume en qué estado está el pipeline y guía a las ocho páginas "
-          "que lo componen. Todo lo que se ve acá se calcula desde los archivos generados, no está "
-          "escrito a mano: si cambia el generador, esta pantalla cambia sola. Es el lugar para "
-          "empezar si llegaste hace un rato y querés saber por dónde seguir.")
+    ayuda="Portada del proyecto. Resume en qué estado está el pipeline y guía a las páginas "
+          "que lo componen. Todo lo que se ve acá se calcula desde los archivos generados, no "
+          "está escrito a mano: si cambia el generador, esta pantalla cambia sola. Es el lugar "
+          "para empezar si llegaste hace un rato y querés saber por dónde seguir.")
 st.markdown("**Sistema integral para gestión, visualización y análisis del dataset integrado**")
 
 # Load data (same source as the Generador and Análisis pages)
@@ -147,10 +147,11 @@ except Exception as e:
 st.markdown("---")
 seccion(
     "ℹ️ Navegación",
-    ayuda="Las ocho páginas y para qué sirve cada una. No es un orden obligatorio: _generador y "
-          "datasets son de preparación, y las cinco últimas son de análisis. Si querés entender "
-          "el método de punta a punta, seguí el orden en que están; si ya sabés qué buscás, "
-          "entrá directo por donde corresponda.")
+    ayuda="Las páginas y para qué sirve cada una. No es un orden obligatorio: _generador y "
+          "datasets son de preparación, el diccionario y el perfilador describen los datos, y "
+          "las de análisis y priorización van al final. Si querés entender el método de punta a "
+          "punta, seguí el orden en que están; si ya sabés qué buscás, entrá directo por donde "
+          "corresponda.")
 col1, col2, col3 = st.columns(3)
 
 with col1:
