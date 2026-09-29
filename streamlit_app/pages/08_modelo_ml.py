@@ -233,7 +233,7 @@ def pagina_realista():
 
     seccion(
         "Qué encuentra cada método", nivel=3,
-        ayuda="El mismo desglose por tipo de anomalía, agora con el presupuesto ya fijado. Sirve "
+        ayuda="El mismo desglose por tipo de anomalía, ahora con el presupuesto ya fijado. Sirve "
               "para ver si a un método se le escapa una categoría concreta: puede ganar en total y "
               "no detectar nada de un tipo.")
     por_tipo = priorizacion.recall_por_tipo(puntajes, ground_truth, presupuesto)

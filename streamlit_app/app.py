@@ -147,7 +147,7 @@ except Exception as e:
 st.markdown("---")
 seccion(
     "ℹ️ Navegación",
-    ayuda="Las ocho páginas y para qué sirve cada una. No es un orden obligatorio:_generador y "
+    ayuda="Las ocho páginas y para qué sirve cada una. No es un orden obligatorio: _generador y "
           "datasets son de preparación, y las cinco últimas son de análisis. Si querés entender "
           "el método de punta a punta, seguí el orden en que están; si ya sabés qué buscás, "
           "entrá directo por donde corresponda.")

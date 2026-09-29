@@ -96,7 +96,7 @@ col1, col2, col3, col4 = st.columns(4)
 col1.metric("Transacciones analizadas", f"{len(consumo):,}",
             help="Cargas de combustible que entraron al análisis. Es el denominador de todas "
                  "las tasas de esta página: un recall del 80% significa que de cada 100 "
-                 "transacciones se detectaron 80, no que se detectaron 80 de 10.")
+                 "cargas reales se detectaron 80, no que se detectaron 80 en total.")
 col2.metric("Anomalías en el ground truth", f"{len(ground_truth):,}",
             help="Anomalías que el generador inyectó a propósito y dejó anotadas. Son la verdad "
                  "de referencia: ninguna regla las ve, solo se usan para medir después.")

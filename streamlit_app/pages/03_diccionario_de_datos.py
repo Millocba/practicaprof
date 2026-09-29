@@ -37,7 +37,7 @@ seccion(
     "📖 Diccionario de datos", nivel=1,
     ayuda="El mapa de los datos: qué contiene cada tabla, cómo se unen y qué defectos se les "
           "metieron a propósito. Todo sale del `diccionario.json` que escribe el generador en cada "
-          "carrida, así que describe exactamente los archivos que están en disco, no una "
+          "corrida, así que describe exactamente los archivos que están en disco, no una "
           "documentación que puede quedar vieja. Si no encontrás una tabla o una columna, no "
           "existe en estos datos.")
 st.markdown(
