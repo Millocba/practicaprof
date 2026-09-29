@@ -5,8 +5,9 @@ Sigue las reglas de docs/REAL_DATA_BOUNDARY.md:
   significativas; nunca mínimos ni máximos.
 - Ningún grupo con menos de MINIMO_GRUPO observaciones: las categorías y formatos
   infrecuentes se agrupan como OTRA_CATEGORIA_SINTETIZABLE.
-- Las columnas sensibles (identificadores, personas, vehículos, ubicaciones, texto libre)
-  se describen solo por su formato: sin valores, cuantiles ni categorías.
+- Las columnas sensibles (identificadores, personas, vehículos, ubicaciones, organizaciones,
+  texto libre) se describen solo por su formato: sin valores, cuantiles ni categorías. Los
+  formatos largos se resumen por su largo.
 - Fechas agregadas por mes.
 - Los errores se registran por tipo, sin el mensaje (podría incluir un valor).
 
@@ -22,27 +23,31 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-VERSION = "1.0"
+VERSION = "1.1"
 MINIMO_GRUPO = 20
 MAX_CATEGORIAS = 50
 LARGO_TEXTO_LIBRE = 30          # formatos más largos se consideran texto libre
 MAX_FORMATOS_DISTINTOS = 40     # más formatos distintos que esto también indica texto libre
+LARGO_FORMATO_SENSIBLE = 20     # en columnas sensibles, formatos más largos se resumen por largo
 OTRA = "OTRA_CATEGORIA_SINTETIZABLE"
 
 # Pistas en el nombre de la columna -> tipo de dato sensible
 PISTAS_SENSIBLES = {
     "identificador": ["id", "codigo", "cod", "numero", "nro", "num", "imei", "matricula", "chasis", "motor",
-                      "tarjeta", "msisdn", "ticket", "serie", "cuenta", "cbu", "legajo"],
+                      "tarjeta", "msisdn", "ticket", "serie", "cuenta", "cbu", "legajo", "extracto", "remito"],
     "persona": ["nombre", "nombres", "apellido", "apellidos", "conductor", "chofer", "responsable", "dni",
-                "cuit", "cuil", "email", "mail", "correo", "telefono", "celular", "usuario", "firma"],
+                "cuit", "cuil", "email", "mail", "correo", "telefono", "celular", "usuario", "firma",
+                "solicitante", "cargador", "retira"],
     "vehiculo": ["dominio", "patente", "placa"],
     "ubicacion": ["lat", "lon", "lng", "latitud", "longitud", "direccion", "domicilio", "calle", "coordenada",
-                  "coordenadas", "ubicacion", "geo"],
+                  "coordenadas", "ubicacion", "geo", "localidad", "provincia"],
+    # Nombres de unidades internas, contratos o comercios permiten reconocer a la organización
+    "organizacion": ["depend", "contrato", "establecimiento"],
     "texto libre": ["observacion", "observaciones", "comentario", "comentarios", "descripcion", "detalle",
                     "nota", "notas", "motivo", "glosa", "leyenda"],
 }
-# Formatos de patentes argentinas (histórico y Mercosur)
-FORMATOS_PATENTE = {"AAA999", "AAA 999", "AA999AA", "AA 999 AA"}
+# Formatos de patentes argentinas (histórico, Mercosur y motos Mercosur)
+FORMATOS_PATENTE = {"AAA999", "AAA 999", "AA999AA", "AA 999 AA", "A999AAA"}
 VACIOS_TEXTUALES = {"", "-", "--", "S/D", "SD", "N/A", "NA", "NULL", "NONE", "SIN DATO", "SIN DATOS", "."}
 
 
@@ -103,6 +108,23 @@ def sensibilidad_por_nombre(nombre):
             if palabra in pistas or any(len(p) > 3 and palabra.startswith(p) for p in pistas):
                 return tipo
     return None
+
+
+def _es_codigo(formato_valor):
+    """Formatos como 9999-99999999: mayormente dígitos y largos, típicos de remitos o extractos."""
+    return len(formato_valor) >= 6 and formato_valor.count("9") / len(formato_valor) >= 0.6
+
+
+def resumir_formatos_largos(formatos):
+    """Los formatos largos de una columna sensible dejan ver su estructura (cómo se nombra una
+    unidad o una persona): se reemplazan por su banda de largo."""
+    resumidos = {}
+    for f in formatos:
+        clave = f["formato"]
+        if clave != OTRA and len(clave) > LARGO_FORMATO_SENSIBLE:
+            clave = "TEXTO_21-40" if len(clave) <= 40 else "TEXTO_MAS_DE_40"
+        resumidos[clave] = round(resumidos.get(clave, 0) + (f["pct"] or 0), 1)
+    return [{"formato": k, "pct": v} for k, v in sorted(resumidos.items(), key=lambda kv: -kv[1])]
 
 
 def _es_fecha(formato_valor):
@@ -216,6 +238,9 @@ def perfilar_columna(nombre, serie):
         return perfil
 
     if pd.api.types.is_numeric_dtype(serie):
+        # "Precio del establecimiento" es un monto, no el nombre de una organización
+        if perfil["sensible"] == "organizacion":
+            perfil["sensible"] = None
         valores = presentes.astype(float)
         perfil["tipo"] = "entero" if (valores == valores.round()).all() else "decimal"
         como_texto = valores.astype("int64").astype(str) if perfil["tipo"] == "entero" else presentes.astype(str)
@@ -256,7 +281,11 @@ def perfilar_columna(nombre, serie):
         perfil["sensible"] = "texto libre"
     if not perfil["sensible"] and (perfil["unicos_pct"] or 0) > 95 and presentes.nunique() > MAX_CATEGORIAS:
         perfil["sensible"] = "identificador"
-    if not perfil["sensible"] and presentes.nunique() <= MAX_CATEGORIAS:
+    if not perfil["sensible"] and conteo[[f for f in conteo.index if _es_codigo(f)]].sum() / n >= 0.5:
+        perfil["sensible"] = "identificador"
+    if perfil["sensible"]:
+        perfil["formatos"] = resumir_formatos_largos(perfil["formatos"])
+    elif presentes.nunique() <= MAX_CATEGORIAS:
         perfil["categorias"] = _categorias(presentes)
     return perfil
 

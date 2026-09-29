@@ -14,7 +14,7 @@ Perfiles **agregados** de fuentes de datos externas: estructura y calidad, sin f
 - **Numéricas:** cuantiles con dos cifras significativas, sin mínimos ni máximos.
 - **Fechas:** formatos y cantidad por mes.
 - **Categorías:** solo las que tienen 20 casos o más; el resto se agrupa como `OTRA_CATEGORIA_SINTETIZABLE`.
-- **Columnas sensibles** (identificadores, personas, patentes, ubicaciones, texto libre): se detectan por el nombre o el formato y se describen **solo por su formato**, sin valores, cuantiles ni categorías.
+- **Columnas sensibles** (identificadores, personas, patentes, ubicaciones, organizaciones, texto libre): se detectan por el nombre o el formato y se describen **solo por su formato**, sin valores, cuantiles ni categorías. Los formatos de más de 20 caracteres se resumen por su largo (`TEXTO_21-40`, `TEXTO_MAS_DE_40`), y los textos que son mayormente dígitos (remitos, extractos) se tratan como identificadores.
 - **Relaciones:** qué porcentaje de los valores de una columna existe en la clave de otra tabla, exacto y después de normalizar (mayúsculas, sin espacios ni guiones).
 
 ## Procedimiento

@@ -26,6 +26,7 @@ from perfilador.perfil import (  # noqa: E402
     leer_tablas,
     perfilar,
     perfilar_columna,
+    resumir_formatos_largos,
 )
 
 
@@ -97,6 +98,44 @@ def test_grupos_chicos_se_suprimen(perfil):
     assert all(c["valor"] in {"MODELO_COMUN", OTRA} for c in categorias)
     marcas = {c["valor"] for c in columna(perfil, "vehiculos", "Marca")["categorias"]}
     assert marcas == {"MARCA_A", "MARCA_B", "MARCA_C"}
+
+
+def test_organizacion_geografia_y_codigos_son_sensibles():
+    n = 200
+    df = pd.DataFrame({
+        "Dependencia": [f"U.O.S. {i % 3} - AREA SINTETICA NUMERO {i % 3}" for i in range(n)],
+        "DependeciaMovil": [f"UNIDAD {i % 4}" for i in range(n)],
+        "CONTRATO": [f"CTR SINTETICO {i % 2}" for i in range(n)],
+        "PROVINCIA": ["PROVINCIA_SINTETICA"] * n,
+        "LOCALIDAD": [f"LOCALIDAD_{i % 5}" for i in range(n)],
+        "Solicitante": [f"PERSONA {i % 5}" for i in range(n)],
+        "Lote": [f"{1000000000 + i % 4}-{2000000000 + i % 4}-{i % 4:08d}" for i in range(n)],
+    })
+    perfil = perfilar({"t": df})
+    columnas = {c["nombre"]: c for c in perfil["tablas"]["t"]["perfil_columnas"]}
+    assert columnas["Dependencia"]["sensible"] == "organizacion"
+    assert columnas["DependeciaMovil"]["sensible"] == "organizacion"
+    assert columnas["CONTRATO"]["sensible"] == "organizacion"
+    assert columnas["PROVINCIA"]["sensible"] == "ubicacion"
+    assert columnas["LOCALIDAD"]["sensible"] == "ubicacion"
+    assert columnas["Solicitante"]["sensible"] == "persona"
+    assert columnas["Lote"]["sensible"] == "identificador"  # detectado por el formato, no por el nombre
+    assert all("categorias" not in c for c in columnas.values())
+    texto = json.dumps(perfil, ensure_ascii=False)
+    for valor in ["AREA SINTETICA", "CTR SINTETICO", "PROVINCIA_SINTETICA", "LOCALIDAD_0", "1000000000"]:
+        assert valor not in texto
+    precio = perfilar_columna("PRECIO ESTABLECIMIENTO", pd.Series(np.arange(1000, 1100)))
+    assert precio["sensible"] is None and precio["numerico"]["p50"] is not None
+    # el formato largo de Dependencia se resume por su largo
+    assert [f["formato"] for f in columnas["Dependencia"]["formatos"]] == ["TEXTO_21-40"]
+
+
+def test_resumir_formatos_largos_suma_por_banda():
+    formatos = [{"formato": "A" * 25, "pct": 30.0}, {"formato": "A" * 30, "pct": 20.0},
+                {"formato": "A" * 45, "pct": 10.0}, {"formato": "AA999AA", "pct": 35.0}, {"formato": OTRA, "pct": 5.0}]
+    assert resumir_formatos_largos(formatos) == [
+        {"formato": "TEXTO_21-40", "pct": 50.0}, {"formato": "AA999AA", "pct": 35.0},
+        {"formato": "TEXTO_MAS_DE_40", "pct": 10.0}, {"formato": OTRA, "pct": 5.0}]
 
 
 def test_cuantiles_redondeados():

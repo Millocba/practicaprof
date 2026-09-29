@@ -98,19 +98,23 @@ Lo sintético no tiene nada de la rendición ni de la anulación.
 
 ## Mejoras propuestas para el perfilador
 
-Al revisar el perfil aparecieron columnas que el perfilador **no marca como sensibles** y que deberían describirse solo por su formato:
+Al revisar el perfil aparecieron columnas que el perfilador 1.0 **no marcaba como sensibles**. La versión 1.1 las describe solo por su formato:
 
-| Columna | Qué pasa hoy | Propuesta |
+| Columna | Qué pasaba en 1.0 | Qué hace 1.1 |
 |---|---|---|
-| `Dependencia` (padrón), `DependeciaMovil` | Guarda formatos largos que muestran cómo se nombran las unidades organizativas | Agregar la pista `dependencia` |
-| `CONTRATO` | Guarda sus categorías con el valor | Agregar la pista `contrato` |
-| `EXTRACTO` | Guarda como categorías valores que son identificadores numéricos | Agregar la pista `extracto`; no guardar como categoría un valor que sea mayormente dígitos |
-| `PROVINCIA`, `LOCALIDAD` | Geografía real (REAL_DATA_BOUNDARY pide regiones ficticias) | Tratarlas como `ubicacion` |
-| `ESTABLECIMIENTO` | Formato con código y nombre | Pistas `establecimiento` y `remito` |
+| `Dependencia` (padrón), `DependeciaMovil` | Guardaba formatos largos que muestran cómo se nombran las unidades organizativas | Nuevo tipo sensible `organizacion` (pista `depend`) |
+| `CONTRATO` | Guardaba sus categorías con el valor | Pista `contrato` → `organizacion` |
+| `EXTRACTO` | Guardaba como categorías valores que son identificadores numéricos | Pista `extracto`. Además, un texto que es mayormente dígitos se trata como identificador, sin importar el nombre de la columna |
+| `PROVINCIA`, `LOCALIDAD` | Geografía real (REAL_DATA_BOUNDARY pide regiones ficticias) | Pistas `provincia` y `localidad` → `ubicacion` |
+| `ESTABLECIMIENTO`, `REMITO` | Formato con código y nombre | Pistas `establecimiento` → `organizacion` y `remito` → identificador |
+| `Solicitante`, `Cargador`, `RetiraNombre` | Se detectaban solo por el contenido | Pistas `solicitante`, `cargador` y `retira` → `persona` |
+
+Además, en las columnas sensibles los formatos de más de 20 caracteres se reemplazan por su banda de largo (`TEXTO_21-40`, `TEXTO_MAS_DE_40`). A una columna numérica no se le aplica la pista de organización: "precio del establecimiento" es un monto y conserva sus cuantiles.
+
+Pendiente de revisión humana: las categorías de `SubEstado` (12) se siguen guardando. Hay que confirmar que no nombren unidades internas antes de aprobar un perfil.
 
 Otros ajustes:
 - **Año:** redondear a dos cifras significativas lo vuelve inútil (todo da 2000). Conviene agrupar en quinquenios.
-- **Formatos de texto largos:** para los sensibles, guardar solo una banda de largo, no la máscara completa.
 - **Falsos positivos:** `Hora` sale como identificador y `DireccionGral` como ubicación (es una unidad organizativa). Son errores del lado seguro, pero ensucian la comparación.
 - **Emparejamiento automático:** falla cuando la fuente usa MAYÚSCULAS con espacios y nombres distintos. Dos de las tres tablas no se emparejaron solas. Se podría normalizar sinónimos (`litros unidades` → `litros`) o sugerir por similitud de formatos.
 
@@ -118,4 +122,4 @@ Otros ajustes:
 
 - Solo se compararon tres fuentes, de un único período.
 - Las medianas de montos dependen de la moneda y de la fecha: sirven para dar escala, no para calibrar.
-- El perfil completo de estas fuentes no se versiona hasta resolver las mejoras de privacidad del perfilador.
+- El perfil completo de estas fuentes no se versiona. Se puede regenerar con el perfilador 1.1 y aprobar después de la revisión humana.

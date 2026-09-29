@@ -41,7 +41,7 @@ st.markdown(
     "Describe la **estructura y la calidad** de una fuente de datos (tablas, columnas, tipos, formatos, faltantes, "
     "relaciones) **sin guardar sus datos**, y la compara con lo que produce el generador para saber qué le falta. "
     f"Sigue `docs/REAL_DATA_BOUNDARY.md`: sin filas, sin valores sueltos, sin grupos de menos de {MINIMO_GRUPO} casos, "
-    "y las columnas sensibles (identificadores, personas, patentes, ubicaciones, texto libre) solo por su formato."
+    "y las columnas sensibles (identificadores, personas, patentes, ubicaciones, organizaciones, texto libre) solo por su formato."
 )
 escenario = selector_escenario()
 
