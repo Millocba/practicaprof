@@ -156,6 +156,17 @@ HIPOTESIS = [
                    ("dispositivo_activo_en_baja", "fuera del grupo de depósito y con transmisión en la última semana")],
         "contexto": "grupo del dispositivo y última transmisión",
     },
+    {
+        "codigo": "H12",
+        "titulo": "Odómetro sin avance",
+        "enunciado": "Marcar toda carga cuyo odómetro no avanza confunde los vehículos con una excepción de "
+                     "odómetro vigente con los que no informan la lectura; mirar la excepción del día de cada "
+                     "carga (puede durar un solo día) deja solo las lecturas repetidas sin justificación.",
+        "tipos": ["ODOMETRO_SIN_AVANCE"],
+        "reglas": [("odometro_sin_avance", "la lectura es igual a la de la carga anterior"),
+                   ("sin_avance_sin_excepcion", "además: sin excepción vigente ese día y la carga anterior es de otro día")],
+        "contexto": "excepciones de odómetro del padrón y su historial",
+    },
 ]
 
 

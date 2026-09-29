@@ -21,6 +21,8 @@ from deteccion.reglas import (
     distancia_a_zona_habitual,
     distancia_al_recorrido_gps,
     ejecutar_reglas,
+    cargas_exceptuadas,
+    cargas_fuera_del_reporte,
     cruzar_registro,
     secuencia_odometro,
 )
@@ -30,7 +32,7 @@ REGLAS_COMPORTAMIENTO = ["litros_mayor_a_tanque", "odometro_disminuye", "salto_h
 
 # Hipótesis de comportamiento (las de calidad de datos y vinculación, CALIDAD y H1,
 # no son problemas de detección de outliers)
-HIPOTESIS_COMPORTAMIENTO = {"H2", "H3a", "H4", "H5", "H6", "H7", "H8"}
+HIPOTESIS_COMPORTAMIENTO = {"H2", "H3a", "H4", "H5", "H6", "H7", "H8", "H12"}
 
 VARIABLES = {
     "ratio_litros_tanque": "litros cargados / capacidad del tanque",
@@ -51,10 +53,12 @@ VARIABLES_CONTEXTO = {
     "vehiculo_inactivo": "1 si la carga es posterior a la baja o salida de servicio",
     "sin_solicitud": "1 si la carga no tiene pedido en el registro interno (por dominio o persona y horario)",
     "litros_vs_autorizado": "litros cargados / litros autorizados en su pedido (1 si no tiene)",
+    "odometro_exceptuado": "1 si el vehículo tiene una excepción de odómetro vigente ese día",
 }
 
 
-def construir_variables(flota, consumo, estaciones=None, telemetria_diaria=None, solicitudes=None):
+def construir_variables(flota, consumo, estaciones=None, telemetria_diaria=None, solicitudes=None,
+                        excepciones=None):
     """Una fila por transacción con las variables del modelo.
 
     Las transacciones sin carga anterior válida (primera del vehículo, odómetro
@@ -64,7 +68,9 @@ def construir_variables(flota, consumo, estaciones=None, telemetria_diaria=None,
     """
     capacidad = consumo["vehiculo_id"].map(flota.set_index("Matricula")["CapacidadTanque"])
     duplicados = detectar_duplicados(consumo)["id_registro"]
-    seq = secuencia_odometro(consumo, excluir_ids=duplicados).set_index("id")
+    # Las cargas de otra red del registro interno cierran los tramos de odómetro y rendimiento
+    fuera = cargas_fuera_del_reporte(solicitudes) if "FechaEstado" in flota.columns else None
+    seq = secuencia_odometro(consumo, excluir_ids=duplicados, fuera=fuera).set_index("id")
 
     variables = pd.DataFrame({"id": consumo["id"]}).set_index("id")
     variables["ratio_litros_tanque"] = (consumo["litros"] / capacidad).values
@@ -77,7 +83,7 @@ def construir_variables(flota, consumo, estaciones=None, telemetria_diaria=None,
     variables["litros_vs_habitual"] = (consumo["litros"] / habitual).values
     variables["retroceso_km"] = (-variables["km"]).clip(lower=0)
 
-    dias = cargas_por_dia(consumo, flota, excluir_ids=duplicados, gps_diario=telemetria_diaria)
+    dias = cargas_por_dia(consumo, flota, excluir_ids=duplicados, gps_diario=telemetria_diaria, fuera=fuera)
     dias["rendimiento_relativo"] = dias["rendimiento_gps_relativo"].fillna(dias["rendimiento_odometro_relativo"])
     dias["tanques_en_el_dia"] = dias["litros"] / dias["capacidad"]
     por_id = (dias.explode("ids").drop_duplicates("ids").set_index("ids")
@@ -95,8 +101,11 @@ def construir_variables(flota, consumo, estaciones=None, telemetria_diaria=None,
             variables["sin_gps"] = distancia.isna().astype(int).values
 
     inactivos = flota[(flota["Estado"] != "EN SERVICIO") & flota["FechaEstado"].notna()]
-    desde = consumo["vehiculo_id"].map(pd.to_datetime(inactivos.set_index("Matricula")["FechaEstado"]))
+    # reindex y no map: con pandas 3, map falla si no hay ningún vehículo inactivo con fecha
+    desde = pd.Series(pd.to_datetime(inactivos.set_index("Matricula")["FechaEstado"])
+                      .reindex(consumo["vehiculo_id"]).to_numpy(), index=consumo.index)
     variables["vehiculo_inactivo"] = (pd.to_datetime(consumo["fecha"]) >= desde).astype(int).values
+    variables["odometro_exceptuado"] = variables.index.isin(list(cargas_exceptuadas(consumo, flota, excepciones))).astype(int)
 
     if solicitudes is not None and "rendido" in solicitudes.columns:
         pares, _ = cruzar_registro(consumo, solicitudes, excluir_ids=duplicados, flota=flota)

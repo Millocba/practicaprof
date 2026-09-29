@@ -61,15 +61,15 @@ st.caption(f"Escenario: **{NOMBRES_ESCENARIO[escenario]}** (se cambia en la barr
 
 @st.cache_data
 def calcular_alertas(flota, consumo, estaciones, telemetria_diaria, solicitudes, facturacion, facturacion_detalle,
-                     contratos=None, transferencias=None, telemetria=None):
+                     contratos=None, transferencias=None, telemetria=None, excepciones=None):
     return ejecutar_reglas(flota, consumo, estaciones, telemetria_diaria, solicitudes, facturacion,
                            facturacion_detalle, contratos=contratos, transferencias=transferencias,
-                           telemetria=telemetria)
+                           telemetria=telemetria, excepciones=excepciones)
 
 
 alertas = calcular_alertas(flota, consumo, datos["estaciones"], datos["telemetria_diaria"], datos["solicitudes"],
                            facturas, detalle_factura, datos["contratos"], datos["transferencias"],
-                           datos["telemetria"])
+                           datos["telemetria"], datos["excepciones_odometro"])
 catalogo = hipotesis_del_escenario(escenario)
 
 

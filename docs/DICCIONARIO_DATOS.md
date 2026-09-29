@@ -44,6 +44,7 @@ flowchart LR
   solicitudes -->|"vehiculo_id (N:1)"| flota
   solicitudes -.->|"dominio + fecha + hora (1:1)"| consumo
   telemetria -->|"Placa (N:1)"| flota
+  excepciones_odometro -->|"patente (N:1)"| flota
   telemetria_diaria -->|"Placa (N:1)"| telemetria
   facturacion -->|"proveedor (N:1)"| estaciones
   facturacion_detalle -->|"numero_factura (N:1)"| facturacion
@@ -71,6 +72,7 @@ flowchart LR
 | `solicitudes` | `vehiculo_id` | `flota` (`Matricula`) | N:1 | ambos | — |
 | `solicitudes` | `dominio + fecha + hora` | `consumo` (`dominio + fecha + hora`) | 1:1 | realista | sin clave común: se cruza por dominio y horario; en las tarjetas personales, por solicitante y conductor |
 | `telemetria` | `Placa` | `flota` (`Dominio`) | N:1 | ambos | uno por vehículo en el realista |
+| `excepciones_odometro` | `patente` | `flota` (`Dominio`) | N:1 | realista | mientras rige, la carga repite la lectura del odómetro |
 | `telemetria_diaria` | `Placa` | `telemetria` (`Placa`) | N:1 | realista | — |
 | `facturacion` | `periodo` | `consumo` (`fecha (mes)`) | 1:N | didactico | suma de las cargas del mes |
 | `facturacion` | `proveedor` | `estaciones` (`marca`) | N:1 | realista | — |
@@ -219,12 +221,13 @@ Cada vehículo se simula día por día desde un perfil propio que no forma parte
 | `estaciones.csv` | una estación de servicio | 65 (40 en la zona de operación, 25 sobre rutas) |
 | `telemetria.csv` | un dispositivo GPS | ~100 (80% de los vehículos en servicio, 47% de los fuera de servicio, casi ninguno de baja) |
 | `telemetria_diaria.csv` | un dispositivo y un día | ~26.000 (3% de los días sin señal) |
-| `consumo.csv` | una carga del reporte del proveedor | ~3.200 (los vehículos fuera de servicio o de baja dejan de cargar; las cargas en otra red solo están en el registro interno) |
-| `solicitudes.csv` | un pedido del registro interno | ~3.400 (uno por carga, más los de estaciones de otra red y los anulados) |
+| `consumo.csv` | una carga del reporte del proveedor | ~7.100 (los vehículos fuera de servicio o de baja dejan de cargar; las cargas en otra red solo están en el registro interno) |
+| `solicitudes.csv` | un pedido del registro interno | ~7.600 (uno por carga, más los de estaciones de otra red y los anulados) |
 | `facturacion.csv` | una factura del proveedor por contrato, mes y familia de combustible | ~105 (6 contratos × 2 familias × 9 meses) |
-| `facturacion_detalle.csv` | una línea de factura | ~3.400 (una por carga facturada, más ajustes) |
+| `facturacion_detalle.csv` | una línea de factura | ~7.100 (una por carga facturada, más ajustes) |
 | `contratos.csv` | un contrato de abastecimiento | 6, con su tope mensual en pesos |
 | `transferencias.csv` | una transferencia de saldo entre contratos | ~50 (unas 5 por mes) |
+| `excepciones_odometro.csv` | una excepción de odómetro, vigente o cumplida | ~7 (3 vigentes, como el 1,5% de la flota de la fuente) |
 | `ground_truth.csv` | una anomalía inyectada | ~125 |
 | `casos_legitimos.csv` | un caso legítimo que parece anomalía | ~200 |
 
@@ -242,6 +245,7 @@ Cada vehículo se simula día por día desde un perfil propio que no forma parte
 | flota | `NumeroContrato` / `Cupo` (nuevas) | Contrato de la tarjeta, 1 a 6; litros por carga (la capacidad del tanque) |
 | flota | `LimiteLitros` / `LimiteSaldo` | Límites mensuales de la tarjeta, fijados al registrarla: 15 a 35 tanques y su valor |
 | flota | `FechaEstado` (nueva) | Fecha del último cambio a un estado distinto de EN SERVICIO; vacía si está en servicio. El vehículo deja de usarse desde esa fecha |
+| flota | `ExcepcionOdometro` / `FechaHastaExcepcionOdometro` (nuevas) | Si el vehículo tiene hoy una excepción de odómetro (SI en el 1,5%, como en la fuente) y hasta cuándo, en DD/MM/AAAA; vacía si no tiene (ver *Excepciones de odómetro*) |
 | consumo | `estacion` | Código de `estaciones.csv` (`EST-NNN`) |
 | consumo | `producto` | 99% premium: INFINIA DIESEL o INFINIA; el resto GASOIL o SUPER |
 | consumo | `precio_unitario` | Precio base del producto con un aumento del 2% mensual |
@@ -308,6 +312,7 @@ Cargas que una regla ingenua marcaría como anomalía pero no lo son. No están 
 | `AJUSTE_DOCUMENTADO` | 4 facturas | La factura incluye una línea AJUSTE (bonificación o recargo de 2% a 5%) |
 | `DOMINIO_CON_FORMATO` | 0,5% de las cargas | El dominio llega en minúsculas, con espacios o guiones, o con un espacio al final (`za123bc`, `ZA 123 BC`, `ZA-123-BC`); normalizado es el del vehículo |
 | `TRANSFERENCIA_DE_SALDO` | ~25 contratos-mes (`tabla` = contrato_mes) | El contrato recibió saldo porque la proyección del mes no alcanzaba |
+| `ODOMETRO_EXCEPTUADO` | ~100 cargas de 6 vehículos | La carga repite la lectura del odómetro con una excepción vigente ese día |
 
 La columna `tabla` indica a qué tabla pertenece `id_registro`: `consumo`, `facturacion` o `facturacion_detalle`.
 
@@ -333,6 +338,7 @@ Incluye las del escenario didáctico, con otra forma de inyección, y cinco tipo
 | `SOBREPRECIO` | H9 | 6 líneas | El precio por litro facturado supera en 8% a 20% el de la carga |
 | `CARGA_CON_CUPO_AGOTADO` | H10 | 1 contrato-mes (`tabla` = contrato_mes, id `CTO-N|AAAA-MM`) | Nadie revisa el saldo de un contrato ajustado: sus transferencias del mes llegan de 1 a 3 días después de que se agota, y esos días se carga igual |
 | `TRANSFERENCIA_SIN_NECESIDAD` | H10 | 2 contratos-mes | Transferencia a principio de mes a un contrato con holgura, que la proyección no justificaba |
+| `ODOMETRO_SIN_AVANCE` | H12 | 3 vehículos, de 3 a 6 cargas cada uno | La lectura se repite sin excepción vigente ese día; en uno de ellos, porque la excepción venció y la lectura se siguió repitiendo |
 
 ### Registro interno (escenario realista)
 
@@ -350,6 +356,10 @@ En el escenario realista `solicitudes.csv` es el registro interno, como en la fu
 | `TARJETA_PERSONAL` | legítimo | ~1,2% de las cargas | Tarjeta personal: el reporte trae la persona (`tipo_identificacion` DNI) y el dominio vacío |
 | `ESTACION_AJENA` | legítimo | ~7% de los pedidos (`tabla` = solicitudes) | Carga en otra red: está en el registro y no en el reporte |
 | `REGISTRO_REHECHO` | legítimo | ~27 pedidos (`tabla` = solicitudes) | El pedido se anuló y se volvió a hacer antes de cargar |
+
+### Excepciones de odómetro (escenario realista)
+
+Como en la fuente, un vehículo con el odómetro sin funcionar o en reparación se exceptúa: el padrón lo indica en `ExcepcionOdometro` y `FechaHastaExcepcionOdometro`, y `excepciones_odometro.csv` guarda el historial (`id`, `patente`, `motivo` sintético, `activo`, `fecha_creacion`, `fecha_hasta`). Mientras rige, la carga repite la última lectura; una excepción puede durar un solo día. Por cada 200 vehículos: 3 con la excepción vigente hasta después del período, 3 con excepciones ya cumplidas (una de un solo día) y 3 anomalías `ODOMETRO_SIN_AVANCE`. Al terminar la excepción, la lectura vuelve al valor real. El dispositivo de telemetría (`Odometro`) sigue midiendo los km reales.
 
 ### Telemetría de los móviles de baja (escenario realista)
 

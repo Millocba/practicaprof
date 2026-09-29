@@ -7,6 +7,8 @@ Uso:
         nombre de tabla; --reemplazar TEXTO=NUEVO, un texto en todo el perfil. --base-url-env VARIABLE
         suma las tablas de una base de datos (en solo lectura, con prefijo base.). Escribe
         perfiles/pendientes/perfil_AAAA-MM-DD.json o --salida. Solo imprime conteos.
+    python -m perfilador auditar carpeta/ [--base-url-env VARIABLE] [--proveedor TEXTO] [--salida auditoria.json]
+        Corre las reglas y los modelos sobre las fuentes y escribe solo agregados (ver auditoria.py).
     python -m perfilador aprobar perfiles/pendientes/perfil_X.json --responsable "Nombre" [--notas "..."]
         Registra la revisión manual y lo pasa a perfiles/aprobados/ (se versiona).
     python -m perfilador comparar perfiles/aprobados/perfil_X.json [--escenario realista]
@@ -62,6 +64,34 @@ def cmd_perfilar(args):
     print("Revisalo antes de aprobarlo: python -m perfilador aprobar", destino, '--responsable "Nombre"')
 
 
+def cmd_auditar(args):
+    import importlib.util
+
+    faltan = [m for m in ("scipy", "sklearn") if importlib.util.find_spec(m) is None]
+    if faltan:
+        raise SystemExit(f"Faltan librerías para correr las reglas y los modelos: {', '.join(faltan)}. "
+                         "Se pueden instalar en una carpeta temporal: pip install --target /tmp/libs scipy "
+                         "scikit-learn, y correr con PYTHONPATH=/tmp/libs.")
+    from perfilador.auditoria import auditar
+
+    tablas, _ = tablas_de_rutas(args.archivos)
+    if args.base_url_env:
+        url = os.environ.get(args.base_url_env)
+        if not url:
+            raise SystemExit(f"La variable de entorno {args.base_url_env} no está definida.")
+        try:
+            de_base, _ = tablas_de_base(url)
+        except Exception as error:  # noqa: BLE001 - el mensaje podría incluir datos de conexión
+            raise SystemExit(f"No se pudo leer la base ({type(error).__name__}).") from None
+        tablas.update(de_base)
+    resultado = auditar(tablas, proveedor=args.proveedor)
+    if args.reemplazar:
+        resultado = reemplazar_textos(resultado, dict(r.split("=", 1) for r in args.reemplazar))
+    destino = Path(args.salida) if args.salida else PENDIENTES / f"auditoria_{date.today().isoformat()}.json"
+    guardar(resultado, destino)
+    print(f"Auditoría agregada: {len(resultado['reglas'])} reglas y {len(resultado['hipotesis'])} hipótesis en {destino}")
+
+
 def cmd_aprobar(args):
     origen = Path(args.perfil)
     perfil = json.loads(origen.read_text(encoding="utf-8"))
@@ -103,6 +133,14 @@ def main():
     p.add_argument("--reemplazar", action="append", default=[], metavar="TEXTO=NUEVO",
                    help="reemplaza un texto en todo el perfil, sin distinguir mayúsculas (organizaciones, proveedores)")
     p.set_defaults(funcion=cmd_perfilar)
+    u = sub.add_parser("auditar", help="correr reglas y modelos sobre las fuentes, con salida solo agregada")
+    u.add_argument("archivos", nargs="*", help="archivos o carpetas (CSV, Excel y SQLite)")
+    u.add_argument("--base-url-env", metavar="VARIABLE")
+    u.add_argument("--proveedor", metavar="TEXTO",
+                   help="texto que identifica las estaciones del proveedor en el registro interno (no se guarda)")
+    u.add_argument("--reemplazar", action="append", default=[], metavar="TEXTO=NUEVO")
+    u.add_argument("--salida")
+    u.set_defaults(funcion=cmd_auditar)
     a = sub.add_parser("aprobar", help="registrar la revisión manual de un perfil")
     a.add_argument("perfil")
     a.add_argument("--responsable", required=True)

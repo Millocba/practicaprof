@@ -102,3 +102,38 @@ def test_normalizar_dominio_y_leer_fecha():
     assert list(normalizar_dominio(pd.Series(["ab0001cd", "AB 0001 CD", "AB-0001-CD", "AB0001CD "]))) == ["AB0001CD"] * 4
     fechas = leer_fecha(pd.Series(["2024-03-05", "05/03/2024", "31/12/2024"]))
     assert list(fechas.dt.strftime("%Y-%m-%d")) == ["2024-03-05", "2024-03-05", "2024-12-31"]
+
+
+def test_las_cargas_de_otra_red_cierran_el_tramo_del_odometro():
+    """El reporte es de un proveedor: una carga en otra red, anotada en el registro interno, parte el tramo."""
+    from deteccion.reglas import cargas_fuera_del_reporte
+
+    consumo = pd.DataFrame({"id": ["C1", "C2", "C3"], "vehiculo_id": "V1",
+                            "fecha": ["2024-03-01", "2024-03-05", "2024-03-09"],
+                            "hora": ["10:00:00", "10:00:00", "10:00:00"], "odometro": [1000, 1400, 1800]})
+    registro = pd.DataFrame({"id": ["R1", "R2"], "vehiculo_id": "V1", "fecha": ["03/03/2024", "07/03/2024"],
+                             "hora": ["09:00:00", "09:00:00"], "odometro": [1200, 1600],
+                             "litros_cargados": [30.0, 30.0], "litros_autorizados": [40, 40],
+                             "rendido": ["SI", "NO"], "anulado": ["NO", "NO"],
+                             "estacion_servicio": ["ESTACION AJENA", "ESTACION AJENA"]})
+    fuera = cargas_fuera_del_reporte(registro)
+    assert list(fuera["id"]) == ["FUERA-R1"]          # solo los pedidos rendidos cuentan como carga
+    secuencia = secuencia_odometro(consumo, fuera=fuera).set_index("id")
+    assert secuencia.loc["C2", "km"] == 200 and secuencia.loc["C3", "km"] == 400
+    assert bool(secuencia.loc["FUERA-R1", "fuera"])
+
+
+def test_odometro_sin_avance_solo_alerta_sin_excepcion_ese_dia():
+    """H12: la excepción puede durar un solo día; la lectura repetida el día siguiente es una alerta."""
+    from deteccion.reglas import cargas_exceptuadas, detectar_sin_avance_sin_excepcion
+
+    flota = pd.DataFrame({"Matricula": ["V1"], "Dominio": ["ZA001AA"], "ExcepcionOdometro": ["NO"],
+                          "FechaHastaExcepcionOdometro": [None]})
+    consumo = pd.DataFrame({"id": ["C1", "C2", "C3", "C4"], "vehiculo_id": "V1",
+                            "fecha": ["2024-03-01", "2024-03-05", "2024-03-09", "2024-03-09"],
+                            "odometro": [1000, 1000, 1000, 1000]})
+    excepciones = pd.DataFrame({"patente": ["za 001 aa"], "fecha_creacion": ["2024-03-05"], "fecha_hasta": ["2024-03-05"]})
+    exceptuadas = cargas_exceptuadas(consumo, flota, excepciones)
+    assert exceptuadas == {"C2"}
+    alertas = detectar_sin_avance_sin_excepcion(secuencia_odometro(consumo), exceptuadas)
+    assert list(alertas["id_registro"]) == ["C3"]      # C4 es del mismo día que C3: no se vuelve a leer el tablero

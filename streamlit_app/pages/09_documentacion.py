@@ -46,7 +46,8 @@ st.caption(f"Escenario: **{NOMBRES_ESCENARIO[escenario]}** (se cambia en la barr
 
 @st.cache_data(show_spinner="Calculando los valores de la documentación...")
 def contexto_actual(escenario, flota, consumo, ground_truth, legitimos, estaciones, telemetria, telemetria_diaria,
-                    solicitudes, facturacion, facturacion_detalle, metadata, contratos=None, transferencias=None):
+                    solicitudes, facturacion, facturacion_detalle, metadata, contratos=None, transferencias=None,
+                    excepciones=None):
     tablas = {
         "flota": flota, "consumo": consumo, "solicitudes": solicitudes, "facturacion": facturacion,
         "facturacion_detalle": facturacion_detalle, "telemetria": telemetria,
@@ -58,7 +59,7 @@ def contexto_actual(escenario, flota, consumo, ground_truth, legitimos, estacion
     if legitimos is not None:
         alertas = ejecutar_reglas(flota, consumo, estaciones, telemetria_diaria, solicitudes, facturacion,
                                   facturacion_detalle, contratos=contratos, transferencias=transferencias,
-                                  telemetria=telemetria)
+                                  telemetria=telemetria, excepciones=excepciones)
         _, veredictos = contrastar_hipotesis(alertas, ground_truth, legitimos, facturacion_detalle)
     return documentacion.construir_contexto(escenario, tablas, metadata, veredictos)
 
@@ -67,7 +68,8 @@ contexto = contexto_actual(
     escenario, datos["flota"], datos["consumo"], datos["ground_truth"], datos["casos_legitimos"],
     datos["estaciones"], load_telemetria(escenario), datos["telemetria_diaria"],
     datos["solicitudes"], datos["facturacion"],
-    datos["facturacion_detalle"], metadata, datos["contratos"], datos["transferencias"])
+    datos["facturacion_detalle"], metadata, datos["contratos"], datos["transferencias"],
+    datos["excepciones_odometro"])
 
 
 def para_pantalla(texto):

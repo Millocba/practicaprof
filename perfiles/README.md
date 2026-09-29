@@ -54,3 +54,30 @@ Perfiles **agregados** de fuentes de datos externas: estructura y calidad, sin f
    ```
    Se escribe `perfil_AAAA-MM-DD_brechas.md` junto al perfil, con cada brecha y su sugerencia para el generador.
 5. **Commitear** el perfil aprobado y su informe.
+
+## Auditoría agregada
+
+Con el mismo cuidado que el perfil, las reglas y los modelos del proyecto pueden correr sobre las fuentes, junto a los datos, y devolver **solo agregados**:
+
+```bash
+python -m perfilador auditar /ruta/de/los/archivos --base-url-env VARIABLE --proveedor "TEXTO" --salida /tmp/auditoria.json
+```
+
+- Un adaptador traduce cada fuente al esquema del generador. Cada fuente se reconoce por sus columnas, no por su nombre.
+- `--proveedor` es el texto que identifica las estaciones del proveedor en el registro interno. Se usa para separar las estaciones de otra red y no se guarda en ningún lado.
+- **Resultado:**
+  - cuántas cargas marca cada regla y cada hipótesis, con la versión ingenua y con contexto;
+  - qué proporción de cargas cruza con el registro interno y con qué diferencia de horario;
+  - cuantiles de las variables del modelo, reales frente a sintéticos, para ver si el modelo generaliza;
+  - coincidencias entre los métodos en las 100 cargas más prioritarias;
+  - diagnósticos de la traducción;
+  - **odómetro** (`diagnostico.odometro`): vehículos exceptuados hoy, cargas con excepción vigente y cargas sin avance, separadas en las cubiertas por una excepción o del mismo día y las que no tienen justificación (H12). Usa `ExcepcionOdometro` y `FechaHastaExcepcionOdometro` del padrón y el historial de excepciones si está;
+  - **alcance y cobertura** (`diagnostico.cobertura`): de qué red es cada fuente (el reporte, la facturación y los contratos, de un proveedor; el registro interno, de todas), cargas, pedidos y líneas facturadas por mes, qué parte de los vehículos del registro aparece en el reporte, si los pedidos rendidos sin carga son de vehículos que el reporte trae ese mes y cuántas cargas de otra red cierran tramos de odómetro.
+- **Privacidad:** los conteos de 1 a 19 se informan como `1–19`. No sale ningún identificador, carga, vehículo ni persona.
+- **Qué no corre:** las hipótesis cuyos datos no están en la fuente, es decir, la ubicación de las estaciones (H7), el GPS diario, la fecha del cambio de estado (H6) y las transferencias (H10). El diagnóstico lo informa.
+- **Período:** los pedidos del proveedor se limitan a los días con cargas en el reporte; las cargas de otra red se conservan en todo el período, porque cierran tramos. La facturación se concilia solo en los meses que el reporte cubre completos (cargas en el 90% de sus días y en alguno de los últimos 3): en un mes parcial o en curso, las líneas de los días que faltan quedarían sin carga. Un reporte puede tener meses sin descargar: sus pedidos se cuentan en `cobertura.por_mes`, pero no se cruzan.
+- **Otras redes:** las cargas en estaciones de otra red que anota el registro interno se intercalan en la secuencia de cada vehículo para las reglas con contexto y las variables del modelo. Sus reportes y su facturación no están, así que no se concilian.
+- **Qué no mide:** sin etiquetas reales no hay precisión ni recall. Mide cuánto marca cada regla, cuánto se parecen los datos y cuánto coinciden los métodos.
+- **Requisitos:** necesita el repositorio completo (el generador, `deteccion/` y `perfilador/`) y las librerías `scipy` y `scikit-learn`.
+- **Aprobación:** el resultado se revisa y se aprueba igual que un perfil (`aprobar`).
+
