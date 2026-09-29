@@ -61,10 +61,10 @@ st.markdown("""
 # Title and introduction
 seccion(
     "📊 Pipeline Maestro de Datos Sintéticos", nivel=1,
-    ayuda="Portada del proyecto. Resume en qué estado está el pipeline y guía a las ocho páginas "
-          "que lo componen. Todo lo que se ve acá se calcula desde los archivos generados, no está "
-          "escrito a mano: si cambia el generador, esta pantalla cambia sola. Es el lugar para "
-          "empezar si llegaste hace un rato y querés saber por dónde seguir.")
+    ayuda="Portada del proyecto. Resume en qué estado está el pipeline y guía a las páginas "
+          "que lo componen. Todo lo que se ve acá se calcula desde los archivos generados, no "
+          "está escrito a mano: si cambia el generador, esta pantalla cambia sola. Es el lugar "
+          "para empezar si llegaste hace un rato y querés saber por dónde seguir.")
 st.markdown("**Sistema integral para gestión, visualización y análisis del dataset integrado**")
 
 # Load data (same source as the Generador and Análisis pages)
@@ -216,7 +216,7 @@ MODULOS = [
     {
         "titulo": "🎯 6. Detección",
         "cuerpo": "Reglas evaluadas contra el ground truth\n"
-                  "- Precision, recall y F1 por tipo y por regla\n- Origen de cada falsa alarma\n"
+                  "- Precisión, recall y F1 por tipo y por regla\n- Origen de cada falsa alarma\n"
                   "- Explorador de errores",
         "que": "Compara lo que marcan las reglas con las anomalías que inyectó el generador y clasifica cada falsa "
                "alarma: caso legítimo, otra anomalía o carga normal.",

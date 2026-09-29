@@ -96,9 +96,10 @@ else:
 # KPIs
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Transacciones analizadas", f"{len(consumo):,}",
-            help="Cargas de combustible que entraron al análisis. Es el denominador de todas "
-                 "las tasas de esta página: un recall del 80% significa que de cada 100 "
-                 "transacciones se detectaron 80, no que se detectaron 80 de 10.")
+            help="Cargas de combustible que entraron al análisis. Las tasas no se calculan "
+                 "sobre este total: un recall del 80% significa que se detectaron 80 de cada "
+                 "100 anomalías reales, y una precisión del 80%, que 80 de cada 100 alertas "
+                 "eran anomalías.")
 col2.metric("Anomalías en el ground truth", f"{len(ground_truth):,}",
             help="Anomalías que el generador inyectó a propósito y dejó anotadas. Son la verdad "
                  "de referencia: ninguna regla las ve, solo se usan para medir después.")

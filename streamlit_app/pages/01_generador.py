@@ -251,9 +251,10 @@ st.markdown("---")
 seccion(
     "📋 Estado Actual de Datos", nivel=3,
     ayuda="Qué hay en disco ahora mismo. La **semilla** es el número que hace reproducible el "
-          "generador: con la misma semilla y la misma cantidad de vehículos, los archivos salen "
-          "idénticos byte a byte. Si la fecha es vieja respecto de la última corrida, es que los "
-          "datos corresponden a otros parámetros.")
+          "generador: con la misma semilla y la misma cantidad de vehículos, los CSV salen "
+          "idénticos. La única excepción es `metadata.json`, que registra la hora de la corrida y "
+          "por eso cambia en cada ejecución. Si la fecha es vieja respecto de la última corrida, "
+          "es que los datos corresponden a otros parámetros.")
 
 try:
     # Load current metadata
@@ -289,9 +290,12 @@ try:
     seccion(
         "📊 Resumen de Datasets", nivel=3,
         ayuda="Inventario de los archivos generados: cuántas filas y columnas tiene cada tabla, "
-              "cuánto pesa y cuántos valores nulos contiene. Un **nulo** no siempre es un error: "
-              "el generador deja vacíos algunos campos a propósito para que las reglas de "
-              "calidad tengan algo que encontrar, y `metadata.json` registra esa fecha de corte.")
+              "cuánto pesa y cuántos valores nulos contiene. El inventario cubre las entidades "
+              "operativas, no las tablas de evaluación: `ground_truth` y `casos_legitimos` se "
+              "consultan en las páginas de Detección y de Hipótesis. Un **nulo** no "
+              "siempre es un error: el generador deja vacíos algunos campos a propósito para que "
+              "las reglas de calidad tengan algo que encontrar, y `metadata.json` registra esa "
+              "fecha de corte.")
     datasets_info = get_maestro_datasets_info(escenario)
 
     if not datasets_info.empty:

@@ -109,9 +109,10 @@ def mostrar_resumen():
         "Resumen",
         ayuda="Las hipótesis del escenario en una tabla: qué dice cada una, cuántas alertas produce la "
               "regla ingenua y cuántas quedan con la regla que usa más contexto. Sirve para "
-              "elegir por dónde empezar. La última columna avisa si el conteo va en **facturas** "
-              "o en **registros**, porque no es lo mismo: una factura con tres líneas "
-              "irregulares es un solo documento que revisar.")
+              "elegir por dónde empezar. La última columna avisa en **qué unidad** se cuenta: "
+              "registros, facturas o contratos-mes. No es lo mismo, porque una factura con tres "
+              "líneas irregulares es un solo documento que revisar, y un contrato-mes agrupa un mes "
+              "entero.")
     filas = []
     for h in catalogo:
         ingenua, contexto = h["reglas"][0][0], h["reglas"][-1][0]
@@ -220,9 +221,12 @@ def mostrar_hipotesis(h):
         seccion(
             "Antes y después", nivel=3,
             ayuda="El camino de la regla ingenua a la regla con contexto, paso por paso. Cada fila "
-                  "agrega un dato: primero un criterio simple, después el historial del vehículo, "
-                  "luego el GPS, la fecha de estado, la solicitud. Lo que se busca no es marcar "
-                  "menos, es marcar menos cosas que están bien.")
+                  "es una regla y el criterio con el que marca; la última es la que aprovecha todo el "
+                  "contexto que propone la hipótesis. **Ese contexto cambia según la hipótesis** y "
+                  "está arriba, en «Contexto que usa»: no todas cruzan el mismo dato. Ojo con H6: su "
+                  "primera fila aparece sin regla, porque ningún criterio alcanza sin cruzarse con el "
+                  "estado de la flota. Lo que se busca no es marcar menos, es marcar menos cosas que "
+                  "están bien.")
         pasos = pd.DataFrame([{"Regla": describir_regla(regla), "Criterio": descripcion,
                                "Marcadas": len(ids_de(reglas_de(regla), por_factura))}
                               for regla, descripcion in h["reglas"]])
