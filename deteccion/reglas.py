@@ -9,16 +9,52 @@ Una alerta es una fila con:
 - tipo_anomalia: tipo que la regla atribuye (mismo vocabulario que el ground truth)
 - regla: nombre de la regla que la produjo
 - detalle: explicación legible del motivo
+
+Para qué sirve este archivo
+---------------------------
+Es el corazón de la detección. Una "regla" es un control escrito a mano con un
+criterio explícito, como los que aplicaría un auditor: "si los litros cargados
+superan la capacidad del tanque, alertar". Su gran ventaja es que siempre se puede
+explicar por qué se generó cada alerta. Sirven como "línea base": el punto de
+comparación contra el que se miden los modelos de `modelo.py` y `priorizacion.py`.
+
+Organización del archivo
+------------------------
+1. Reglas de calidad de datos: duplicados, campos vacíos y dominios (patentes) que
+   no existen en la flota.
+2. Reglas básicas de comportamiento: exceso de litros y problemas de odómetro.
+3. Reglas con contexto (escenario realista): usan historial, GPS, estado de la flota.
+4. Circuito solicitud -> carga -> factura: cruzan cada carga con su autorización y
+   cada factura con las cargas registradas.
+5. `ejecutar_reglas`: aplica todas las reglas disponibles y junta las alertas.
+
+Regla ingenua vs. regla con contexto
+------------------------------------
+Muchas reglas vienen en pares. La "ingenua" usa un criterio simple y fijo; la "con
+contexto" agrega información para descartar casos que parecen sospechosos pero
+tienen explicación (un odómetro que se cambió, un viaje largo real, una solicitud
+que se aprobó un día después). Cada alerta de un caso normal es un "falso
+positivo" o falsa alarma: le hace perder tiempo a quien revisa. Comparar ambas
+versiones (ver `hipotesis.py`) mide cuánto ayuda el contexto a reducir esas falsas
+alarmas sin dejar escapar anomalías reales.
+
+Nota sobre el código: se usa pandas, que trabaja con tablas completas de una vez
+(operaciones "vectorizadas") en lugar de recorrer fila por fila. Por eso muchas
+líneas del estilo `consumo[consumo["litros"] > x]` significan "quedarse con las
+filas de consumo que cumplen la condición".
 """
 import numpy as np
 import pandas as pd
 
+# Columnas que tiene toda tabla de alertas, sea cual sea la regla que la produjo
 COLUMNAS_ALERTA = ["id_registro", "tipo_anomalia", "regla", "detalle"]
 
 # Campos que toda transacción debería traer completos
 CAMPOS_OBLIGATORIOS = ["estacion", "conductor", "odometro"]
 
 # Umbrales
+# Un umbral es el valor límite a partir del cual una regla alerta. Se definen todos
+# juntos acá, con nombre, para poder ajustarlos sin buscar números sueltos en el código.
 SALTO_FIJO_KM = 500            # km entre dos cargas...
 SALTO_FIJO_DIAS = 7            # ...en esta cantidad de días o menos
 SALTO_HISTORIAL_EXCESO_KM = 1000  # km por encima de lo esperado según el propio vehículo
@@ -39,6 +75,14 @@ TOLERANCIA_PRECIO = 0.02        # diferencia de precio por litro entre la factur
 
 
 def _alertas(df, tipo, regla, detalle):
+    """Arma la tabla de alertas (con COLUMNAS_ALERTA) a partir de las filas que marcó una regla.
+
+    Recibe: `df`, las filas marcadas (deben tener una columna `id`); `tipo`, el tipo de
+    anomalía; `regla`, el nombre de la regla; y `detalle`, un texto fijo o una función
+    que arma un texto distinto para cada fila. Devuelve una tabla con una alerta por
+    fila, o una tabla vacía con las columnas correctas si no se marcó nada.
+    Todas las reglas la usan para que sus alertas tengan siempre el mismo formato.
+    """
     if df.empty:
         return pd.DataFrame(columns=COLUMNAS_ALERTA)
     return pd.DataFrame({
@@ -50,7 +94,12 @@ def _alertas(df, tipo, regla, detalle):
 
 
 def detectar_duplicados(consumo):
-    """Transacciones idénticas a otra anterior en todos los campos salvo el id."""
+    """Transacciones idénticas a otra anterior en todos los campos salvo el id.
+
+    Un duplicado suele ser un error de carga de datos (la misma transacción registrada
+    dos veces). Se alerta la copia y no la primera aparición. Recibe la tabla de
+    consumo y devuelve alertas de tipo DUPLICADO.
+    """
     columnas = [c for c in consumo.columns if c != "id"]
     ordenado = consumo.sort_values("id")
     duplicadas = ordenado[ordenado.duplicated(subset=columnas, keep="first")]
@@ -59,7 +108,11 @@ def detectar_duplicados(consumo):
 
 
 def detectar_nulos(consumo):
-    """Una alerta por cada campo obligatorio vacío."""
+    """Una alerta por cada campo obligatorio vacío.
+
+    Revisa los campos de CAMPOS_OBLIGATORIOS; cada campo genera su propia regla
+    (`nulo_estacion`, `nulo_conductor`, `nulo_odometro`). Devuelve alertas de tipo VALOR_NULO.
+    """
     partes = []
     for campo in CAMPOS_OBLIGATORIOS:
         vacios = consumo[consumo[campo].isna()]
@@ -68,14 +121,25 @@ def detectar_nulos(consumo):
 
 
 def detectar_dominio_invalido(consumo, flota):
-    """H1: el dominio de la transacción no corresponde a ningún vehículo de la flota."""
+    """H1: el dominio de la transacción no corresponde a ningún vehículo de la flota.
+
+    El "dominio" es la patente del vehículo. Si no existe en la flota, la carga no
+    se puede vincular con ningún vehículo y ningún otro control puede aplicarse.
+    Recibe las cargas y la flota; devuelve alertas de tipo DOMINIO_INVALIDO.
+    """
     sin_vinculo = consumo[~consumo["dominio"].isin(flota["Dominio"])]
     return _alertas(sin_vinculo, "DOMINIO_INVALIDO", "dominio_sin_vinculo",
                     lambda d: "dominio " + d["dominio"].astype(str) + " no existe en la flota")
 
 
 def detectar_exceso_volumetrico(consumo, flota):
-    """H3a: se cargaron más litros que la capacidad del tanque del vehículo."""
+    """H3a: se cargaron más litros que la capacidad del tanque del vehículo.
+
+    Es la versión ingenua: compara cada carga con la capacidad registrada, sin mirar
+    el historial (ver `detectar_exceso_sin_antecedente`). Devuelve alertas de tipo
+    EXCESO_VOLUMETRICO.
+    """
+    # Tabla auxiliar "matrícula -> capacidad" para buscar la capacidad de cada carga
     capacidad = flota.set_index("Matricula")["CapacidadTanque"]
     datos = consumo.assign(capacidad=consumo["vehiculo_id"].map(capacidad))
     exceso = datos[datos["litros"] > datos["capacidad"]]
@@ -91,10 +155,16 @@ def secuencia_odometro(consumo, excluir_ids=()):
     duplicados ya detectados), para comparar cada carga con la anterior real.
     Agrega: km (cambio), dias (días transcurridos) y km_esperados (según la mediana
     de km por día del propio vehículo).
+
+    No es una regla en sí: prepara los datos que usan todas las reglas de odómetro.
+    Devuelve la tabla de cargas ordenada por vehículo y fecha, con esas columnas nuevas.
+    Un `km` negativo significa que el odómetro retrocedió.
     """
     datos = consumo[consumo["odometro"].notna() & ~consumo["id"].isin(set(excluir_ids))].copy()
     datos["fecha"] = pd.to_datetime(datos["fecha"])
     datos = datos.sort_values(["vehiculo_id", "fecha", "id"])
+    # groupby separa las cargas por vehículo; diff() resta a cada lectura la anterior del
+    # mismo vehículo (la primera carga de cada uno queda vacía porque no tiene anterior)
     grupo = datos.groupby("vehiculo_id")
     datos["km"] = grupo["odometro"].diff()
     datos["dias"] = grupo["fecha"].diff().dt.days
@@ -113,6 +183,10 @@ def _tipo_de_retroceso(km):
 
 
 def _alertas_de_retroceso(regresion, regla):
+    """Como `_alertas`, pero para retrocesos de odómetro: el tipo (leve o no) depende de cada fila.
+
+    Recibe las filas de la secuencia de odómetro con retroceso y el nombre de la regla.
+    """
     if regresion.empty:
         return pd.DataFrame(columns=COLUMNAS_ALERTA)
     return pd.DataFrame({
@@ -124,12 +198,22 @@ def _alertas_de_retroceso(regresion, regla):
 
 
 def detectar_odometro_regresivo(secuencia):
-    """H2: el odómetro marca menos que en la carga anterior."""
+    """H2: el odómetro marca menos que en la carga anterior.
+
+    Versión ingenua: alerta cualquier retroceso, aunque se explique por un odómetro
+    nuevo o un error de tipeo (ver `detectar_retroceso_con_contexto`). Un odómetro
+    que retrocede puede indicar que se adulteró la lectura para ocultar kilómetros.
+    Recibe la tabla de `secuencia_odometro`.
+    """
     return _alertas_de_retroceso(secuencia[secuencia["km"] < 0], "odometro_disminuye")
 
 
 def detectar_odometro_salto_umbral_fijo(secuencia):
-    """H2 (umbral general): más de SALTO_FIJO_KM en SALTO_FIJO_DIAS días o menos."""
+    """H2 (umbral general): más de SALTO_FIJO_KM en SALTO_FIJO_DIAS días o menos.
+
+    Usa el mismo límite para todos los vehículos, lo que genera falsas alarmas en los
+    que habitualmente recorren mucho (y deja pasar saltos en los que recorren poco).
+    """
     salto = secuencia[(secuencia["km"] > SALTO_FIJO_KM) & (secuencia["dias"] <= SALTO_FIJO_DIAS)]
     return _alertas(salto, "ODOMETRO_SALTO", "salto_umbral_fijo",
                     lambda d: d["km"].astype(int).astype(str) + " km en "
@@ -138,7 +222,11 @@ def detectar_odometro_salto_umbral_fijo(secuencia):
 
 def detectar_odometro_salto_historial(secuencia):
     """H2 (historial individual): recorrió SALTO_HISTORIAL_EXCESO_KM más de lo que
-    ese vehículo suele recorrer en la misma cantidad de días."""
+    ese vehículo suele recorrer en la misma cantidad de días.
+
+    A diferencia del umbral fijo, compara cada vehículo consigo mismo: lo "normal" es
+    distinto para un vehículo de ruta que para uno que casi no sale.
+    """
     exceso = secuencia["km"] - secuencia["km_esperados"]
     salto = secuencia[exceso > SALTO_HISTORIAL_EXCESO_KM].assign(exceso=exceso)
     return _alertas(salto, "ODOMETRO_SALTO", "salto_historial_vehiculo",
@@ -155,8 +243,13 @@ def detectar_odometro_salto_historial(secuencia):
 # ============================================================================
 
 def _vecinos_de_odometro(secuencia):
-    """Agrega, por vehículo, las dos lecturas válidas anteriores y la siguiente."""
+    """Agrega, por vehículo, las dos lecturas válidas anteriores y la siguiente.
+
+    Mirar las lecturas vecinas permite saber si una lectura rara es un caso aislado
+    (probablemente un error de tipeo) o un cambio que se mantiene.
+    """
     s = secuencia.copy()
+    # shift(1) trae el valor de la fila anterior del mismo vehículo; shift(-1), el de la siguiente
     s["anterior"] = s["odometro"] - s["km"]
     grupo = s.groupby("vehiculo_id")
     s["anterior2"] = grupo["anterior"].shift(1)
@@ -174,7 +267,11 @@ def _es_error_de_tipeo(s):
     - Pico: esta lectura queda muy por encima y la siguiente vuelve a bajar.
     - Rebote tras un hueco: la lectura anterior fue la mal cargada (quedó por debajo de la
       previa) y esta vuelve a subir.
+
+    Devuelve una serie verdadero/falso (una por fila): verdadero si el cambio se
+    explica por un error de tipeo y, por lo tanto, no debería alertarse.
     """
+    # Cada condición es una columna de verdadero/falso; "&" es "y", "|" es "o", "~" es "no"
     desvio = (s["anterior"] - s["odometro"]).abs() > DESVIO_TIPEO_KM
     hueco = (s["km"] < 0) & (s["siguiente"] >= s["anterior"]) & desvio
     rebote_tras_pico = (s["km"] < 0) & (s["anterior2"] <= s["odometro"]) & desvio
@@ -188,6 +285,9 @@ def detectar_retroceso_con_contexto(secuencia):
 
     - Odómetro nuevo: la lectura queda por debajo de REINICIO_ODOMETRO_KM.
     - Error de tipeo: ver `_es_error_de_tipeo`.
+
+    Es la versión con contexto de `detectar_odometro_regresivo`: usa el historial de
+    lecturas para descartar falsas alarmas.
     """
     s = _vecinos_de_odometro(secuencia)
     reinicio = s["odometro"] < REINICIO_ODOMETRO_KM
@@ -201,6 +301,10 @@ def detectar_salto_con_contexto(secuencia, gps_por_intervalo=None):
     - Error de tipeo: la lectura siguiente vuelve a bajar (el salto fue una sola lectura).
     - GPS: si el dispositivo reportó todos los días del intervalo, el salto debe superar
       en SALTO_HISTORIAL_EXCESO_KM a los km que midió el GPS.
+
+    Recibe la secuencia de odómetro y, opcionalmente, los km del GPS por intervalo
+    (de `gps_por_intervalo`). El GPS es una fuente independiente: si confirma que el
+    vehículo recorrió esos km, el salto era real y no se alerta.
     """
     s = _vecinos_de_odometro(secuencia)
     exceso = s["km"] - s["km_esperados"]
@@ -222,12 +326,15 @@ def detectar_exceso_sin_antecedente(consumo, flota):
     Un vehículo que supera el tanque desde sus primeras cargas probablemente tiene más
     capacidad que la registrada (tanque auxiliar); uno que empieza a superarlo después
     cambió de comportamiento.
+
+    "Al principio" = el primer 25% de sus cargas (FRACCION_INICIAL), y al menos una.
     """
     capacidad = flota.set_index("Matricula")["CapacidadTanque"]
     datos = consumo.assign(capacidad=consumo["vehiculo_id"].map(capacidad),
                            fecha=pd.to_datetime(consumo["fecha"]))
     datos = datos.sort_values(["vehiculo_id", "fecha", "id"])
     datos["exceso"] = datos["litros"] > datos["capacidad"]
+    # cumcount numera las cargas de cada vehículo (0, 1, 2...) en orden de fecha
     posicion = datos.groupby("vehiculo_id").cumcount()
     total = datos.groupby("vehiculo_id")["id"].transform("count")
     iniciales = datos[posicion < (total * FRACCION_INICIAL).clip(lower=1)]
@@ -239,7 +346,12 @@ def detectar_exceso_sin_antecedente(consumo, flota):
 
 
 def detectar_carga_vehiculo_inactivo(consumo, flota):
-    """H6: carga con fecha igual o posterior a la baja o salida de servicio del vehículo."""
+    """H6: carga con fecha igual o posterior a la baja o salida de servicio del vehículo.
+
+    La cantidad de litros puede ser totalmente normal: lo sospechoso es que el
+    vehículo ya no debería estar funcionando. Solo se detecta cruzando la carga con
+    el estado de la flota (columnas Estado y FechaEstado).
+    """
     inactivos = flota[(flota["Estado"] != "EN SERVICIO") & flota["FechaEstado"].notna()]
     desde = pd.to_datetime(inactivos.set_index("Matricula")["FechaEstado"])
     estado = inactivos.set_index("Matricula")["Estado"]
@@ -257,6 +369,16 @@ def cargas_por_dia(consumo, flota, excluir_ids=(), gps_diario=None):
     cargados en el día. Se calcula con el odómetro y, si hay GPS completo en el
     intervalo, también con los km del GPS. Cada rendimiento se compara con la mediana
     del propio vehículo.
+
+    El rendimiento (km/L) indica cuántos km se hicieron por cada litro. Si se cargó
+    mucho combustible y casi no se recorrió, el rendimiento resulta muy bajo: el
+    combustible pudo no ir al vehículo. Un valor "relativo" de 1 significa igual a lo
+    habitual; 0,4 significa 40% de lo habitual.
+
+    Recibe: cargas, flota, ids a ignorar (duplicados) y, si hay, el GPS diario.
+    Devuelve: una tabla con una fila por vehículo y día con carga. La columna `ids`
+    guarda la lista de cargas de ese día. La usan las reglas de fraccionamiento y
+    rendimiento, y `modelo.py` para sus variables.
     """
     capacidad = flota.set_index("Matricula")["CapacidadTanque"]
     datos = consumo[~consumo["id"].isin(set(excluir_ids))].copy()
@@ -268,6 +390,8 @@ def cargas_por_dia(consumo, flota, excluir_ids=(), gps_diario=None):
     dias["capacidad"] = dias["vehiculo_id"].map(capacidad)
     grupo = dias.groupby("vehiculo_id")
     dias["dia_anterior"] = grupo["fecha"].shift(1)
+    # Última lectura de odómetro conocida antes de este día: ffill rellena los días sin
+    # lectura con la última disponible y shift(1) toma la del día anterior
     lectura_valida = grupo["odometro"].transform(lambda x: x.ffill().shift(1))
     dias["km_odometro"] = dias["odometro"] - lectura_valida
     dias["rendimiento_odometro"] = (dias["km_odometro"] / dias["litros"]).where(dias["km_odometro"] >= 0)
@@ -293,6 +417,14 @@ def _km_gps_entre_fechas(placa, desde, hasta, gps_diario):
     """km del GPS entre `desde` (excluido) y `hasta` (incluido), y si reportó todos esos días.
 
     Usa sumas acumuladas por placa sobre el calendario completo del GPS.
+
+    Truco de las sumas acumuladas: si se sabe cuántos km llevaba sumados el GPS hasta
+    cada fecha, los km entre dos fechas son una simple resta (acumulado al final menos
+    acumulado al inicio), sin tener que sumar día por día para cada carga. Lo mismo se
+    hace con la cantidad de días con datos, para saber si faltó algún reporte.
+
+    Recibe: la placa de cada fila, las fechas de inicio y fin, y el GPS diario.
+    Devuelve: dos series alineadas con `placa`: los km del GPS y si la cobertura fue completa.
     """
     gps = gps_diario.assign(fecha=pd.to_datetime(gps_diario["fecha"]))
     calendario = pd.date_range(gps["fecha"].min() - pd.Timedelta(days=1), gps["fecha"].max())
@@ -304,6 +436,7 @@ def _km_gps_entre_fechas(placa, desde, hasta, gps_diario):
     })
 
     def en(fechas):
+        """Valores acumulados (km y días con datos) de cada placa en cada una de `fechas`."""
         claves = pd.MultiIndex.from_arrays([placa, fechas.clip(lower=calendario[0])])
         return acumulado.reindex(claves).to_numpy()
 
@@ -315,7 +448,11 @@ def _km_gps_entre_fechas(placa, desde, hasta, gps_diario):
 
 
 def _explotar_dias(dias, tipo, regla, detalle):
-    """Convierte días marcados en alertas sobre cada transacción de ese día."""
+    """Convierte días marcados en alertas sobre cada transacción de ese día.
+
+    Algunas reglas evalúan el día completo de un vehículo; pero la evaluación se hace
+    por carga, así que cada carga de un día marcado recibe su propia alerta.
+    """
     if dias.empty:
         return pd.DataFrame(columns=COLUMNAS_ALERTA)
     filas = dias.assign(detalle=detalle(dias)).explode("ids")
@@ -328,11 +465,17 @@ def detectar_fraccionamiento(dias, con_rendimiento=False):
 
     La versión con rendimiento descarta los días en que el recorrido justifica el
     combustible (por ejemplo, un viaje largo con dos cargas en ruta).
+
+    "Fraccionar" es repartir una carga que sería excesiva en varias más chicas, para
+    que ninguna supere por sí sola el control por transacción. Recibe la tabla de
+    `cargas_por_dia`; devuelve alertas de tipo FRACCIONAMIENTO.
     """
     candidato = (dias["cargas"] >= 2) & (dias["litros"] > FRACCIONAMIENTO_TANQUES * dias["capacidad"])
     regla = "fraccionamiento_diario"
     if con_rendimiento:
         relativo = dias["rendimiento_gps_relativo"].fillna(dias["rendimiento_odometro_relativo"])
+        # Se escribe "no (>= mínimo)" en lugar de "< mínimo" para que los días sin
+        # rendimiento conocido (NaN) sigan marcados: sin dato no hay justificación
         candidato &= ~(relativo >= RENDIMIENTO_MINIMO_FRACCIONAMIENTO)
         regla = "fraccionamiento_sin_recorrido"
     marcados = dias[candidato]
@@ -346,6 +489,11 @@ def detectar_rendimiento_bajo(dias, fuente):
 
     `fuente` = "odometro" (lo que declara la carga) o "gps" (lo que midió el dispositivo;
     cuando no hay GPS completo en el intervalo se usa el odómetro).
+
+    La versión con odómetro es la ingenua: si el odómetro fue adulterado, el
+    rendimiento calculado también lo está. El GPS es una medición independiente.
+    Solo se evalúan días con una carga relevante (al menos 30% del tanque) para no
+    alertar cargas chicas, donde el rendimiento del día es muy variable.
     """
     relativo = dias["rendimiento_odometro_relativo"]
     if fuente == "gps":
@@ -359,16 +507,31 @@ def detectar_rendimiento_bajo(dias, fuente):
 
 
 def _xy_km(lat, lon):
-    """Proyección plana local (suficiente para distancias de decenas de km)."""
+    """Proyección plana local (suficiente para distancias de decenas de km).
+
+    Convierte latitud y longitud (grados) a coordenadas x, y en km sobre un plano,
+    para poder medir distancias con geometría simple. Un grado de latitud mide unos
+    110,57 km; uno de longitud mide menos cuanto más lejos del ecuador, por eso se
+    multiplica por el coseno de una latitud de referencia fija de la zona simulada.
+    """
     return lon * 111.32 * np.cos(np.radians(-34.65)), lat * 110.57
 
 
 def _distancia_a_segmento_km(lat, lon, lat1, lon1, lat2, lon2):
+    """Distancia en km desde un punto (lat, lon) hasta el segmento que une (lat1, lon1) con (lat2, lon2).
+
+    Se usa para medir qué tan lejos quedó la estación del recorrido del día (el GPS da
+    un punto de inicio y uno de fin). Si ambos extremos son el mismo punto, es la
+    distancia entre dos puntos. Trabaja con columnas enteras a la vez.
+    """
     px, py = _xy_km(lat, lon)
     ax, ay = _xy_km(lat1, lon1)
     bx, by = _xy_km(lat2, lon2)
     dx, dy = bx - ax, by - ay
     largo2 = dx * dx + dy * dy
+    # t indica el punto del segmento más cercano (0 = inicio, 1 = fin); se recorta a
+    # [0, 1] para no salirse del segmento. El np.where evita dividir por cero cuando
+    # el segmento tiene largo 0.
     t = np.where(largo2 > 0, ((px - ax) * dx + (py - ay) * dy) / np.where(largo2 > 0, largo2, 1), 0)
     t = np.clip(t, 0, 1)
     return np.hypot(px - (ax + t * dx), py - (ay + t * dy))
@@ -383,6 +546,8 @@ def distancia_a_zona_habitual(consumo, estaciones):
     coords = estaciones.set_index("codigo")[["latitud", "longitud"]]
     datos = consumo.join(coords, on="estacion")
     base = datos.groupby("vehiculo_id")[["latitud", "longitud"]].transform("median")
+    # Se pasa el mismo punto como inicio y fin: la distancia a un "segmento" de largo 0
+    # es la distancia al punto
     distancia = _distancia_a_segmento_km(datos["latitud"], datos["longitud"], base["latitud"],
                                          base["longitud"], base["latitud"], base["longitud"])
     return pd.Series(distancia, index=consumo.index)
@@ -404,7 +569,11 @@ def distancia_al_recorrido_gps(consumo, flota, estaciones, gps_diario):
 
 
 def detectar_carga_lejos_de_base(consumo, estaciones):
-    """H7 (ingenua): la estación queda lejos de la zona donde suele cargar el vehículo."""
+    """H7 (ingenua): la estación queda lejos de la zona donde suele cargar el vehículo.
+
+    Genera falsas alarmas con los viajes reales: un vehículo que viajó lejos carga
+    lejos de su zona sin que haya nada irregular.
+    """
     datos = consumo.assign(distancia=distancia_a_zona_habitual(consumo, estaciones))
     lejos = datos[datos["distancia"] > DISTANCIA_MAXIMA_KM]
     return _alertas(lejos, "CARGA_FUERA_DE_ZONA", "carga_lejos_de_base",
@@ -412,7 +581,12 @@ def detectar_carga_lejos_de_base(consumo, estaciones):
 
 
 def detectar_carga_lejos_del_gps(consumo, flota, estaciones, gps_diario):
-    """H7 (con GPS): la estación queda lejos del recorrido que el GPS registró ese día."""
+    """H7 (con GPS): la estación queda lejos del recorrido que el GPS registró ese día.
+
+    Si el vehículo estaba lejos de la estación cuando se hizo la carga, la tarjeta
+    de combustible pudo usarse en otro lado. Un viaje real no se alerta, porque el
+    GPS muestra que el vehículo pasó por ahí.
+    """
     datos = consumo.assign(distancia=distancia_al_recorrido_gps(consumo, flota, estaciones, gps_diario))
     lejos = datos[datos["distancia"] > DISTANCIA_MAXIMA_KM]
     return _alertas(lejos, "CARGA_FUERA_DE_ZONA", "carga_lejos_del_gps",
@@ -421,6 +595,11 @@ def detectar_carga_lejos_del_gps(consumo, flota, estaciones, gps_diario):
 
 # ============================================================================
 # Circuito solicitud -> carga -> factura (escenario realista)
+#
+# En la flota simulada, antes de cargar se pide una autorización (solicitud) con
+# los litros permitidos; después se hace la carga, y cada mes el proveedor emite
+# una factura con una línea por carga. Estas reglas verifican que los tres pasos
+# coincidan entre sí.
 # ============================================================================
 
 COSTO_SIN_SOLICITUD = 20.0     # costo de dejar una carga sin solicitud en el emparejamiento
@@ -438,7 +617,15 @@ def emparejar_solicitudes(consumo, solicitudes, excluir_ids=(), dias_antes=VENTA
     sin solicitud si emparejarla cuesta más que COSTO_SIN_SOLICITUD.
 
     Devuelve, por id de carga, el id y los litros autorizados de su solicitud (NaN si no tiene).
+
+    Qué es el método húngaro: es un algoritmo clásico para el "problema de
+    asignación": dadas varias cargas y varias solicitudes, y un "costo" de emparejar
+    cada carga con cada solicitud, encuentra la combinación que hace mínimo el costo
+    total, usando cada solicitud como mucho una vez. Es mejor que emparejar cada carga
+    con su solicitud más cercana por separado, porque evita que dos cargas "se
+    peleen" por la misma solicitud y una quede mal asignada.
     """
+    # linear_sum_assignment es la implementación del método húngaro de la biblioteca scipy
     from scipy.optimize import linear_sum_assignment
 
     cargas = consumo[~consumo["id"].isin(set(excluir_ids))][["id", "vehiculo_id", "fecha", "litros"]].copy()
@@ -449,10 +636,17 @@ def emparejar_solicitudes(consumo, solicitudes, excluir_ids=(), dias_antes=VENTA
     por_vehiculo = dict(tuple(aprobadas.groupby("vehiculo_id")))
 
     filas = []
+    # El emparejamiento se hace vehículo por vehículo: una carga solo puede usar
+    # solicitudes de su mismo vehículo
     for vehiculo, propias in cargas.groupby("vehiculo_id"):
         candidatas = por_vehiculo.get(vehiculo)
         if candidatas is None:
             continue
+        # Matriz de costos: una fila por carga y una columna por solicitud.
+        # dias = días de la solicitud respecto de la carga (negativo = antes).
+        # El costo suma: los días de diferencia, +0,5 si la solicitud es posterior, y 3
+        # veces la diferencia (en escala logarítmica) entre litros autorizados y cargados.
+        # Las combinaciones fuera de la ventana permitida reciben costo infinito (prohibidas).
         dias = ((candidatas["fecha_solicitud"].to_numpy()[None, :] - propias["fecha"].to_numpy()[:, None])
                 / np.timedelta64(1, "D"))
         proporcion = candidatas["litros_autorizados"].to_numpy()[None, :] / propias["litros"].to_numpy()[:, None]
@@ -462,6 +656,8 @@ def emparejar_solicitudes(consumo, solicitudes, excluir_ids=(), dias_antes=VENTA
         completo = np.hstack([np.where(np.isfinite(costo), costo, 1e9),
                               np.full((len(propias), len(propias)), COSTO_SIN_SOLICITUD)])
         filas_opt, columnas_opt = linear_sum_assignment(completo)
+        # Solo se guardan los pares con una solicitud real (no una columna ficticia)
+        # y permitidos por la ventana de días
         for i, j in zip(filas_opt, columnas_opt):
             if j < len(candidatas) and np.isfinite(costo[i, j]):
                 solicitud = candidatas.iloc[j]
@@ -472,7 +668,12 @@ def emparejar_solicitudes(consumo, solicitudes, excluir_ids=(), dias_antes=VENTA
 
 
 def _tipo_sin_autorizacion(consumo, solicitudes, sin_solicitud, dias_antes, dias_despues):
-    """CARGA_CON_SOLICITUD_RECHAZADA si hubo una solicitud rechazada en la ventana; si no, SIN_SOLICITUD."""
+    """CARGA_CON_SOLICITUD_RECHAZADA si hubo una solicitud rechazada en la ventana; si no, SIN_SOLICITUD.
+
+    Recibe las cargas que quedaron sin solicitud aprobada (`sin_solicitud`, un conjunto
+    de ids) y devuelve esas cargas con una columna `tipo` que distingue los dos casos:
+    no es lo mismo cargar sin pedir permiso que cargar después de que lo negaron.
+    """
     rechazadas = solicitudes[solicitudes["estado"] == "RECHAZADA"][["vehiculo_id", "fecha_solicitud"]].copy()
     rechazadas["fecha_solicitud"] = pd.to_datetime(rechazadas["fecha_solicitud"])
     cargas = consumo[consumo["id"].isin(sin_solicitud)][["id", "vehiculo_id", "fecha"]].copy()
@@ -489,6 +690,9 @@ def detectar_carga_sin_autorizacion(consumo, solicitudes, excluir_ids=(), acepta
 
     La versión con contexto (`aceptar_posterior`) también acepta una solicitud aprobada en
     los días siguientes: una urgencia que se regularizó después.
+
+    Recibe las cargas, las solicitudes y los ids a ignorar (duplicados). Devuelve
+    alertas de tipo CARGA_SIN_SOLICITUD o CARGA_CON_SOLICITUD_RECHAZADA.
     """
     despues = VENTANA_SOLICITUD_DIAS if aceptar_posterior else 0
     pares = emparejar_solicitudes(consumo, solicitudes, excluir_ids, dias_despues=despues)
@@ -504,7 +708,12 @@ def detectar_carga_sin_autorizacion(consumo, solicitudes, excluir_ids=(), acepta
 
 
 def detectar_supera_autorizado(consumo, solicitudes, excluir_ids=(), tolerancia=0.0):
-    """H8: la carga supera los litros autorizados en su solicitud (con una tolerancia opcional)."""
+    """H8: la carga supera los litros autorizados en su solicitud (con una tolerancia opcional).
+
+    Sin tolerancia es la versión ingenua: cualquier exceso, por mínimo que sea, alerta.
+    Con tolerancia (por ejemplo 0.05 = 5%) se aceptan las pequeñas diferencias propias
+    de la medición del surtidor, que no son irregularidades.
+    """
     pares = emparejar_solicitudes(consumo, solicitudes, excluir_ids, dias_despues=VENTANA_SOLICITUD_DIAS)
     datos = consumo.set_index("id").join(pares[["litros_autorizados"]], how="inner").reset_index()
     exceso = datos[datos["litros"] > datos["litros_autorizados"] * (1 + tolerancia)]
@@ -515,7 +724,13 @@ def detectar_supera_autorizado(consumo, solicitudes, excluir_ids=(), tolerancia=
 
 
 def detectar_conciliacion_mensual(consumo, estaciones, facturacion, excluir_ids=()):
-    """H9 (ingenua): el consumo del mes de cada proveedor no coincide con el total facturado."""
+    """H9 (ingenua): el consumo del mes de cada proveedor no coincide con el total facturado.
+
+    "Conciliar" es comparar dos registros que deberían coincidir (lo que se cargó y lo
+    que se facturó). Comparar solo totales mensuales genera falsas alarmas por
+    diferencias de fecha de corte o ajustes, y no ve irregularidades chicas que se
+    diluyen en el total. El proveedor de cada carga se obtiene de la marca de la estación.
+    """
     marca = estaciones.set_index("codigo")["marca"]
     datos = consumo[~consumo["id"].isin(set(excluir_ids))].assign(
         proveedor=lambda d: d["estacion"].map(marca),
@@ -523,6 +738,8 @@ def detectar_conciliacion_mensual(consumo, estaciones, facturacion, excluir_ids=
     registrado = datos.groupby(["proveedor", "periodo"])["importe_total"].sum()
     facturas = facturacion.set_index(["proveedor", "periodo"])
     comparacion = facturas.join(registrado.rename("registrado"), how="left").fillna({"registrado": 0})
+    # Diferencia relativa (proporción, no pesos): clip(lower=1) evita dividir por cero
+    # cuando no hubo consumo registrado
     diferencia = (comparacion["total_monto"] - comparacion["registrado"]) / comparacion["registrado"].clip(lower=1)
     marcadas = comparacion[diferencia.abs() > DIFERENCIA_CONCILIACION].reset_index()
     marcadas = marcadas.assign(id=marcadas["numero_factura"], diferencia=diferencia[diferencia.abs()
@@ -533,7 +750,11 @@ def detectar_conciliacion_mensual(consumo, estaciones, facturacion, excluir_ids=
 
 
 def detectar_factura_no_concilia(facturacion, facturacion_detalle):
-    """H9: el total de la factura no coincide con la suma de sus líneas."""
+    """H9: el total de la factura no coincide con la suma de sus líneas.
+
+    Un total inflado respecto de su propio detalle indica que se cobró más de lo que
+    se detalla. Las alertas se emiten por número de factura.
+    """
     lineas = facturacion_detalle.groupby("numero_factura")["importe"].sum()
     datos = facturacion.assign(lineas=facturacion["numero_factura"].map(lineas).fillna(0))
     diferencia = (datos["total_monto"] - datos["lineas"]) / datos["lineas"].abs().clip(lower=1)
@@ -544,7 +765,16 @@ def detectar_factura_no_concilia(facturacion, facturacion_detalle):
 
 
 def detectar_irregularidades_de_linea(consumo, facturacion_detalle):
-    """H9: líneas de combustible sin carga registrada, duplicadas o con sobreprecio."""
+    """H9: líneas de combustible sin carga registrada, duplicadas o con sobreprecio.
+
+    Concilia cada línea de factura con la carga a la que dice corresponder
+    (`referencia_consumo`). Tres irregularidades posibles:
+    - línea sin consumo: factura una carga que no existe en el registro;
+    - línea duplicada: factura dos veces la misma carga;
+    - sobreprecio: el precio por litro facturado supera en más de TOLERANCIA_PRECIO
+      al que figura en la carga.
+    Las alertas se emiten por número de línea.
+    """
     lineas = facturacion_detalle[facturacion_detalle["concepto"] == "COMBUSTIBLE"].rename(
         columns={"numero_linea": "id"}).sort_values("id")
     sin_consumo = lineas[~lineas["referencia_consumo"].isin(consumo["id"])]
@@ -565,7 +795,11 @@ def detectar_irregularidades_de_linea(consumo, facturacion_detalle):
 
 
 def gps_por_intervalo(dias):
-    """Por transacción: km del GPS desde el día de carga anterior y si la cobertura fue completa."""
+    """Por transacción: km del GPS desde el día de carga anterior y si la cobertura fue completa.
+
+    Recibe la tabla de `cargas_por_dia` (que está por día) y la pasa a una fila por
+    carga, que es lo que necesita `detectar_salto_con_contexto`.
+    """
     filas = dias.explode("ids")[["ids", "km_gps", "completo"]].rename(columns={"ids": "id"})
     return filas.drop_duplicates("id").set_index("id")
 
@@ -578,7 +812,13 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
     de estado en la flota, estaciones con coordenadas, GPS diario, solicitudes y el
     detalle de facturación. Las de solicitudes y facturación solo se aplican al
     escenario realista, donde esas fuentes son coherentes con el consumo.
+
+    Es la función que usan `__main__.py`, `modelo.py`, `priorizacion.py` y la
+    aplicación. Recibe todas las tablas del dataset (las opcionales pueden ser None) y
+    devuelve una sola tabla con todas las alertas de todas las reglas.
     """
+    # Los duplicados se detectan primero y se excluyen de las demás reglas, para que
+    # una carga repetida no genere alertas falsas de odómetro, fraccionamiento, etc.
     duplicados = detectar_duplicados(consumo)
     secuencia = secuencia_odometro(consumo, excluir_ids=duplicados["id_registro"])
     partes = [
@@ -591,6 +831,8 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
         detectar_odometro_salto_historial(secuencia),
     ]
 
+    # La columna FechaEstado solo existe en el escenario realista: es la señal de que
+    # hay contexto disponible para las reglas más elaboradas
     if "FechaEstado" in flota.columns:
         dias = cargas_por_dia(consumo, flota, excluir_ids=duplicados["id_registro"],
                               gps_diario=telemetria_diaria)
@@ -626,4 +868,5 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
             if estaciones is not None:
                 partes.append(detectar_conciliacion_mensual(consumo, estaciones, facturacion, excluir))
 
+    # Se unen todas las tablas de alertas en una sola (omitiendo las vacías)
     return pd.concat([p for p in partes if not p.empty], ignore_index=True)[COLUMNAS_ALERTA]

@@ -9,8 +9,84 @@ los modelos.
 
 Reproducibilidad: la misma semilla produce exactamente los mismos datos. Todas las
 fechas se calculan desde FECHA_REFERENCIA, nunca desde la hora actual.
+
+------------------------------------------------------------------------------
+Guía para quien lee este archivo por primera vez
+------------------------------------------------------------------------------
+
+¿Para qué sirve?
+    Este archivo "inventa" los datos con los que trabaja todo el proyecto. El
+    proyecto estudia cómo auditar una flota de vehículos ficticia (autos,
+    camionetas, camiones, etc.) y sus cargas de combustible. Como no se usan datos
+    reales, primero hay que fabricarlos: eso hace este archivo. Todo lo que genera
+    es sintético (inventado desde cero) y no corresponde a ningún vehículo,
+    persona ni organización real.
+
+¿Cómo encaja en el proyecto?
+    Es el primer paso de la cadena ("pipeline" = serie de pasos que se ejecutan en
+    orden, donde la salida de uno es la entrada del siguiente). Después de generar
+    los datos, otros módulos del proyecto los validan, los limpian, los cruzan
+    entre sí y buscan anomalías (registros sospechosos). Para saber si esos
+    detectores funcionan bien, hace falta conocer la respuesta correcta: por eso
+    este archivo también anota qué problemas metió a propósito.
+
+Conceptos que aparecen en todo el archivo:
+    - Anomalía inyectada: un error o irregularidad que el generador introduce a
+      propósito en datos que, sin eso, serían normales (por ejemplo, una carga de
+      más litros de los que entran en el tanque). Se inyecta para después ver si
+      los detectores la encuentran.
+    - Ground truth ("verdad de referencia"): la lista de todas las anomalías
+      inyectadas, con dónde están y de qué tipo son. Funciona como la "hoja de
+      respuestas" de un examen: sirve para corregir a los detectores, pero nunca
+      se les muestra, porque sería hacer trampa.
+    - Caso legítimo: algo que parece una anomalía pero tiene una explicación
+      válida (por ejemplo, un camión con un tanque auxiliar). Se guardan aparte
+      para medir las "falsas alarmas" de los detectores.
+    - Hipótesis (H1, H2, ... H9): preguntas del proyecto que cada tipo de anomalía
+      permite poner a prueba. Están descriptas en el README.
+    - Semilla (seed): número con el que arranca el generador de números al azar.
+      Con la misma semilla, el "azar" sale siempre igual, así que los datos se
+      pueden volver a generar idénticos (eso es la reproducibilidad).
+
+Dos escenarios:
+    - "didactico": datos simples, con anomalías muy evidentes. Sirve para
+      aprender y probar ideas rápido.
+    - "realista": simula cada vehículo día por día (kilómetros, consumo, cargas,
+      GPS), con anomalías sutiles y casos legítimos que se les parecen. Es mucho
+      más difícil de auditar, como en la vida real.
+
+¿Cómo se ejecuta?
+    Desde una terminal, en la carpeta del proyecto:
+        python generator_pipeline_maestro.py
+        python generator_pipeline_maestro.py --escenario realista
+        python generator_pipeline_maestro.py --n_flota 100 --seed 123
+    También se puede usar desde otro programa de Python:
+        GeneradorMaestro(n_flota=200, escenario="realista").ejecutar()
+
+¿Qué produce?
+    Una carpeta (datasets/synthetics_maestro o datasets/synthetics_realista) con:
+    - Un archivo CSV (tabla de texto separada por comas, que se abre con Excel)
+      por cada tabla: flota, telemetria, consumo, solicitudes, facturacion y, en
+      el escenario realista, también estaciones, telemetria_diaria y
+      facturacion_detalle.
+    - ground_truth.csv: las anomalías inyectadas (la "hoja de respuestas").
+    - casos_legitimos.csv: solo en el escenario realista.
+    - diccionario.json: descripción de cada tabla, columna y relación.
+    - metadata.json: con qué parámetros se generó todo y un resumen de conteos.
+
+Orden de lectura sugerido:
+    1. Las constantes del principio (parámetros y catálogos).
+    2. TABLAS y RELACIONES (qué columnas tiene cada tabla).
+    3. La clase GeneradorMaestro, empezando por su método ejecutar(), que muestra
+       el orden en que se llaman todos los demás.
 """
 
+# ---------------------------------------------------------------------------
+# Importaciones: herramientas que el archivo usa
+# ---------------------------------------------------------------------------
+# pandas es una biblioteca para trabajar con tablas. Su objeto principal es el
+# DataFrame: una tabla en memoria, con filas y columnas con nombre (parecida a
+# una hoja de Excel), que después se guarda como CSV.
 import sys
 import json
 import logging
@@ -20,6 +96,11 @@ import random
 
 import pandas as pd
 
+# ---------------------------------------------------------------------------
+# Configuración general
+# ---------------------------------------------------------------------------
+# El "logging" es el registro de mensajes que el programa va mostrando mientras
+# trabaja (qué tabla está generando, cuántas filas salieron, errores).
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -28,6 +109,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Rutas
+# Carpetas donde se guardan los resultados, una por escenario. BASE_DIR es la
+# carpeta donde está este archivo, así funciona desde cualquier lugar.
 BASE_DIR = Path(__file__).parent
 DATASETS_DIR = BASE_DIR / "datasets" / "synthetics_maestro"
 DIRECTORIOS_ESCENARIO = {
@@ -36,8 +119,15 @@ DIRECTORIOS_ESCENARIO = {
 }
 
 # Seed para reproducibilidad
+# La semilla (seed) es el número inicial del generador de azar. El azar de una
+# computadora es "pseudoaleatorio": sigue una receta fija a partir de la semilla,
+# así que con la misma semilla se obtienen siempre los mismos datos. Eso permite
+# que cualquier persona reproduzca exactamente los mismos resultados.
 SEED = 42
 
+# ---------------------------------------------------------------------------
+# Parámetros de tiempo y de anomalías (escenario didáctico)
+# ---------------------------------------------------------------------------
 # Ventana temporal de los datos: consumos y solicitudes entre FECHA_INICIO y
 # FECHA_INICIO + DIAS_VENTANA. FECHA_REFERENCIA hace de "ahora" para la telemetría.
 FECHA_INICIO = datetime(2024, 1, 1)
@@ -45,6 +135,10 @@ DIAS_VENTANA = 270
 FECHA_REFERENCIA = FECHA_INICIO + timedelta(days=DIAS_VENTANA + 1)
 
 # Tasas de inyección de anomalías en CONSUMO
+# Una "tasa" es una proporción: 0.07 significa 7%. Indican qué fracción de los
+# datos se altera a propósito para crear cada tipo de anomalía. Las siglas H1,
+# H2, etc. son las hipótesis del proyecto (ver README) que cada anomalía pone a
+# prueba.
 TASA_VEHICULOS_EXCESO = 0.07      # vehículos que cargan más que su tanque (H3a)
 TASA_ODOMETRO_REGRESIVO = 0.012   # transacciones con retroceso de odómetro (H2)
 TASA_ODOMETRO_SALTO = 0.012       # transacciones con salto de odómetro (H2)
@@ -53,6 +147,9 @@ TASA_NULOS = 0.02                 # campos vacíos (calidad)
 TASA_DUPLICADOS = 0.01            # filas duplicadas (calidad)
 
 # tipo_anomalia -> (hipótesis, severidad)
+# Catálogo de todos los tipos de anomalía que el generador puede inyectar. Para
+# cada uno dice qué hipótesis permite evaluar y qué tan grave es (ALTA, MEDIA o
+# BAJA). "CALIDAD" agrupa errores de carga de datos que no son irregularidades.
 CATALOGO_ANOMALIAS = {
     "EXCESO_VOLUMETRICO": ("H3a", "ALTA"),
     "ODOMETRO_REGRESIVO": ("H2", "ALTA"),
@@ -76,6 +173,8 @@ CATALOGO_ANOMALIAS = {
     "SOBREPRECIO": ("H9", "MEDIA"),
 }
 
+# Qué tipos de anomalía aparecen en cada escenario: el didáctico usa solo los
+# básicos; el realista, todos los del catálogo.
 ESCENARIOS = ("didactico", "realista")
 
 TIPOS_POR_ESCENARIO = {
@@ -97,6 +196,7 @@ CATALOGO_LEGITIMOS = {
     "AJUSTE_DOCUMENTADO": "la factura incluye un ajuste documentado (bonificación o recargo)",
 }
 
+# Columnas de los archivos casos_legitimos.csv y ground_truth.csv (más abajo).
 COLUMNAS_CASOS_LEGITIMOS = ["tabla", "id_registro", "vehiculo_id", "tipo_caso", "descripcion"]
 
 # Anomalías que siguen presentes en una fila duplicada (las de odómetro no: la copia
@@ -108,6 +208,12 @@ COLUMNAS_GROUND_TRUTH = [
     "columna", "hipotesis", "severidad", "descripcion",
 ]
 
+# ---------------------------------------------------------------------------
+# Catálogos: listas de valores posibles de donde se eligen datos al azar
+# ---------------------------------------------------------------------------
+# Todos los nombres son genéricos o ficticios. Cuando un valor se repite en una
+# lista (como GASOIL en COMBUSTIBLES) es para que salga más seguido al elegir
+# al azar: es una forma simple de darle más "peso".
 # Catálogos de la flota (compartidos por ambos escenarios; el orden importa para
 # la reproducibilidad)
 DIRECCIONES = [
@@ -134,6 +240,8 @@ MARCAS_ESTACION = ["YPF", "SHELL", "AXION", "PUMA", "ESTACION LOCAL"]
 # ============================================================================
 
 # tipo: (capacidad del tanque en L, rendimiento en km/L, km por día hábil)
+# Cada par (mínimo, máximo) es un rango: al crear un vehículo se elige un valor
+# al azar dentro de él. El rendimiento es cuántos km recorre con un litro.
 PERFILES_VEHICULO = {
     "MOTOCICLETA": ((10, 18), (25, 35), (20, 60)),
     "SEDAN": ((45, 60), (10, 14), (30, 70)),
@@ -154,6 +262,9 @@ PRODUCTOS_POR_COMBUSTIBLE = {
 PRECIO_BASE = {"GASOIL": 2.0, "INFINIA DIESEL": 2.4, "NAFTA": 2.1, "SUPER": 2.3, "INFINIA": 2.6, "GLP": 1.2}
 AUMENTO_MENSUAL_PRECIO = 0.02
 
+# Geografía y comportamiento de la simulación. ZONA_BASE es un rectángulo en el
+# mapa (latitud y longitud) donde opera la flota habitualmente. Las "PROB_" son
+# probabilidades por día o por carga (0.25 = una de cada cuatro veces).
 ZONA_BASE = {"lat": (-34.9, -34.4), "lon": (-58.8, -58.2)}
 N_ESTACIONES_LOCALES = 40
 N_RUTAS = 5
@@ -165,6 +276,8 @@ PROB_CARGA_PARCIAL = 0.25
 RESERVA_TANQUE = 0.05           # fracción del tanque en la que el vehículo obliga a cargar
 
 # Cantidad de casos por cada 200 vehículos (escala con n_flota)
+# Si la flota tiene 400 vehículos, se generan el doble de casos. Incluye tanto
+# anomalías como casos legítimos (los marcados como "legítimos").
 EVENTOS_REALISTA = {
     "EXCESO_VOLUMETRICO": 2,        # vehículos que empiezan a cargar más que su tanque
     "RENDIMIENTO_IMPOSIBLE": 2,     # vehículos con cargas que no se corresponden con su uso
@@ -203,10 +316,13 @@ TASAS_CALIDAD_REALISTA = {"DOMINIO_INVALIDO": 0.003, "VALOR_NULO": 0.005, "DUPLI
 # verifica que describa todas las columnas que se producen.
 # ============================================================================
 
+# Atajos para indicar en qué escenarios existe cada tabla o columna.
 AMBOS = ("didactico", "realista")
 REALISTA = ("realista",)
 
 # tabla: grano, clave, escenarios y columnas {nombre: (tipo, descripción[, escenarios])}
+# "Grano" es qué representa una fila (por ejemplo, un vehículo o una carga).
+# "Clave" es la columna (o combinación) que identifica cada fila sin repetirse.
 TABLAS = {
     "flota": {
         "grano": "un vehículo", "clave": "Matricula", "escenarios": AMBOS,
@@ -363,6 +479,9 @@ TABLAS = {
 }
 
 # (origen, columna origen, destino, columna destino, cardinalidad, escenarios, nota)
+# Cómo se conectan las tablas. La cardinalidad dice cuántas filas de un lado
+# corresponden a cuántas del otro: "N:1" significa que muchas filas del origen
+# (por ejemplo, muchas cargas) apuntan a una sola del destino (un vehículo).
 RELACIONES = [
     ("consumo", "vehiculo_id", "flota", "Matricula", "N:1", AMBOS, ""),
     ("consumo", "dominio", "flota", "Dominio", "N:1", AMBOS, "se rompe en DOMINIO_INVALIDO"),
@@ -387,11 +506,29 @@ RELACIONES = [
 ]
 
 
+# ============================================================================
+# Funciones auxiliares (fuera de la clase)
+# ============================================================================
+
 def diccionario_de_datos(escenario, columnas_generadas=None):
     """Tablas y relaciones de un escenario.
 
     Si se pasa `columnas_generadas` ({tabla: [columnas]}), solo incluye esas tablas y
     columnas, en su orden: el diccionario describe exactamente lo que se escribió.
+
+    En palabras simples: arma el "diccionario de datos", es decir, un documento que
+    explica qué significa cada columna de cada tabla y cómo se conectan las tablas
+    entre sí. Toma la información de TABLAS y RELACIONES y se queda solo con lo que
+    corresponde al escenario pedido.
+
+    Recibe:
+        escenario: "didactico" o "realista".
+        columnas_generadas: opcional; diccionario {nombre de tabla: lista de
+            columnas} con lo que realmente se guardó en los CSV.
+
+    Devuelve:
+        Un diccionario de Python con las claves "escenario", "tablas" y
+        "relaciones", listo para guardarse como diccionario.json.
     """
     tablas = {}
     for nombre, tabla in TABLAS.items():
@@ -399,6 +536,8 @@ def diccionario_de_datos(escenario, columnas_generadas=None):
             continue
         if columnas_generadas is not None and nombre not in columnas_generadas:
             continue
+        # Una columna sin tercer elemento existe en ambos escenarios; si lo tiene,
+        # solo en los escenarios que indica.
         definidas = {c: d for c, d in tabla["columnas"].items() if escenario in (d[2] if len(d) > 2 else AMBOS)}
         orden = columnas_generadas[nombre] if columnas_generadas is not None else list(definidas)
         tablas[nombre] = {
@@ -417,7 +556,17 @@ def diccionario_de_datos(escenario, columnas_generadas=None):
 
 
 def diagrama_relaciones(diccionario):
-    """Diagrama de relaciones en formato DOT (Graphviz) a partir del diccionario."""
+    """Diagrama de relaciones en formato DOT (Graphviz) a partir del diccionario.
+
+    DOT es un formato de texto para describir dibujos de "cajas y flechas".
+    Programas como Graphviz lo convierten en una imagen. Cada tabla es una caja y
+    cada relación una flecha. Las tablas de evaluación (ground_truth y
+    casos_legitimos) se pintan de otro color para distinguirlas; las relaciones
+    sin clave directa se dibujan con línea punteada.
+
+    Recibe: el diccionario que devuelve `diccionario_de_datos`.
+    Devuelve: un texto (str) con el diagrama en formato DOT.
+    """
     lineas = ['digraph relaciones {', '  rankdir=LR; node [shape=box, style="rounded,filled", '
               'fillcolor="#eef3fb", fontname="Helvetica"]; edge [fontname="Helvetica", fontsize=9];']
     for nombre, tabla in diccionario["tablas"].items():
@@ -432,7 +581,16 @@ def diagrama_relaciones(diccionario):
 
 
 def distancia_km(lat1, lon1, lat2, lon2):
-    """Distancia sobre la superficie terrestre (fórmula del haversine)."""
+    """Distancia sobre la superficie terrestre (fórmula del haversine).
+
+    Calcula cuántos kilómetros hay entre dos puntos del mapa dados por latitud y
+    longitud, teniendo en cuenta que la Tierra es (casi) una esfera de 6371 km de
+    radio. Se usa, por ejemplo, para saber qué estación queda cerca de un vehículo
+    o si una carga ocurrió lejos de su zona.
+
+    Recibe: latitud y longitud del punto 1 y del punto 2 (en grados).
+    Devuelve: la distancia en kilómetros (número decimal).
+    """
     from math import asin, cos, radians, sin, sqrt
     dlat, dlon = radians(lat2 - lat1), radians(lon2 - lon1)
     a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
@@ -440,13 +598,33 @@ def distancia_km(lat1, lon1, lat2, lon2):
 
 
 def _interpolar(origen, destino, fraccion):
+    """Punto intermedio entre dos posiciones del mapa.
+
+    Recibe dos posiciones (latitud, longitud) y una fracción entre 0 y 1: 0 devuelve
+    el origen, 1 el destino y 0.5 el punto medio. Se usa para ubicar estaciones a lo
+    largo de una ruta o la posición de un vehículo a mitad de camino.
+
+    Devuelve: una tupla (latitud, longitud).
+    """
     return (origen[0] + (destino[0] - origen[0]) * fraccion,
             origen[1] + (destino[1] - origen[1]) * fraccion)
 
 
 def _error_de_tipeo(valor, rng):
-    """Lectura con dos dígitos intercambiados (o uno cambiado) que difiere en ≥1000 km."""
+    """Lectura con dos dígitos intercambiados (o uno cambiado) que difiere en ≥1000 km.
+
+    Imita el error humano de tipear mal el odómetro (por ejemplo, 45210 escrito
+    como 42510). Se usa para crear casos legítimos "ERROR_TIPEO_ODOMETRO": parecen
+    una adulteración, pero son solo un error de carga.
+
+    Recibe:
+        valor: la lectura correcta del odómetro.
+        rng: el generador de azar del proyecto (para que sea reproducible).
+    Devuelve: la lectura "mal tipeada" (entero).
+    """
     texto = str(int(valor))
+    # Prueba hasta 20 veces intercambiar dos dígitos vecinos (sin tocar los últimos
+    # tres, para que la diferencia sea grande); si no lo logra, cambia un dígito.
     for _ in range(20):
         i = rng.randint(0, len(texto) - 4)
         if texto[i] != texto[i + 1]:
@@ -458,10 +636,38 @@ def _error_de_tipeo(valor, rng):
     return int(texto[:i] + digito + texto[i + 1:])
 
 
+# ============================================================================
+# Clase principal: el generador
+# ============================================================================
+# Una clase agrupa datos y las funciones que trabajan con ellos (llamadas
+# "métodos"). Los métodos cuyo nombre empieza con "_" son de uso interno.
+
 class GeneradorMaestro:
-    """Orquesta la generación de todas las entidades"""
+    """Orquesta la generación de todas las entidades
+
+    "Orquestar" quiere decir coordinar: esta clase llama, en el orden correcto, a
+    cada paso que genera una tabla (primero la flota, porque las demás tablas se
+    refieren a sus vehículos; después consumo, solicitudes, facturación...).
+
+    Mientras trabaja guarda:
+        - self.datasets: las tablas generadas, cada una como DataFrame.
+        - self.anomalias: la lista que después se convierte en ground_truth.csv.
+        - self.casos_legitimos: casos que parecen anomalías pero no lo son.
+        - self.metadata: datos sobre la propia generación (semilla, fecha, etc.).
+
+    Uso típico:
+        resultado = GeneradorMaestro(n_flota=200, escenario="realista").ejecutar()
+    """
 
     def __init__(self, n_flota=200, seed=SEED, output_dir=None, escenario="didactico"):
+        """Prepara el generador (todavía no genera nada).
+
+        Recibe:
+            n_flota: cantidad de vehículos a inventar.
+            seed: semilla para que los datos sean reproducibles.
+            output_dir: carpeta de salida; si no se indica, se usa la del escenario.
+            escenario: "didactico" o "realista".
+        """
         if escenario not in ESCENARIOS:
             raise ValueError(f"escenario debe ser uno de {ESCENARIOS}")
         self.n_flota = n_flota
@@ -473,6 +679,8 @@ class GeneradorMaestro:
         self.datasets = {}
         self.anomalias = []
         self.casos_legitimos = []
+        # fecha_generacion es lo único que cambia entre ejecuciones: es informativa y
+        # no influye en los datos generados.
         self.metadata = {
             "fecha_generacion": datetime.now().isoformat(),
             "fecha_referencia": FECHA_REFERENCIA.isoformat(),
@@ -482,7 +690,16 @@ class GeneradorMaestro:
             "generadores_ejecutados": []
         }
 
+    # ------------------------------------------------------------------------
+    # Registro de la verdad de referencia
+    # ------------------------------------------------------------------------
     def _registrar_anomalia(self, tabla, id_registro, vehiculo_id, tipo, columna, descripcion):
+        """Anota una anomalía inyectada en la lista que luego será ground_truth.csv.
+
+        Recibe en qué tabla y en qué registro está, qué vehículo involucra, de qué tipo
+        es, en qué columna se nota y una descripción legible. La hipótesis y la
+        severidad se toman del CATALOGO_ANOMALIAS. No devuelve nada.
+        """
         hipotesis, severidad = CATALOGO_ANOMALIAS[tipo]
         self.anomalias.append({
             "tabla": tabla,
@@ -495,8 +712,23 @@ class GeneradorMaestro:
             "descripcion": descripcion,
         })
 
+    # ========================================================================
+    # ESCENARIO DIDÁCTICO
+    #
+    # Cada tabla se genera de forma bastante independiente, con valores al azar,
+    # y las anomalías son exageradas para que sean fáciles de ver.
+    # ========================================================================
     def generar_flota(self):
-        """Genera tabla FLOTA (200 vehículos)"""
+        """Genera tabla FLOTA (200 vehículos)
+
+        Versión del escenario didáctico. Crea un vehículo por fila con datos
+        elegidos al azar de los catálogos (marca, tipo, combustible, dirección a la
+        que pertenece, etc.). La cantidad real de vehículos es `self.n_flota`
+        (200 por defecto). No inyecta anomalías: la flota es la tabla "de base"
+        contra la que se comparan las demás.
+
+        Devuelve: el DataFrame de la flota (y también lo guarda en self.datasets).
+        """
         logger.info("Generando FLOTA...")
         rng = self.rng
 
@@ -543,7 +775,15 @@ class GeneradorMaestro:
         return df
 
     def generar_telemetria(self):
-        """Genera tabla TELEMETRIA (dispositivos GPS)"""
+        """Genera tabla TELEMETRIA (dispositivos GPS)
+
+        Versión del escenario didáctico. Telemetría es la información que envían
+        los dispositivos GPS instalados en los vehículos (posición, estado,
+        batería, odómetro). Solo el 88% de la flota tiene dispositivo. Necesita que
+        la flota exista antes, porque cada dispositivo se asocia a un vehículo.
+
+        Devuelve: el DataFrame de telemetría, o None si todavía no hay flota.
+        """
         logger.info("Generando TELEMETRIA...")
         rng = self.rng
 
@@ -597,6 +837,13 @@ class GeneradorMaestro:
         - ~1% de filas duplicadas (DUPLICADO)
         Las anomalías de odómetro persisten: las cargas siguientes continúan desde el
         valor alterado, por lo que solo la transacción anómala muestra el cambio.
+
+        En palabras simples: inventa las cargas de combustible de cada vehículo
+        (versión didáctica) y, a propósito, mete errores en algunas. Cada error
+        metido se anota en self.anomalias para poder evaluar después a los
+        detectores. El odómetro es el contador de kilómetros del vehículo.
+
+        Devuelve: el DataFrame de consumo, o None si todavía no hay flota.
         """
         logger.info("Generando CONSUMO...")
         rng = self.rng
@@ -609,6 +856,7 @@ class GeneradorMaestro:
         productos = ["GASOIL", "NAFTA", "INFINIA", "SUPER", "GLP"]
         estaciones = ["YPF", "SHELL", "AXION", "PUMA", "ESTACION LOCAL"]
 
+        # Se eligen de antemano los vehículos que cargarán de más (al menos 5).
         n_anomalos = max(5, int(self.n_flota * TASA_VEHICULOS_EXCESO))
         indices_anomalos = set(rng.sample(range(len(flota_df)), min(n_anomalos, len(flota_df))))
 
@@ -617,6 +865,8 @@ class GeneradorMaestro:
         contador_total = 0
 
         def registrar(row, tipo, columna, descripcion):
+            """Anota la anomalía en el ground truth y también la recuerda por id de carga,
+            para que una fila duplicada después pueda "heredarla"."""
             self._registrar_anomalia("consumo", row["id"], row["vehiculo_id"], tipo, columna, descripcion)
             anomalias_por_id.setdefault(row["id"], []).append((tipo, columna, descripcion))
 
@@ -698,6 +948,8 @@ class GeneradorMaestro:
                 rows.append(row)
 
         # Calidad: filas duplicadas con un id nuevo
+        # Si la fila original tenía una anomalía que se sigue viendo en la copia (ver
+        # ANOMALIAS_HEREDABLES), también se anota para la copia.
         n_duplicados = max(1, int(len(rows) * TASA_DUPLICADOS))
         for _ in range(n_duplicados):
             row_original = rng.choice(rows)
@@ -721,7 +973,15 @@ class GeneradorMaestro:
         return df
 
     def generar_solicitudes(self):
-        """Genera tabla SOLICITUDES (solicitudes de combustible)"""
+        """Genera tabla SOLICITUDES (solicitudes de combustible)
+
+        Versión del escenario didáctico. Una solicitud es el pedido formal de
+        combustible para un vehículo, que puede aprobarse, rechazarse o quedar
+        pendiente. Aquí se generan al azar (1 a 4 por vehículo), sin relación con
+        las cargas reales; en el escenario realista sí se vinculan.
+
+        Devuelve: el DataFrame de solicitudes, o None si todavía no hay flota.
+        """
         logger.info("Generando SOLICITUDES...")
         rng = self.rng
 
@@ -760,7 +1020,14 @@ class GeneradorMaestro:
         return df
 
     def generar_facturacion(self):
-        """Genera tabla FACTURACION (facturas)"""
+        """Genera tabla FACTURACION (facturas)
+
+        Versión del escenario didáctico. Arma una factura por mes sumando todas las
+        cargas de ese mes (litros e importes) y le calcula el IVA (21%). Necesita
+        que el consumo exista antes.
+
+        Devuelve: el DataFrame de facturas, o None si todavía no hay consumo.
+        """
         logger.info("Generando FACTURACION...")
         rng = self.rng
 
@@ -770,6 +1037,8 @@ class GeneradorMaestro:
             return None
 
         # Agrupar consumo por mes y generar facturas
+        # groupby('mes') separa la tabla en grupos, uno por mes, y el bucle recorre
+        # cada grupo para armar su factura.
         consumo_df_copy = consumo_df.copy()
         consumo_df_copy['mes'] = consumo_df_copy['fecha'].dt.to_period('M')
 
@@ -806,15 +1075,38 @@ class GeneradorMaestro:
     # ========================================================================
 
     def _cantidad(self, clave):
+        """Cuántos casos de un tipo generar, escalado al tamaño de la flota (mínimo 1).
+
+        Recibe: el nombre del evento en EVENTOS_REALISTA.
+        Devuelve: un entero.
+        """
         return max(1, round(EVENTOS_REALISTA[clave] * self.n_flota / 200))
 
     def _registrar_legitimo(self, id_registro, vehiculo_id, tipo, descripcion):
+        """Anota un caso legítimo de la tabla consumo en self.casos_legitimos.
+
+        No va al ground truth: no es una anomalía, pero se parece a una. No devuelve
+        nada.
+        """
         self.casos_legitimos.append({"tabla": "consumo", "id_registro": id_registro,
                                      "vehiculo_id": vehiculo_id, "tipo_caso": tipo,
                                      "descripcion": descripcion})
 
     def generar_flota_realista(self):
-        """FLOTA con capacidad acorde al tipo de vehículo y fecha del último cambio de estado."""
+        """FLOTA con capacidad acorde al tipo de vehículo y fecha del último cambio de estado.
+
+        Versión del escenario realista. A diferencia de la didáctica, el tanque
+        depende del tipo de vehículo (una moto tiene un tanque chico, un camión uno
+        grande) y los vehículos que no están en servicio tienen la fecha en que
+        dejaron de estarlo.
+
+        Además arma self._perfiles: el "comportamiento oculto" de cada vehículo
+        (cuántos km hace por día, cuántos km por litro rinde, dónde suele estar).
+        Ese perfil guía la simulación pero no se guarda en ningún CSV, igual que en
+        la realidad nadie conoce de antemano el uso "verdadero" de un vehículo.
+
+        Devuelve: el DataFrame de la flota.
+        """
         logger.info("Generando FLOTA (escenario realista)...")
         rng = self.rng
         rows, self._perfiles = [], {}
@@ -863,7 +1155,18 @@ class GeneradorMaestro:
         return df
 
     def generar_estaciones(self):
-        """ESTACIONES con coordenadas: locales en la zona de operación y otras sobre rutas."""
+        """ESTACIONES con coordenadas: locales en la zona de operación y otras sobre rutas.
+
+        Crea estaciones de servicio ficticias con su ubicación en el mapa. Hay dos
+        clases:
+            - LOCAL: dentro de la zona donde trabaja habitualmente la flota.
+            - RUTA: repartidas a lo largo de caminos hacia destinos lejanos (a más
+              de 250 km), para los vehículos que hacen viajes largos.
+        También guarda listas internas (self._coords_estaciones, etc.) que después
+        se usan para buscar la estación más cercana a un vehículo.
+
+        Devuelve: el DataFrame de estaciones.
+        """
         logger.info("Generando ESTACIONES...")
         rng = self.rng
         rows = []
@@ -876,6 +1179,8 @@ class GeneradorMaestro:
                 "longitud": round(rng.uniform(*ZONA_BASE["lon"]), 5),
             })
 
+        # Destinos lejanos para los viajes largos: se sortean puntos hasta tener
+        # N_RUTAS que queden a 250 km o más del centro de la zona.
         centro = (sum(ZONA_BASE["lat"]) / 2, sum(ZONA_BASE["lon"]) / 2)
         self._destinos = []
         while len(self._destinos) < N_RUTAS:
@@ -902,7 +1207,17 @@ class GeneradorMaestro:
         return df
 
     def _estacion_cercana(self, pos, excluir=None, solo=None):
-        """Una de las tres estaciones más cercanas a una posición."""
+        """Una de las tres estaciones más cercanas a una posición.
+
+        Simula que el conductor carga en alguna estación cercana a donde está (no
+        siempre la más cercana: elige al azar entre las tres primeras).
+
+        Recibe:
+            pos: posición (latitud, longitud) del vehículo.
+            excluir: código de una estación que no se quiere repetir (opcional).
+            solo: "LOCAL" o "RUTA" para limitar el tipo de estación (opcional).
+        Devuelve: el código de la estación elegida (por ejemplo "EST-012").
+        """
         candidatas = sorted(
             (distancia_km(pos[0], pos[1], lat, lon), codigo)
             for codigo, lat, lon, ubicacion in self._coords_estaciones
@@ -911,11 +1226,23 @@ class GeneradorMaestro:
         return self.rng.choice(candidatas[:3])[1]
 
     def _asignar_roles(self, vehiculos, con_gps):
-        """Elige qué vehículos protagonizan cada anomalía o caso legítimo (a lo sumo uno cada uno)."""
+        """Elige qué vehículos protagonizan cada anomalía o caso legítimo (a lo sumo uno cada uno).
+
+        Antes de simular, se decide al azar el "papel" (rol) de algunos vehículos:
+        uno tendrá tanque auxiliar, otro hará un viaje largo, otro cargará estando
+        de baja, etc. Cada vehículo recibe como máximo un rol para que las
+        anomalías no se mezclen y sea claro qué se está evaluando.
+
+        Recibe:
+            vehiculos: lista de vehículos (cada uno un diccionario con sus datos).
+            con_gps: conjunto de matrículas que tienen dispositivo GPS.
+        Devuelve: un diccionario {matrícula: rol}; los vehículos sin rol no aparecen.
+        """
         rng = self.rng
         roles = {}
 
         def asignar(rol, candidatos):
+            """Da el rol a la cantidad que corresponda de candidatos todavía libres."""
             libres = [m for m in candidatos if m not in roles]
             for m in rng.sample(libres, min(self._cantidad(rol), len(libres))):
                 roles[m] = rol
@@ -935,19 +1262,40 @@ class GeneradorMaestro:
         return roles
 
     def _simular_vehiculo(self, v, rol, cargas, gps):
-        """Simula el uso diario de un vehículo y agrega sus cargas y sus registros de GPS."""
+        """Simula el uso diario de un vehículo y agrega sus cargas y sus registros de GPS.
+
+        Es el corazón del escenario realista. Recorre todos los días de la ventana
+        temporal y, para cada día, decide cuántos km anduvo el vehículo, cuánto
+        combustible gastó y si tuvo que cargar. Así los litros, el odómetro y el
+        GPS quedan coherentes entre sí. Si el vehículo tiene un rol (ver
+        `_asignar_roles`), en algún momento se comporta distinto para producir la
+        anomalía o el caso legítimo que le tocó.
+
+        Recibe:
+            v: los datos del vehículo (una fila de la flota como diccionario).
+            rol: el papel asignado, o None si es un vehículo normal.
+            cargas: lista donde se van agregando las cargas (se modifica aquí).
+            gps: lista donde se van agregando los registros diarios de GPS.
+        No devuelve nada: agrega los resultados a las listas que recibe.
+        """
         rng = self.rng
         m = v["Matricula"]
         perfil = self._perfiles[m]
         cap_reg = v["CapacidadTanque"]
+        # cap_reg es la capacidad registrada en la flota; cap_real, la que realmente
+        # tiene el vehículo. Solo difieren si tiene un tanque auxiliar no registrado.
         cap_real = cap_reg * rng.uniform(1.3, 1.6) if rol == "TANQUE_AUXILIAR" else cap_reg
         base = perfil["base"]
         fin_activo = datetime.combine(v["FechaEstado"], datetime.min.time()) if v["FechaEstado"] else None
         productos = PRODUCTOS_POR_COMBUSTIBLE[v["TipoCombustible"]]
         odo = float(rng.randint(10000, 250000))
         combustible = cap_real * rng.uniform(0.4, 0.9)
+        # Las irregularidades de algunos roles empiezan recién a partir de este día,
+        # para que antes haya un historial "normal" contra el cual compararlas.
         dia_inicio_fraude = rng.randint(90, 200)
 
+        # Preparación de cada rol: el día del viaje largo, los días en que un vehículo
+        # inactivo "carga", el día de la carga lejana, cuántas cargas sin uso habrá.
         viaje = (rng.randint(30, DIAS_VENTANA - 10), rng.choice(self._destinos)) if rol == "VIAJE_LARGO" else None
         dias_inactivo = set()
         if rol == "CARGA_VEHICULO_INACTIVO":
@@ -958,6 +1306,12 @@ class GeneradorMaestro:
         fraccionado = False
 
         def registrar(fecha, estacion, litros, odometro, etiqueta=None, legitimo=None):
+            """Agrega una carga a la lista `cargas`.
+
+            Las claves que empiezan con "_" son datos internos de la simulación (odómetro
+            real, etiqueta de anomalía, caso legítimo, orden): se usan después para anotar
+            el ground truth y no se guardan en el CSV.
+            """
             cargas.append({
                 "vehiculo_id": m, "dominio": v["Dominio"], "fecha": fecha, "estacion": estacion,
                 "producto": rng.choice(productos), "litros": round(litros, 2),
@@ -967,7 +1321,15 @@ class GeneradorMaestro:
             })
 
         def cargar(fecha, pos, dia):
+            """Simula que el vehículo va a cargar combustible en una estación cercana.
+
+            Decide cuántos litros carga (lleno o parcial) y, según el rol del vehículo,
+            puede convertir esa carga en una anomalía (exceso volumétrico, fraccionamiento)
+            o marcarla como caso legítimo (tanque auxiliar, viaje largo).
+            """
             nonlocal combustible, fraccionado
+            # nonlocal permite modificar variables de la función de afuera
+            # (_simular_vehiculo) desde esta función interna.
             if rng.random() < PROB_CARGA_PARCIAL:
                 objetivo = cap_real * rng.uniform(0.6, 0.9)
             else:
@@ -1005,6 +1367,9 @@ class GeneradorMaestro:
                     registrar(fecha, self._estacion_cercana(pos, excluir=estacion), extra,
                               lectura, "FRACCIONAMIENTO")
 
+        # Bucle principal: un paso por cada día de la ventana temporal. Primero se
+        # decide cuántos km recorre el vehículo ese día (viaje largo de ida, estadía,
+        # vuelta, o un día normal que puede ser sin uso).
         for dia in range(DIAS_VENTANA + 1):
             fecha = FECHA_INICIO + timedelta(days=dia)
             activo = fin_activo is None or fecha < fin_activo
@@ -1022,6 +1387,9 @@ class GeneradorMaestro:
             elif activo and rng.random() >= PROB_DIA_SIN_USO:
                 km = perfil["km_dia"] * rng.uniform(0.5, 1.5)
 
+            # Se avanza por tramos: si el combustible llega a la reserva a mitad del
+            # recorrido, carga en una estación cercana a ese punto y sigue. Al final del
+            # día, si el tanque quedó por debajo de su umbral, también carga.
             cargas_previas = len(cargas)
             rendimiento_dia = perfil["rendimiento"] * rng.uniform(0.9, 1.1)
             recorrido = 0.0
@@ -1050,6 +1418,8 @@ class GeneradorMaestro:
                            if distancia_km(*base, lat, lon) > 100]
                 registrar(fecha, rng.choice(lejanas), cap_reg * rng.uniform(0.5, 0.9), odo, "CARGA_FUERA_DE_ZONA")
 
+            # Registro diario del GPS (solo si el vehículo tiene dispositivo y ese día
+            # reportó). Los km y posiciones llevan un pequeño error, como un GPS real.
             if m in self._con_gps and rng.random() >= TASA_DIAS_SIN_SENAL:
                 gps.append({
                     "Placa": v["Dominio"],
@@ -1068,8 +1438,20 @@ class GeneradorMaestro:
         Retrocesos y saltos se miden contra la lectura anterior y persisten: las cargas
         siguientes continúan desde el valor alterado. El error de tipeo afecta una sola
         lectura; el cambio de odómetro reinicia la cuenta desde un valor bajo.
+
+        En palabras simples: toma las lecturas "verdaderas" del odómetro que salieron
+        de la simulación y, en algunos vehículos elegidos al azar, las modifica:
+            - Anomalías: el odómetro retrocede (mucho o poco) o salta hacia adelante.
+            - Legítimos: se cambió el odómetro, o alguien tipeó mal una lectura.
+
+        Recibe:
+            por_vehiculo: {matrícula: lista de sus cargas en orden de fecha}.
+            roles: los roles ya asignados (esos vehículos no se tocan aquí).
+        No devuelve nada: completa la columna "odometro" de cada carga.
         """
         rng = self.rng
+        # Solo vehículos sin otro rol y con suficientes cargas (6 o más), para que haya
+        # lecturas antes y después del cambio con las cuales compararlo.
         candidatos = sorted(m for m, lista in por_vehiculo.items() if m not in roles and len(lista) >= 6)
         eventos = {}
         for tipo in ["ODOMETRO_REGRESIVO", "ODOMETRO_REGRESIVO_LEVE", "ODOMETRO_SALTO",
@@ -1078,6 +1460,8 @@ class GeneradorMaestro:
             for m in rng.sample(libres, min(self._cantidad(tipo), len(libres))):
                 eventos[m] = (tipo, rng.randint(2, len(por_vehiculo[m]) - 2))
 
+        # "desplazamiento" acumula cuánto se corrió el odómetro: así las lecturas
+        # siguientes continúan desde el valor alterado, como pasaría en la realidad.
         for m, lista in por_vehiculo.items():
             tipo, posicion = eventos.get(m, (None, None))
             desplazamiento = 0
@@ -1108,7 +1492,18 @@ class GeneradorMaestro:
                 anterior = lectura
 
     def _defectos_de_calidad(self, cargas, siguiente_id):
-        """Dominios inválidos, nulos y duplicados, solo sobre cargas sin otra anomalía."""
+        """Dominios inválidos, nulos y duplicados, solo sobre cargas sin otra anomalía.
+
+        Agrega errores de "calidad de datos", los típicos de cualquier sistema
+        cargado a mano: una patente (dominio) mal escrita, un campo vacío, una fila
+        repetida. Solo se aplican sobre cargas "limpias" para que cada registro
+        tenga un único problema y la evaluación sea clara.
+
+        Recibe:
+            cargas: lista de todas las cargas (se modifican algunas).
+            siguiente_id: número desde el cual numerar las filas duplicadas.
+        Devuelve: la lista de filas duplicadas, que se agrega después al consumo.
+        """
         rng = self.rng
         n = len(cargas)
         limpias = [c for c in cargas if not c["_etiqueta"] and not c["_legitimo"]]
@@ -1136,7 +1531,20 @@ class GeneradorMaestro:
         return copias
 
     def generar_consumo_realista(self):
-        """CONSUMO, TELEMETRIA y TELEMETRIA_DIARIA a partir de la simulación de la flota."""
+        """CONSUMO, TELEMETRIA y TELEMETRIA_DIARIA a partir de la simulación de la flota.
+
+        Versión del escenario realista. Pasos:
+            1. Decide qué vehículos tienen GPS y qué roles (anomalías o casos
+               legítimos) le tocan a cada uno.
+            2. Simula día por día cada vehículo (`_simular_vehiculo`).
+            3. Numera las cargas y altera algunos odómetros.
+            4. Calcula precios (que suben un poco cada mes) e importes.
+            5. Anota anomalías y casos legítimos.
+            6. Agrega defectos de calidad (nulos, duplicados, dominios inválidos).
+            7. Arma las tablas de telemetría.
+
+        Devuelve: el DataFrame de consumo.
+        """
         logger.info("Simulando el uso diario de la flota (escenario realista)...")
         rng = self.rng
         vehiculos = self.datasets['flota'].to_dict("records")
@@ -1149,6 +1557,8 @@ class GeneradorMaestro:
         for v in vehiculos:
             self._simular_vehiculo(v, roles.get(v["Matricula"]), cargas, gps)
 
+        # Ordenar por vehículo y fecha antes de numerar hace que los ids sean
+        # reproducibles y que las cargas de cada vehículo queden en orden cronológico.
         cargas.sort(key=lambda c: (c["vehiculo_id"], c["fecha"], c["_orden"]))
         por_vehiculo = {}
         for i, c in enumerate(cargas, 1):
@@ -1156,11 +1566,14 @@ class GeneradorMaestro:
             por_vehiculo.setdefault(c["vehiculo_id"], []).append(c)
         self._alterar_odometros(por_vehiculo, roles)
 
+        # Columna del CSV donde se "nota" cada anomalía (las de odómetro, por defecto,
+        # en "odometro").
         columnas_etiqueta = {
             "EXCESO_VOLUMETRICO": "litros", "FRACCIONAMIENTO": "litros", "RENDIMIENTO_IMPOSIBLE": "litros",
             "CARGA_VEHICULO_INACTIVO": "fecha", "CARGA_FUERA_DE_ZONA": "estacion",
         }
         for c in cargas:
+            # El precio de cada producto sube un 2% por mes, con una pequeña variación.
             meses = (c["fecha"].year - FECHA_INICIO.year) * 12 + c["fecha"].month - FECHA_INICIO.month
             c["precio_unitario"] = round(PRECIO_BASE[c["producto"]] * (1 + AUMENTO_MENSUAL_PRECIO * meses)
                                          * rng.uniform(0.98, 1.02), 2)
@@ -1198,7 +1611,18 @@ class GeneradorMaestro:
         return df
 
     def _generar_telemetria_realista(self, vehiculos, gps):
-        """Un dispositivo por vehículo con GPS y su registro diario de recorrido."""
+        """Un dispositivo por vehículo con GPS y su registro diario de recorrido.
+
+        Genera dos tablas:
+            - telemetria: una fila por dispositivo (estado, batería, odómetro final).
+            - telemetria_diaria: una fila por vehículo y día, con los km recorridos y
+              dónde empezó y terminó el recorrido.
+
+        Recibe:
+            vehiculos: lista de vehículos de la flota.
+            gps: los registros diarios que armó `_simular_vehiculo`.
+        No devuelve nada: guarda ambas tablas en self.datasets.
+        """
         rng = self.rng
         rows = []
         for i, v in enumerate([v for v in vehiculos if v["Matricula"] in self._con_gps], 1):
@@ -1225,13 +1649,30 @@ class GeneradorMaestro:
         logger.info(f"✓ TELEMETRIA generada: {len(rows)} dispositivos, {len(gps)} registros diarios")
 
     def _cargas_facturables(self):
-        """Cargas reales: sin los duplicados, que son un defecto de nuestro registro."""
+        """Cargas reales: sin los duplicados, que son un defecto de nuestro registro.
+
+        Una fila duplicada es un error de nuestra base de datos, no una carga que
+        haya ocurrido. Por eso no debe tener solicitud ni aparecer en la factura
+        del proveedor.
+
+        Devuelve: el DataFrame de consumo sin las filas duplicadas.
+        """
         consumo = self.datasets['consumo']
         duplicadas = {a["id_registro"] for a in self.anomalias if a["tipo_anomalia"] == "DUPLICADO"}
         return consumo[~consumo["id"].isin(duplicadas)]
 
     def _repartir(self, candidatos, roles):
-        """Asigna a cada rol una cantidad de candidatos distintos (según EVENTOS_REALISTA)."""
+        """Asigna a cada rol una cantidad de candidatos distintos (según EVENTOS_REALISTA).
+
+        Mezcla los candidatos al azar y los reparte en orden: los primeros para el
+        primer rol, los siguientes para el segundo, etc. Así ningún candidato recibe
+        dos roles.
+
+        Recibe:
+            candidatos: lista de elementos (ids de cargas, posiciones de líneas...).
+            roles: lista de nombres de rol, en el orden en que se reparten.
+        Devuelve: un diccionario {candidato: rol}.
+        """
         candidatos = list(candidatos)
         self.rng.shuffle(candidatos)
         asignacion, posicion = {}, 0
@@ -1250,6 +1691,13 @@ class GeneradorMaestro:
         encima de lo autorizado, y casos legítimos: regularizaciones posteriores y
         diferencias dentro de la tolerancia de medición. Además hay solicitudes
         rechazadas o pendientes que no terminan en carga.
+
+        En palabras simples: en la realidad, antes de cargar combustible hay que
+        pedir autorización. Esta función genera esos pedidos a partir de las cargas
+        ya simuladas, y en algunos casos rompe el circuito a propósito (cargas sin
+        pedido, con pedido rechazado o que superan lo autorizado).
+
+        Devuelve: el DataFrame de solicitudes.
         """
         logger.info("Generando SOLICITUDES (escenario realista)...")
         rng = self.rng
@@ -1264,7 +1712,11 @@ class GeneradorMaestro:
 
         rows = []
 
+        # Cada carga real genera su solicitud aprobada, salvo las elegidas para un rol:
+        # sin solicitud, con solicitud rechazada, regularizada después, que supera lo
+        # autorizado o que lo supera apenas (tolerancia del surtidor).
         def solicitar(vehiculo, fecha, solicitados, autorizados, estado, observaciones=""):
+            """Agrega una solicitud a la lista (el id se asigna al final, ya ordenadas)."""
             rows.append({
                 "vehiculo_id": vehiculo, "dominio": dominio[vehiculo], "fecha_solicitud": fecha,
                 "litros_solicitados": round(solicitados, 2), "litros_autorizados": round(autorizados, 2),
@@ -1306,6 +1758,8 @@ class GeneradorMaestro:
             solicitar(c.vehiculo_id, previa, solicitados, autorizados, "APROBADA",
                       rng.choice(["OK", "REVISADO", ""]))
 
+        # Solicitudes extra que no terminan en ninguna carga (rechazadas o pendientes),
+        # como ocurre normalmente en cualquier circuito de autorización.
         vehiculos = list(dominio.index)
         for _ in range(round(len(cargas) * TASA_SOLICITUDES_SIN_CARGA)):
             estado = rng.choice(["RECHAZADA", "PENDIENTE"])
@@ -1330,6 +1784,16 @@ class GeneradorMaestro:
         referencia una carga. Se inyectan líneas sin carga real, líneas duplicadas,
         sobreprecios y totales inflados, y casos legítimos: cargas del último día del
         mes facturadas en el período siguiente y facturas con un ajuste documentado.
+
+        En palabras simples: simula las facturas que mandan las estaciones de
+        servicio para cobrar el combustible. Genera dos tablas:
+            - facturacion: una fila por factura (encabezado con los totales).
+            - facturacion_detalle: una fila por cada línea de la factura, que en
+              general corresponde a una carga.
+        Comparar estas líneas contra las cargas registradas es lo que permite
+        detectar cobros indebidos.
+
+        Devuelve: el DataFrame de facturas (encabezados).
         """
         logger.info("Generando FACTURACION (escenario realista)...")
         rng = self.rng
@@ -1337,12 +1801,15 @@ class GeneradorMaestro:
         marca = self.datasets['estaciones'].set_index("codigo")["marca"]
         dominio = self.datasets['flota'].set_index("Matricula")["Dominio"]
         cargas["fecha"] = pd.to_datetime(cargas["fecha"])
+        # El proveedor que factura es la marca de la estación donde se cargó.
         cargas["proveedor"] = cargas["id"].map(self._estacion_real).map(marca)
         cargas = cargas.sort_values(["fecha", "id"])
 
         lineas = []
         for c in cargas.itertuples():
             periodo = c.fecha.to_period("M")
+            # Una línea por carga. Algunas cargas del último día del mes se facturan en
+            # el período siguiente (caso legítimo DESFASE_DE_CORTE).
             desfase = c.fecha.is_month_end and rng.random() < PROB_DESFASE_DE_CORTE
             lineas.append({
                 "periodo": periodo + 1 if desfase else periodo, "proveedor": c.proveedor,
@@ -1415,6 +1882,9 @@ class GeneradorMaestro:
                     "tabla": "facturacion", "id_registro": linea["numero_factura"], "vehiculo_id": None,
                     "tipo_caso": "AJUSTE_DOCUMENTADO", "descripcion": f"{linea['descripcion']}: {linea['importe']}"})
 
+        # Encabezados: una factura por proveedor y mes, con los totales de sus líneas.
+        # Después, en algunas facturas se "infla" el total (anomalía TOTAL_INFLADO), y
+        # recién entonces se calcula el IVA.
         facturas = []
         for grupo in grupos:
             propias = [linea for linea in lineas if (linea["periodo"], linea["proveedor"]) == grupo]
@@ -1446,16 +1916,41 @@ class GeneradorMaestro:
         logger.info(f"✓ FACTURACION generada: {len(facturas)} facturas, {len(lineas)} líneas")
         return self.datasets['facturacion']
 
+    # ========================================================================
+    # Salida: armado de la verdad de referencia y guardado de archivos
+    # ========================================================================
     def construir_ground_truth(self):
-        """Tabla con una fila por anomalía inyectada (un registro puede tener varias)."""
+        """Tabla con una fila por anomalía inyectada (un registro puede tener varias).
+
+        Convierte la lista self.anomalias en una tabla: es el ground truth, la
+        "hoja de respuestas" para evaluar a los detectores.
+
+        Devuelve: un DataFrame con las columnas de COLUMNAS_GROUND_TRUTH.
+        """
         return pd.DataFrame(self.anomalias, columns=COLUMNAS_GROUND_TRUTH)
 
     def construir_casos_legitimos(self):
-        """Casos que se parecen a una anomalía pero no lo son (solo escenario realista)."""
+        """Casos que se parecen a una anomalía pero no lo son (solo escenario realista).
+
+        Sirven para medir falsas alarmas: si un detector marca uno de estos casos
+        como sospechoso, se equivocó.
+
+        Devuelve: un DataFrame con las columnas de COLUMNAS_CASOS_LEGITIMOS.
+        """
         return pd.DataFrame(self.casos_legitimos, columns=COLUMNAS_CASOS_LEGITIMOS)
 
     def guardar_datasets(self):
-        """Guarda todos los datasets en CSV"""
+        """Guarda todos los datasets en CSV
+
+        Escribe en la carpeta de salida (self.output_dir):
+            - un CSV por cada tabla generada;
+            - ground_truth.csv y, en el escenario realista, casos_legitimos.csv;
+            - diccionario.json (qué significa cada columna);
+            - metadata.json (parámetros y resumen de la generación).
+        Si la carpeta no existe, la crea.
+
+        Devuelve: un diccionario {nombre de tabla: ruta del CSV}.
+        """
         logger.info("Guardando datasets...")
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1503,12 +1998,25 @@ class GeneradorMaestro:
         return archivos
 
     def ejecutar(self):
-        """Ejecuta todo el pipeline"""
+        """Ejecuta todo el pipeline
+
+        Es el punto de entrada principal de la clase: llama a todos los pasos en
+        orden según el escenario y al final guarda los archivos. Si algo falla, no
+        interrumpe el programa de golpe: registra el error y lo informa en el
+        resultado.
+
+        Devuelve: un diccionario con "exito" (True o False) y, según el caso, la
+        carpeta de salida, los archivos generados y los metadatos, o el mensaje de
+        error.
+        """
         logger.info("=" * 60)
         logger.info(f"INICIANDO PIPELINE MAESTRO DE GENERACIÓN (escenario {self.escenario})")
         logger.info("=" * 60)
 
         try:
+            # El orden importa: la flota va primero porque todas las demás tablas se
+            # refieren a sus vehículos; la facturación va al final porque se arma a partir
+            # de las cargas.
             if self.escenario == "realista":
                 self.generar_flota_realista()
                 self.generar_estaciones()
@@ -1547,6 +2055,12 @@ class GeneradorMaestro:
             }
 
 
+# ============================================================================
+# Uso desde la línea de comandos
+# ============================================================================
+# Este bloque solo se ejecuta cuando se corre el archivo directamente
+# (python generator_pipeline_maestro.py), no cuando otro módulo lo importa.
+# argparse lee las opciones escritas en la terminal (--n_flota, --seed, etc.).
 if __name__ == "__main__":
     import argparse
 

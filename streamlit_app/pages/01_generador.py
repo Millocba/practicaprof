@@ -1,4 +1,21 @@
-"""Data generation page - Execute Pipeline Maestro from Streamlit."""
+"""Data generation page - Execute Pipeline Maestro from Streamlit.
+
+Página "Generador" (explicación en español):
+
+- Qué muestra: controles para elegir cuántos vehículos tendrá la flota ficticia
+  y la "semilla", un botón para generar un dataset nuevo con esos valores, otro
+  para recargar los datos, y al final el estado de los datos actuales (fecha,
+  semilla, tamaño de cada tabla y una validación de integridad entre tablas).
+- Para qué la usa quien audita: para crear datos de prueba de distinto tamaño o
+  con otra semilla y comprobar que los hallazgos no dependen de un único juego
+  de datos. La semilla hace que la generación sea reproducible: con la misma
+  semilla y los mismos parámetros se obtienen exactamente los mismos datos.
+- Cómo encaja en la app: todas las demás páginas leen los archivos que escribe
+  el generador (generator_pipeline_maestro.py) en la carpeta del escenario
+  elegido. Después de generar, esta página limpia la caché para que las demás
+  páginas lean los archivos nuevos. La lógica de generación no está acá: esta
+  página solo la ejecuta y muestra el resultado.
+"""
 import streamlit as st
 import pandas as pd
 from pathlib import Path
@@ -9,6 +26,7 @@ import subprocess
 from datetime import datetime
 
 # Add utils to path
+# Permite importar los módulos de streamlit_app/utils/ (por ejemplo data_loader).
 utils_path = Path(__file__).parent.parent / "utils"
 sys.path.insert(0, str(utils_path))
 
@@ -30,12 +48,17 @@ st.set_page_config(page_title="Generador", page_icon="⚙️", layout="wide")
 st.markdown("# ⚙️ Generador de Datos - Pipeline Maestro")
 st.markdown("Configura y ejecuta el generador de entidades sintéticas")
 
+# Recordatorio: Streamlit vuelve a ejecutar este archivo completo, de arriba a
+# abajo, cada vez que se toca un control. El escenario elegido en la barra
+# lateral se conserva en st.session_state, así que no se pierde entre ejecuciones.
 escenario = selector_escenario()
 st.caption(f"Escenario: **{NOMBRES_ESCENARIO[escenario]}** (se elige en la barra lateral). "
            "El realista simula el uso día por día e incluye anomalías sutiles y casos legítimos "
            "que se les parecen; el didáctico, anomalías inconfundibles.")
 
 # Paths
+# BASE_DIR es la raíz del repositorio (tres carpetas arriba de este archivo).
+# DATASETS_DIR es la carpeta donde se guardan los CSV del escenario elegido.
 BASE_DIR = Path(__file__).parent.parent.parent
 GENERATOR_SCRIPT = BASE_DIR / "generator_pipeline_maestro.py"
 DATASETS_DIR = directorio(escenario)
@@ -44,14 +67,20 @@ DATASETS_DIR = directorio(escenario)
 if not GENERATOR_SCRIPT.exists():
     st.error(f"❌ Generador no encontrado en: {GENERATOR_SCRIPT}")
     st.info("Por favor, copiar `generator_pipeline_maestro.py` a la raíz del proyecto")
+    # st.stop() corta la ejecución del script acá: no se dibuja nada de lo que
+    # sigue. Se usa cuando falta algo imprescindible y no tiene sentido continuar.
     st.stop()
 
 # Create two columns for configuration
+# st.columns(2) divide la página en dos columnas: a la izquierda los controles,
+# a la derecha una explicación de qué se genera.
 col1, col2 = st.columns(2)
 
 with col1:
     st.markdown("### ⚙️ Configuración")
 
+    # Cada control (widget) devuelve directamente el valor que tiene en este
+    # momento: el slider devuelve el número elegido y el number_input, la semilla.
     n_flota = st.slider(
         "Número de vehículos (Flota)",
         min_value=50,
@@ -90,9 +119,12 @@ with col2:
 st.markdown("---")
 
 # Control buttons
+# Con una lista, st.columns reparte el ancho en proporciones: acá 2, 2 y 1.
 col1, col2, col3 = st.columns([2, 2, 1])
 
 with col1:
+    # st.button devuelve True solo en la ejecución que sigue al clic; en todas
+    # las demás devuelve False. Por eso la generación se hace dentro de un `if`.
     execute_button = st.button(
         "🚀 Ejecutar Generador",
         use_container_width=True,
@@ -110,6 +142,9 @@ with col3:
         help="Recargar datos actuales"
     )
 
+# Refrescar: los datos se guardan en caché (st.cache_data) para no releer los CSV
+# en cada interacción. Si los archivos cambiaron por fuera de la app, hay que
+# vaciar esa caché y volver a ejecutar la página (st.rerun) para ver lo nuevo.
 if refresh_data:
     st.cache_data.clear()
     st.rerun()
@@ -118,11 +153,15 @@ if refresh_data:
 if execute_button:
     st.markdown("### 📤 Ejecutando Generador...")
 
+    # st.container() reserva un lugar en la página para llenarlo más tarde; así el
+    # resultado aparece debajo de la barra de progreso aunque se calcule después.
     progress_container = st.container()
     status_container = st.container()
 
     with progress_container:
         progress_bar = st.progress(0)
+        # st.empty() es un espacio que muestra un solo elemento a la vez: cada
+        # nuevo mensaje de estado reemplaza al anterior en lugar de sumarse.
         status_text = st.empty()
 
     try:
@@ -138,6 +177,12 @@ if execute_button:
         status_text.info(f"⏳ Iniciando: {' '.join(cmd[-6:])}")
 
         # Execute with output capture
+        # El generador se ejecuta en un proceso de Python aparte (subprocess) con
+        # un pequeño programa armado como texto. Así la generación no comparte
+        # memoria con la app y lo que imprime queda capturado en result.stdout.
+        # Al final imprime el resultado en formato JSON para poder leerlo acá.
+        # Las llaves dobles {{ }} son llaves literales dentro del f-string.
+        # timeout=300: si tarda más de 5 minutos, se corta y se avisa.
         result = subprocess.run(
             [sys.executable, "-c", f"""
 import sys
@@ -177,6 +222,8 @@ print(json.dumps(resultado, indent=2, default=str))
         output_lines = result.stdout.strip().split('\n')
 
         # Show progress
+        # Cuando se llega acá el proceso ya terminó: la barra avanza por etapas
+        # como indicación visual, no mide el avance real de la generación.
         progress_bar.progress(50)
         status_text.info("⏳ Generación en progreso...")
 
@@ -184,6 +231,8 @@ print(json.dumps(resultado, indent=2, default=str))
         status_text.info("⏳ Finalizando...")
 
         # Check result
+        # returncode 0 significa que el proceso terminó sin errores; además se
+        # busca la marca "✅" que imprime el programa cuando la generación salió bien.
         if result.returncode == 0 and "✅" in result.stdout:
             progress_bar.progress(100)
 
@@ -196,6 +245,8 @@ print(json.dumps(resultado, indent=2, default=str))
                 # Parse results
                 try:
                     import re
+                    # Busca en la salida el bloque JSON (desde la primera "{" hasta
+                    # la última "}") con los archivos generados y la metadata.
                     json_match = re.search(r'\{[\s\S]*\}', result.stdout)
                     if json_match:
                         resultado = json.loads(json_match.group())
@@ -232,6 +283,7 @@ print(json.dumps(resultado, indent=2, default=str))
             progress_bar.progress(100)
             with status_container:
                 st.error("❌ Error en la ejecución del generador")
+                # Muestra lo que imprimió el proceso para poder diagnosticar el error.
                 st.code(result.stdout if result.stdout else result.stderr, language="bash")
 
     except subprocess.TimeoutExpired:
@@ -241,6 +293,8 @@ print(json.dumps(resultado, indent=2, default=str))
         st.code(str(e))
 
 # Display current datasets status
+# Esta sección se muestra siempre (no solo después de generar): describe los
+# datos que hay ahora en disco para el escenario elegido.
 st.markdown("---")
 st.markdown("### 📋 Estado Actual de Datos")
 
@@ -295,6 +349,10 @@ try:
         )
 
         # Cross-entity validation
+        # Validación de integridad: para cada tabla que apunta a un vehículo, qué
+        # porcentaje de sus filas tiene una patente que existe en la flota. Es la
+        # misma pregunta que se haría sobre datos reales antes de cruzar fuentes:
+        # si las filas no se pueden vincular, los análisis cruzados quedan incompletos.
         st.markdown("### ✅ Validación de Integridad")
 
         flota = load_flota(escenario)
@@ -310,6 +368,7 @@ try:
 
         if not telemetria.empty and not flota.empty:
             tele_count = len(telemetria)
+            # isin marca las filas cuya patente aparece en la lista de dominios de la flota.
             tele_valid = len(telemetria[telemetria['Placa'].isin(flota['Dominio'])])
             pct = f"{100*tele_valid/tele_count:.1f}%" if tele_count > 0 else "N/A"
             validations.append(("📡 Telemetría → Flota", tele_valid, tele_count, pct))

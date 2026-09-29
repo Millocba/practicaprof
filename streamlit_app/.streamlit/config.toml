@@ -1,16 +1,39 @@
+# Configuración de Streamlit, la librería con la que está hecha la app web.
+# Streamlit lee este archivo al iniciar (por eso está en la carpeta .streamlit,
+# junto a la app). El formato es TOML: cada [sección] agrupa opciones de la
+# forma nombre = valor, y lo que va después de "#" es un comentario.
+# Si se cambia algo acá, hay que reiniciar la app para que tome efecto.
+
+# [theme]: colores y tipografía de la app. Los colores se escriben en formato
+# hexadecimal (#RRGGBB: cantidad de rojo, verde y azul).
 [theme]
+# Color principal: botones, controles seleccionados y enlaces (azul).
 primaryColor = "#1f77b4"
+# Fondo de la zona principal de la página (blanco).
 backgroundColor = "#ffffff"
+# Fondo de la barra lateral y de algunos recuadros (gris claro).
 secondaryBackgroundColor = "#f0f2f6"
+# Color del texto (gris muy oscuro).
 textColor = "#31333f"
+# Tipografía: "sans serif" es una letra sin adornos, fácil de leer en pantalla.
 font = "sans serif"
 
+# [client]: cómo se comporta la app en el navegador de quien la usa.
 [client]
+# Si ocurre un error, muestra el detalle en la página (útil en un proyecto
+# académico para entender qué falló).
 showErrorDetails = true
+# Menú de la barra superior en modo "viewer": muestra solo las opciones para
+# quien mira la app, sin las herramientas de desarrollo.
 toolbarMode = "viewer"
 
+# [logger]: mensajes que Streamlit escribe en la terminal mientras corre.
 [logger]
+# Nivel "info": mensajes informativos, advertencias y errores (sin el detalle
+# técnico del nivel "debug").
 level = "info"
 
+# [browser]: opciones relacionadas con el navegador.
 [browser]
+# No enviar estadísticas de uso de la app a los desarrolladores de Streamlit.
 gatherUsageStats = false

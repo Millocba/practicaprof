@@ -9,6 +9,32 @@ las reglas.
 El umbral no se ajusta con la tasa real de anomalías (eso filtraría el ground
 truth): se usa `contamination="auto"` y además se informa la precisión promedio,
 que no depende de ningún umbral.
+
+Para qué sirve este archivo
+---------------------------
+Las reglas de `reglas.py` las escribe una persona ("si pasa X, alertar"). Acá se
+prueba otra estrategia: el aprendizaje automático (ML), donde un algoritmo encuentra
+por sí solo qué registros son "raros". Este módulo:
+1. convierte cada carga de combustible en una fila de números ("variables" o
+   características) que describen qué tan rara es (`construir_variables`),
+2. entrena un Isolation Forest con esas variables (`entrenar_isolation_forest`),
+3. compara sus resultados con los de las reglas (`comparar_con_reglas`).
+Las variables también las reutiliza `priorizacion.py` para su modelo supervisado.
+
+Qué es un modelo no supervisado y qué es Isolation Forest
+---------------------------------------------------------
+- "No supervisado" significa que el modelo aprende sin que nadie le diga cuáles
+  registros son anomalías: solo ve los datos y busca los que se diferencian del resto.
+  (Un modelo "supervisado", en cambio, aprende de ejemplos ya etiquetados como
+  anómalo o normal; ver `priorizacion.py`.)
+- Isolation Forest ("bosque de aislamiento") construye muchos árboles que parten
+  los datos al azar, una y otra vez, hasta dejar cada registro solo. Un registro
+  raro queda aislado con pocos cortes, porque está lejos de los demás; uno común
+  necesita muchos cortes. Cuanto menos cortes hacen falta en promedio, más anómalo
+  se lo considera. Su resultado es un puntaje de rareza, no una explicación.
+- "Umbral" es el punto de corte del puntaje a partir del cual se marca "anómalo".
+  La "precisión promedio" (average precision) mide qué tan bien ordena el puntaje
+  a las anomalías arriba de todo, sin tener que elegir un umbral.
 """
 import pandas as pd
 from sklearn.ensemble import IsolationForest
@@ -25,6 +51,8 @@ from deteccion.reglas import (
     secuencia_odometro,
 )
 
+# Tipos de anomalía sobre los que se compara el modelo y las reglas equivalentes
+# que los detectan (para que la comparación sea justa: mismo problema, dos métodos).
 TIPOS_COMPORTAMIENTO = ["EXCESO_VOLUMETRICO", "ODOMETRO_REGRESIVO", "ODOMETRO_SALTO"]
 REGLAS_COMPORTAMIENTO = ["litros_mayor_a_tanque", "odometro_disminuye", "salto_historial_vehiculo"]
 
@@ -32,6 +60,10 @@ REGLAS_COMPORTAMIENTO = ["litros_mayor_a_tanque", "odometro_disminuye", "salto_h
 # no son problemas de detección de outliers)
 HIPOTESIS_COMPORTAMIENTO = {"H2", "H3a", "H4", "H5", "H6", "H7", "H8"}
 
+# Variables (columnas numéricas) que describen cada carga, con su significado.
+# Un modelo de ML no entiende "cargó mucho": necesita números como "cargó 1,3
+# veces su tanque". Elegir y calcular estas variables se llama "ingeniería de
+# características" y suele ser lo que más influye en el resultado.
 VARIABLES = {
     "ratio_litros_tanque": "litros cargados / capacidad del tanque",
     "km": "cambio de odómetro desde la carga anterior válida",
@@ -61,8 +93,14 @@ def construir_variables(flota, consumo, estaciones=None, telemetria_diaria=None,
     vacío o duplicado) reciben 0 en las variables de odómetro: no hay cambio
     que evaluar. Si la flota trae fecha de estado (escenario realista) se agregan
     las variables de contexto; las de estaciones y GPS, si se pasan esas fuentes.
+
+    Recibe: la flota, las cargas y, opcionalmente, estaciones, GPS diario y solicitudes.
+    Devuelve: una tabla con una fila por carga (indexada por su id) y una columna por
+    cada variable de VARIABLES y, si hay datos, de VARIABLES_CONTEXTO. Todo es
+    numérico para que el modelo pueda usarlo. Nunca usa el ground truth.
     """
     capacidad = consumo["vehiculo_id"].map(flota.set_index("Matricula")["CapacidadTanque"])
+    # Se descartan los duplicados para que una carga repetida no se compare consigo misma
     duplicados = detectar_duplicados(consumo)["id_registro"]
     seq = secuencia_odometro(consumo, excluir_ids=duplicados).set_index("id")
 
@@ -70,9 +108,13 @@ def construir_variables(flota, consumo, estaciones=None, telemetria_diaria=None,
     variables["ratio_litros_tanque"] = (consumo["litros"] / capacidad).values
     variables["km"] = seq["km"].reindex(variables.index).fillna(0)
     variables["exceso_km"] = (seq["km"] - seq["km_esperados"]).reindex(variables.index).fillna(0)
+    # Sin fecha de estado en la flota es el escenario didáctico: alcanzan las tres
+    # variables básicas.
     if "FechaEstado" not in flota.columns:
         return variables
 
+    # Mediana: el valor del medio al ordenar. Se prefiere al promedio porque unas pocas
+    # cargas anómalas enormes casi no la mueven (es "robusta").
     habitual = consumo.groupby("vehiculo_id")["litros"].transform("median")
     variables["litros_vs_habitual"] = (consumo["litros"] / habitual).values
     variables["retroceso_km"] = (-variables["km"]).clip(lower=0)
@@ -80,6 +122,9 @@ def construir_variables(flota, consumo, estaciones=None, telemetria_diaria=None,
     dias = cargas_por_dia(consumo, flota, excluir_ids=duplicados, gps_diario=telemetria_diaria)
     dias["rendimiento_relativo"] = dias["rendimiento_gps_relativo"].fillna(dias["rendimiento_odometro_relativo"])
     dias["tanques_en_el_dia"] = dias["litros"] / dias["capacidad"]
+    # Los valores se calcularon por vehículo y día; acá se reparten a cada carga de ese día.
+    # Los faltantes se completan con un valor "neutro" (1 = igual a lo habitual) y los
+    # extremos se recortan a 5 para que un caso desmedido no domine al modelo.
     por_id = (dias.explode("ids").drop_duplicates("ids").set_index("ids")
               [["rendimiento_relativo", "cargas", "tanques_en_el_dia"]])
     variables["rendimiento_relativo"] = por_id["rendimiento_relativo"].reindex(variables.index).fillna(1).clip(upper=5)
@@ -111,16 +156,33 @@ def entrenar_isolation_forest(variables, seed=42):
     """Ajusta el modelo y devuelve (puntaje de anomalía, marca de anómalo) por transacción.
 
     Puntaje más alto = más anómalo.
+
+    Recibe: la tabla de variables de `construir_variables` y una semilla (número que
+    fija el azar interno del modelo, para que dos ejecuciones den lo mismo).
+    Devuelve: dos series indexadas por id de carga: el puntaje de rareza y una marca
+    verdadero/falso de si el modelo la considera anómala.
     """
+    # n_estimators=300: cantidad de árboles del "bosque"; más árboles dan un puntaje
+    # más estable. contamination="auto": el modelo decide el corte sin que le digamos
+    # qué proporción de anomalías esperar.
     modelo = IsolationForest(n_estimators=300, contamination="auto", random_state=seed)
+    # fit = "entrenar": el modelo estudia los datos
     modelo.fit(variables)
+    # score_samples da valores más bajos a lo más raro; se invierte el signo para que
+    # "más alto = más anómalo". predict devuelve -1 para anómalo y 1 para normal.
     puntaje = pd.Series(-modelo.score_samples(variables), index=variables.index, name="puntaje")
     anomalo = pd.Series(modelo.predict(variables) == -1, index=variables.index, name="anomalo")
     return puntaje, anomalo
 
 
 def ids_con_anomalia_de_comportamiento(ground_truth):
-    """Transacciones con alguna anomalía de comportamiento (no de calidad ni de vinculación)."""
+    """Transacciones con alguna anomalía de comportamiento (no de calidad ni de vinculación).
+
+    Recibe el ground truth y devuelve el conjunto de ids de carga que tienen una
+    anomalía de alguna hipótesis de HIPOTESIS_COMPORTAMIENTO. Es la "respuesta
+    correcta" contra la que se califica al modelo y, en `priorizacion.py`, la
+    etiqueta con la que aprende el modelo supervisado (de otros datasets).
+    """
     return set(ground_truth.loc[ground_truth["hipotesis"].isin(HIPOTESIS_COMPORTAMIENTO), "id_registro"])
 
 
@@ -131,6 +193,9 @@ def comparar_con_reglas(flota, consumo, ground_truth, seed=42):
     - comparacion: una fila por método con precision, recall, F1 y precisión promedio
     - por_tipo: recall de cada método en cada tipo de anomalía
     - resultados: puntaje y marcas de cada transacción (sin la etiqueta real)
+
+    Recibe: la flota, las cargas, el ground truth y la semilla del modelo.
+    Se usa en la aplicación para mostrar si el ML aporta algo frente a las reglas.
     """
     variables = construir_variables(flota, consumo)
     puntaje, anomalo_if = entrenar_isolation_forest(variables, seed=seed)
@@ -139,6 +204,7 @@ def comparar_con_reglas(flota, consumo, ground_truth, seed=42):
     alertados_reglas = set(alertas.loc[alertas["regla"].isin(REGLAS_COMPORTAMIENTO), "id_registro"])
     alertados_if = set(anomalo_if[anomalo_if].index)
 
+    # Solo a partir de acá se usa el ground truth: para calificar, no para detectar
     reales = ids_con_anomalia_de_comportamiento(ground_truth)
     universo = list(variables.index)
     etiqueta = pd.Series([i in reales for i in universo], index=universo)
@@ -147,6 +213,8 @@ def comparar_con_reglas(flota, consumo, ground_truth, seed=42):
     comparacion = pd.DataFrame([
         {"metodo": nombre, **evaluar_binario(ids, reales, universo)} for nombre, ids in metodos.items()
     ])
+    # Las reglas solo dicen sí/no (1 o 0), así que su precisión promedio equivale a la
+    # de un único corte; el Isolation Forest usa su puntaje continuo.
     comparacion["precision_promedio"] = [
         average_precision_score(etiqueta, etiqueta.index.isin(list(alertados_reglas)).astype(float)),
         average_precision_score(etiqueta, puntaje.loc[universo]),

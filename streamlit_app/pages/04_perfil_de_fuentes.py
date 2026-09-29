@@ -6,6 +6,26 @@
 - Perfiles guardados: los aprobados se versionan en perfiles/aprobados/.
 
 Los archivos se procesan en memoria y nunca se escriben. Solo se guarda el perfil agregado.
+
+Explicación para quien recién empieza:
+
+- Qué muestra: tres vistas que se eligen arriba de todo.
+  1. Generar un perfil: se suben archivos CSV o Excel de una fuente y la página
+     muestra un "perfil": un resumen de su estructura y calidad (tablas,
+     columnas, tipos de dato, formatos, porcentaje de faltantes, relaciones)
+     hecho solo con cifras agregadas, nunca con filas ni valores individuales.
+  2. Comparar con el generador: pone un perfil al lado del perfil de los datos
+     sintéticos y lista las "brechas", es decir, lo que la fuente tiene y el
+     generador todavía no imita (una tabla, una columna, un formato, etc.).
+  3. Perfiles guardados: lista los perfiles aprobados y permite revisar y
+     aprobar los pendientes.
+- Para qué la usa quien audita: para saber qué tan parecidos son los datos
+  sintéticos a los de una fuente de datos operativos sin copiar esos datos, y
+  así decidir qué mejorar en el generador. La revisión y aprobación deja
+  registro de quién verificó que el perfil no contiene información sensible.
+- Cómo encaja en la app: usa el paquete perfilador/ (fuera de la app) para
+  calcular perfiles y brechas; perfila los datos sintéticos del escenario
+  elegido con el mismo método, para que la comparación sea justa.
 """
 import json
 import os
@@ -16,6 +36,8 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+# Se agregan utils/ y la raíz del repositorio a los lugares donde Python busca
+# módulos, para poder importar data_loader y el paquete perfilador.
 APP_DIR = Path(__file__).parent.parent
 RAIZ = APP_DIR.parent
 sys.path.insert(0, str(APP_DIR / "utils"))
@@ -30,6 +52,11 @@ from perfilador.comparar import (  # noqa: E402
 )
 from perfilador.perfil import MINIMO_GRUPO, OTRA, aprobar_archivo, leer_tablas, perfilar  # noqa: E402
 
+# Carpetas del circuito de revisión: un perfil nuevo se guarda primero en
+# "pendientes" (no se sube al repositorio) y, cuando una persona lo revisa y
+# aprueba, pasa a "aprobados" (sí se versiona con git).
+# NO_MODELADA es la opción para indicar que una tabla de la fuente no tiene
+# equivalente en los datos sintéticos.
 PENDIENTES = RAIZ / "perfiles" / "pendientes"
 APROBADOS = RAIZ / "perfiles" / "aprobados"
 NO_MODELADA = "— no modelada —"
@@ -43,11 +70,20 @@ st.markdown(
     f"Sigue `docs/REAL_DATA_BOUNDARY.md`: sin filas, sin valores sueltos, sin grupos de menos de {MINIMO_GRUPO} casos, "
     "y las columnas sensibles (identificadores, personas, patentes, ubicaciones, organizaciones, texto libre) solo por su formato."
 )
+# Escenario elegido en la barra lateral; se recuerda en st.session_state, la
+# "memoria" que Streamlit conserva mientras el script se re-ejecuta en cada clic.
 escenario = selector_escenario()
 
 
 def es_local():
-    """True si la app corre en esta máquina: solo así se permite subir archivos para perfilar."""
+    """True si la app corre en esta máquina: solo así se permite subir archivos para perfilar.
+
+    Mira la dirección con la que se abrió la página: si es localhost o
+    127.0.0.1, la app corre en la misma computadora y los archivos no salen de
+    ella. La variable de entorno PERFILADOR_PERMITIR_ARCHIVOS=1 fuerza el permiso
+    (por ejemplo, para las pruebas automáticas). Si no se puede leer la
+    dirección, por precaución se considera que no es local.
+    """
     if os.environ.get("PERFILADOR_PERMITIR_ARCHIVOS") == "1":
         return True
     try:
@@ -58,6 +94,13 @@ def es_local():
 
 
 def tabla_de_columnas(tabla):
+    """Arma una tabla para mostrar en pantalla, con una fila por columna de la tabla perfilada.
+
+    Recibe el perfil de una tabla y resume cada columna: tipo, si es sensible,
+    porcentaje de faltantes, cantidad de valores distintos, los formatos más
+    frecuentes (hasta 3), las categorías más frecuentes (hasta 4) y la mediana
+    si es numérica. Todo son porcentajes o cifras agregadas, no valores sueltos.
+    """
     filas = []
     for c in tabla["perfil_columnas"]:
         formatos = ", ".join(f"{f['formato']} ({f['pct']}%)" for f in c.get("formatos", [])[:3] if f["formato"] != OTRA)
@@ -70,7 +113,12 @@ def tabla_de_columnas(tabla):
 
 
 def resumen_seguro(perfil):
-    """Faltantes promedio y cantidad de columnas por tipo: solo agregados del perfil, nunca valores."""
+    """Faltantes promedio y cantidad de columnas por tipo: solo agregados del perfil, nunca valores.
+
+    Devuelve dos cosas: el porcentaje promedio de faltantes entre todas las
+    columnas de todas las tablas (o None si no hay dato) y un conteo de cuántas
+    columnas hay de cada tipo (texto, número, fecha, etc.).
+    """
     columnas = [c for t in perfil["tablas"].values() for c in t["perfil_columnas"]]
     faltantes = [c["faltantes_pct"] for c in columnas if c.get("faltantes_pct") is not None]
     tipos = pd.Series([c.get("tipo", "error") for c in columnas]).value_counts()
@@ -78,6 +126,7 @@ def resumen_seguro(perfil):
 
 
 def mostrar_resumen_seguro(perfil):
+    """Muestra en pantalla el resumen de resumen_seguro(): faltantes promedio y tipos detectados."""
     faltantes, tipos = resumen_seguro(perfil)
     col1, col2 = st.columns([1, 3])
     col1.metric("Faltantes promedio por columna", f"{faltantes}%" if faltantes is not None else "—")
@@ -85,6 +134,13 @@ def mostrar_resumen_seguro(perfil):
 
 
 def mostrar_perfil(perfil):
+    """Muestra un perfil completo en pantalla.
+
+    Arriba, cuatro cifras (tablas, columnas, columnas sensibles y relaciones).
+    Después, una sección plegable por tabla con sus columnas y las columnas que
+    podrían servir como clave. Al final, si las hay, las relaciones detectadas
+    entre tablas con su porcentaje de coincidencia.
+    """
     tablas = perfil["tablas"]
     sensibles = sum(1 for t in tablas.values() for c in t["perfil_columnas"] if c.get("sensible"))
     col1, col2, col3, col4 = st.columns(4)
@@ -93,6 +149,8 @@ def mostrar_perfil(perfil):
     col3.metric("Columnas sensibles (solo formato)", sensibles)
     col4.metric("Relaciones detectadas", len(perfil["relaciones"]))
     for nombre, tabla in tablas.items():
+        # st.expander: sección plegable, cerrada por defecto, para no llenar la
+        # pantalla cuando la fuente tiene muchas tablas.
         with st.expander(f"📄 {nombre} — {tabla['filas']} filas, {tabla['columnas']} columnas, "
                          f"{tabla.get('filas_duplicadas_pct') or 0}% filas duplicadas"):
             if tabla["columnas_candidatas_a_clave"]:
@@ -106,20 +164,40 @@ def mostrar_perfil(perfil):
 
 
 def perfiles_en(carpeta):
+    """Lista los perfiles (.json) de una carpeta, del más nuevo al más viejo por nombre.
+
+    Si la carpeta no existe todavía, devuelve una lista vacía.
+    """
     return sorted(carpeta.glob("*.json"), reverse=True) if carpeta.exists() else []
 
 
+# @st.cache_data guarda el resultado de la función: la primera vez la ejecuta
+# (mostrando el mensaje de espera) y las siguientes, con los mismos argumentos,
+# devuelve lo guardado sin recalcular. Perfilar los datos sintéticos tarda, y sin
+# caché se repetiría en cada clic, porque el script se re-ejecuta entero.
 @st.cache_data(show_spinner="Perfilando los datos sintéticos con el mismo perfilador...")
 def perfil_sintetico(escenario, _marca):
+    """Perfila los datos sintéticos del escenario con el mismo perfilador que la fuente.
+
+    Así los dos perfiles se calculan igual y la comparación es justa. `_marca` es
+    la fecha de modificación de metadata.json. Ojo: Streamlit no tiene en cuenta
+    los parámetros que empiezan con guion bajo para decidir si reutiliza la
+    caché, así que `_marca` no fuerza un recálculo por sí sola; el perfil se
+    renueva cuando se vacía la caché (por ejemplo, al generar desde el Generador).
+    """
     return perfil_de_directorio(directorio(escenario), origen=f"sintético ({NOMBRES_ESCENARIO[escenario].lower()})")
 
 
+# Selector de vista: según la opción elegida se ejecuta solo uno de los tres
+# bloques de abajo (if / elif / else). label_visibility="collapsed" oculta el título.
 VISTAS = ["1️⃣ Generar un perfil", "2️⃣ Comparar con el generador", "📁 Perfiles guardados"]
 vista = st.radio("Vista", VISTAS, horizontal=True, key="vista_perfil", label_visibility="collapsed")
 st.markdown("---")
 
 # ---------------------------------------------------------------- Generar
 if vista == VISTAS[0]:
+    # Por seguridad, en la app publicada en internet no se pueden subir archivos:
+    # se explica cómo generar el perfil en la propia computadora.
     if not es_local():
         st.warning(
             "🔒 **Subir archivos está deshabilitado en la app publicada.** En un despliegue en la nube los archivos "
@@ -133,8 +211,15 @@ if vista == VISTAS[0]:
                 "que tenés que revisar antes de aprobarlo.")
         origen = st.text_input("Nombre de la fuente (para identificar el perfil)", value="fuentes reales",
                                key="origen_fuente")
+        # st.file_uploader muestra una zona para arrastrar o elegir archivos y
+        # devuelve una lista de archivos en memoria (vacía si no se subió nada).
+        # No se guardan en disco.
         archivos = st.file_uploader("Archivos de la fuente (CSV o Excel)", type=["csv", "xlsx", "xls", "xlsm"],
                                     accept_multiple_files=True, key="archivos_fuente")
+        # Como el script se re-ejecuta en cada clic, sin cuidado se volvería a
+        # perfilar todo cada vez. La "firma" (nombre de la fuente + nombre y tamaño
+        # de cada archivo) se guarda en st.session_state: solo se perfila de nuevo
+        # si la firma cambió, y el perfil ya calculado queda guardado ahí también.
         firma = (origen, tuple((a.name, a.size) for a in archivos)) if archivos else None
         if firma and firma != st.session_state.get("firma_perfilada"):
             tablas = {}
@@ -150,6 +235,8 @@ if vista == VISTAS[0]:
             mostrar_perfil(perfil)
             texto = json.dumps(perfil, indent=2, ensure_ascii=False)
             nombre_archivo = f"perfil_{date.today().isoformat()}.json"
+            # Dos formas de conservar el perfil: descargarlo o guardarlo en
+            # perfiles/pendientes/ para revisarlo después.
             col1, col2 = st.columns(2)
             col1.download_button("⬇️ Descargar el perfil (JSON)", texto, file_name=nombre_archivo,
                                  mime="application/json", use_container_width=True, key="descargar_perfil")
@@ -164,6 +251,9 @@ if vista == VISTAS[0]:
             col1, col2 = st.columns(2)
             revisor = col1.text_input("Nombre del revisor", key="revisor_generado")
             notas = col2.text_input("Notas (opcional)", key="notas_generado")
+            # El botón queda deshabilitado hasta que se escribe quién revisa: la
+            # aprobación siempre tiene un responsable. Si el perfil no estaba
+            # guardado como pendiente, se guarda primero y después se aprueba.
             if st.button("✅ Aprobar y mover a perfiles/aprobados/", disabled=not revisor, key="aprobar_generado"):
                 pendiente = PENDIENTES / nombre_archivo
                 if not pendiente.exists():
@@ -175,6 +265,9 @@ if vista == VISTAS[0]:
 # ---------------------------------------------------------------- Comparar
 elif vista == VISTAS[1]:
     asegurar_datos_maestro(escenario)
+    # Perfiles disponibles para comparar: los aprobados siempre; los pendientes
+    # solo en la máquina local; el recién generado si está en st.session_state;
+    # y, como última opción, subir un .json.
     opciones = {f"Aprobado · {p.name}": p for p in perfiles_en(APROBADOS)}
     if es_local():
         opciones.update({f"Pendiente · {p.name}": p for p in perfiles_en(PENDIENTES)})
@@ -194,6 +287,8 @@ elif vista == VISTAS[1]:
     elif eleccion:
         perfil_real = json.loads(opciones[eleccion].read_text(encoding="utf-8"))
 
+    # Si todavía no hay perfil, o el archivo subido no tiene la forma de un perfil,
+    # se avisa y st.stop() corta la página hasta que se elija uno válido.
     if not perfil_real:
         st.info("Elegí o subí un perfil para compararlo con los datos sintéticos del escenario "
                 f"**{NOMBRES_ESCENARIO[escenario]}**.")
@@ -207,8 +302,14 @@ elif vista == VISTAS[1]:
     else:
         st.caption(f"Aprobado por {revision.get('responsable')} el {revision.get('fecha')}.")
 
+    # Fecha de modificación de metadata.json (0 si no existe), usada como marca
+    # de la versión de los datos sintéticos; ver el docstring de perfil_sintetico.
     marca = (directorio(escenario) / "metadata.json").stat().st_mtime if (directorio(escenario) / "metadata.json").exists() else 0
     sintetico = perfil_sintetico(escenario, marca)
+    # Emparejamiento: qué tabla sintética equivale a cada tabla de la fuente. Se
+    # propone uno automático y se muestra un selector por tabla (en tres columnas)
+    # para corregirlo. La key de cada selector lleva el nombre de la tabla para
+    # que cada uno recuerde su propia elección.
     sugerido = sugerir_emparejamiento(perfil_real, sintetico)
     st.markdown("### Qué tabla sintética corresponde a cada tabla de la fuente")
     st.caption("Sugerido por los nombres de columna en común; se puede corregir.")
@@ -221,6 +322,9 @@ elif vista == VISTAS[1]:
             elegido = st.selectbox(tabla_real, opciones_sint, index=opciones_sint.index(valor), key=f"par_{tabla_real}")
             emparejamiento[tabla_real] = None if elegido == NO_MODELADA else elegido
 
+    # Brechas: diferencias entre la fuente y los datos sintéticos, clasificadas por
+    # severidad (alta, media, baja). Por defecto se ocultan las bajas. Se pueden
+    # descargar como informe legible (.md) o como tabla (.csv).
     brechas = comparar(perfil_real, sintetico, emparejamiento)
     st.markdown("### Brechas")
     conteo = brechas["severidad"].value_counts()
@@ -236,6 +340,8 @@ elif vista == VISTAS[1]:
                          use_container_width=True, key="descargar_informe")
     col2.download_button("⬇️ Brechas (.csv)", brechas.to_csv(index=False), file_name="brechas.csv", mime="text/csv",
                          use_container_width=True, key="descargar_brechas")
+    # Solo en la máquina local y si el perfil vino de una carpeta: el informe se
+    # guarda al lado, con el mismo nombre terminado en _brechas.md.
     if es_local() and eleccion.startswith(("Aprobado", "Pendiente")):
         destino = opciones[eleccion].with_name(opciones[eleccion].stem + "_brechas.md")
         if st.button(f"💾 Guardar el informe junto al perfil ({destino.name})", key="guardar_informe"):
@@ -246,6 +352,8 @@ elif vista == VISTAS[1]:
         mostrar_perfil(perfil_real)
 
 # ---------------------------------------------------------------- Guardados
+# Registro de perfiles: los aprobados (quién y cuándo los aprobó) y, en la máquina
+# local, los pendientes con la opción de revisarlos y aprobarlos.
 else:
     st.markdown("### Aprobados (se versionan en `perfiles/aprobados/`)")
     aprobados = perfiles_en(APROBADOS)

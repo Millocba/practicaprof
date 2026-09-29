@@ -1,10 +1,48 @@
-"""Modelo de ML: qué revisar primero (escenario realista) o Isolation Forest vs. reglas (didáctico)."""
+"""Modelo de ML: qué revisar primero (escenario realista) o Isolation Forest vs. reglas (didáctico).
+
+Qué muestra esta página
+-----------------------
+Muestra cosas distintas según el escenario elegido en la barra lateral:
+
+- Escenario realista: responde "¿qué reviso primero?". Un equipo de auditoría tiene tiempo para
+  revisar una cantidad limitada de cargas (el "presupuesto de revisión"). La página compara cinco
+  maneras de ordenar las cargas de más a menos sospechosa (priorización) y muestra cuántas
+  anomalías encuentra cada una dentro de ese presupuesto, la cola de revisión con el motivo de cada
+  caso (descargable), los vehículos y las facturas que conviene auditar, y qué variables mira el
+  modelo supervisado.
+- Escenario didáctico: compara un modelo Isolation Forest con las reglas, para explicar cómo
+  funciona un modelo no supervisado y cuáles son sus límites.
+
+Conceptos de aprendizaje automático (ML) que aparecen
+-----------------------------------------------------
+- Modelo no supervisado (Isolation Forest): no recibe ejemplos de qué es una anomalía. Aprende qué
+  es "habitual" en los datos y le da un puntaje más alto a lo que se aparta. Encuentra lo raro, que
+  no siempre es lo sospechoso.
+- Modelo supervisado (Random Forest): aprende de ejemplos ya etiquetados ("esto era anomalía",
+  "esto no"). Acá se entrena con datasets generados con otras semillas, como si fueran auditorías
+  anteriores ya resueltas, y se aplica al período actual.
+- Priorización: en lugar de "marca / no marca", cada método produce un orden. Se evalúa cuántas
+  anomalías aparecen entre las primeras N cargas revisadas.
+
+Para qué la usa quien audita
+----------------------------
+Para planificar el trabajo: con un tiempo de revisión limitado, qué método conviene seguir y qué
+casos concretos mirar primero, sabiendo por qué está cada uno en la lista.
+
+Cómo encaja en la app
+---------------------
+Usa los mismos datos y reglas que las páginas Detección e Hipótesis, y agrega los modelos de ML.
+La lógica de cálculo vive en `deteccion/modelo.py` y `deteccion/priorizacion.py`; esta página solo
+llama a esas funciones y dibuja los resultados.
+"""
 import sys
 from pathlib import Path
 
 import plotly.express as px
 import streamlit as st
 
+# Se agregan a la ruta de búsqueda de Python la carpeta `utils` de la app y la raíz del repositorio,
+# para poder importar `data_loader` (carga de datos) y el paquete `deteccion` (modelos y priorización).
 APP_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(APP_DIR / "utils"))
 sys.path.insert(0, str(APP_DIR.parent))
@@ -25,6 +63,11 @@ from deteccion import priorizacion  # noqa: E402
 
 st.set_page_config(page_title="Modelo de ML", page_icon="🤖", layout="wide")
 
+# Recordatorio de Streamlit: el archivo entero se vuelve a ejecutar de arriba a abajo cada vez que la
+# persona toca un control (por ejemplo, el deslizador del presupuesto). Por eso los cálculos lentos,
+# como entrenar el modelo, se guardan en caché más abajo.
+# La "semilla" (seed) es el número con el que se generaron los datos sintéticos: la misma semilla
+# produce siempre los mismos datos, y los modelos la usan para que sus resultados sean repetibles.
 escenario = selector_escenario()
 asegurar_datos_maestro(escenario)
 datos = load_dataset_deteccion(escenario)
@@ -41,6 +84,13 @@ if flota.empty or consumo.empty or ground_truth.empty:
 # ============================================================================
 
 def pagina_didactica():
+    """Dibuja la página del escenario didáctico: Isolation Forest comparado con las reglas.
+
+    Isolation Forest es un modelo no supervisado: separa los datos al azar muchas veces y mide
+    cuántos cortes hacen falta para aislar cada carga. Las cargas que se aíslan con pocos cortes son
+    las más distintas del resto y reciben un puntaje de anomalía más alto. Nunca ve el ground truth;
+    este se usa solo después, para medir cuánto acertó.
+    """
     st.markdown("# 🤖 Isolation Forest vs. reglas")
     st.markdown(
         "Modelo **no supervisado**: aprende qué es habitual sin ver ninguna etiqueta y marca "
@@ -50,8 +100,15 @@ def pagina_didactica():
     st.info("ℹ️ La vista práctica (cola de revisión, curva de esfuerzo, modelo supervisado) está en el "
             "escenario **Realista**; elegilo en la barra lateral.")
 
+    # `@st.cache_data` guarda el resultado en memoria: el modelo se entrena una vez por dataset y
+    # semilla, no en cada re-ejecución de la página.
     @st.cache_data
     def calcular(flota, consumo, ground_truth, seed):
+        """Entrena Isolation Forest y lo compara con las reglas.
+
+        Devuelve la tabla de comparación (métricas por método), el recall por tipo de anomalía y
+        los resultados por carga (con el puntaje de anomalía de cada una).
+        """
         return comparar_con_reglas(flota, consumo, ground_truth, seed=seed)
 
     comparacion, por_tipo, resultados = calcular(flota, consumo, ground_truth, seed)
@@ -64,6 +121,10 @@ def pagina_didactica():
             "- La **precisión promedio** resume el ranking de puntajes sin depender de ningún umbral."
         )
 
+    # Tabla de comparación. tp = aciertos, fp = falsas alarmas, fn = anomalías que se escaparon.
+    # Precisión: qué parte de lo marcado era cierto. Recall: qué parte de las anomalías reales se
+    # encontró. F1: combina las dos en un número de 0 a 1. Precisión promedio: evalúa el orden de los
+    # puntajes (si las anomalías quedan arriba) sin tener que elegir un punto de corte.
     st.markdown("## Comparación")
     formato = {"precision": "{:.1%}", "recall": "{:.1%}", "f1": "{:.3f}", "precision_promedio": "{:.3f}"}
     st.dataframe(
@@ -81,6 +142,8 @@ def pagina_didactica():
 
     st.markdown("## Distribución del puntaje de anomalía")
     st.caption("La etiqueta real se usa solo para colorear el gráfico; el modelo no la ve.")
+    # Histograma del puntaje: si el modelo funciona bien, las anomalías reales se concentran a la
+    # derecha (puntajes altos) y las cargas normales a la izquierda.
     reales = ids_con_anomalia_de_comportamiento(ground_truth)
     resultados["Etiqueta real"] = resultados["id"].isin(reales).map(
         {True: "Anomalía de comportamiento", False: "Normal"})
@@ -89,6 +152,7 @@ def pagina_didactica():
     fig.update_layout(height=380, yaxis_title="Transacciones")
     st.plotly_chart(fig, use_container_width=True)
 
+    # Recall de Isolation Forest para excesos volumétricos, que se cita en el texto de lectura.
     ratio_exceso = por_tipo.set_index(["tipo_anomalia", "metodo"]).loc[
         ("EXCESO_VOLUMETRICO", "Isolation Forest"), "recall"]
     st.markdown("## Lectura")
@@ -107,21 +171,46 @@ def pagina_didactica():
 # Escenario realista: priorización práctica
 # ============================================================================
 
+# `@st.cache_resource` es parecido a `cache_data`, pero pensado para objetos pesados que se comparten
+# tal cual (como un modelo entrenado) en lugar de copiarse. El modelo se entrena una sola vez por
+# combinación de semillas y queda en memoria mientras la app esté abierta. `show_spinner=False` evita
+# el mensaje automático de "cargando", porque la página muestra uno propio.
 @st.cache_resource(show_spinner=False)
 def modelo_supervisado(semillas):
+    """Entrena el modelo supervisado (Random Forest) con datasets de otras semillas.
+
+    Cada semilla genera un "período anterior" con anomalías ya conocidas, como si fueran auditorías
+    pasadas resueltas. Devuelve el modelo entrenado, la cantidad de cargas usadas para entrenar y
+    cuántas de ellas eran anomalías.
+    """
     variables, etiqueta = priorizacion.datos_de_entrenamiento(list(semillas))
     return priorizacion.entrenar_supervisado(variables, etiqueta), len(variables), int(etiqueta.sum())
 
 
+# Para decidir si puede reutilizar un resultado guardado, `cache_data` compara los argumentos. Un
+# argumento cuyo nombre empieza con guion bajo (`_modelo`) no se compara: el modelo es un objeto que
+# Streamlit no sabe comparar. En su lugar se pasa `clave_modelo` (las semillas de entrenamiento), que
+# identifica qué modelo se está usando.
 @st.cache_data(show_spinner=False)
 def puntuar(_modelo, clave_modelo, flota, consumo, estaciones, telemetria_diaria, solicitudes, facturacion,
             facturacion_detalle, seed):
+    """Calcula, para cada carga del período, un puntaje de sospecha con cada uno de los cinco métodos.
+
+    Devuelve los puntajes, las variables calculadas para cada carga (las que usa el modelo) y las
+    alertas de las reglas, que después sirven para explicar el motivo de cada caso en la cola.
+    """
     dataset = {"flota": flota, "consumo": consumo, "estaciones": estaciones, "telemetria_diaria": telemetria_diaria,
                "solicitudes": solicitudes, "facturacion": facturacion, "facturacion_detalle": facturacion_detalle}
     return priorizacion.puntuar(dataset, _modelo, seed=seed)
 
 
 def pagina_realista():
+    """Dibuja la página del escenario realista: priorización de la revisión.
+
+    Entrena (una sola vez) el modelo supervisado, puntúa las cargas con los cinco métodos y, según el
+    presupuesto de revisión elegido, muestra cuántas anomalías encuentra cada método, la cola de
+    revisión, los vehículos y facturas a auditar y las variables más importantes del modelo.
+    """
     st.markdown("# 🤖 ¿Qué revisar primero?")
     st.markdown(
         "Un equipo de auditoría no revisa cientos de alertas: revisa las **N cargas más sospechosas**. "
@@ -141,6 +230,10 @@ def pagina_realista():
             "del modelo; después el resto."
         )
 
+    # Se eligen tres semillas de entrenamiento distintas de la semilla evaluada: el modelo nunca debe
+    # aprender del mismo período que después se le pide juzgar. Se usa una tupla (no una lista)
+    # porque la caché necesita argumentos que no cambien. `st.spinner` muestra un mensaje de espera
+    # mientras corre el bloque.
     semillas = tuple(s for s in priorizacion.SEMILLAS_ENTRENAMIENTO + [1004] if s != seed)[:3]
     with st.spinner("Entrenando el modelo supervisado con auditorías simuladas anteriores (una sola vez)..."):
         modelo, n_entrenamiento, n_anomalas = modelo_supervisado(semillas)
@@ -154,7 +247,12 @@ def pagina_realista():
     total = len(anomalas)
 
     st.markdown("## ¿Cuántas cargas podés revisar?")
+    # Deslizador de 10 a 300 cargas (50 por defecto). El `key` le da un nombre fijo en
+    # `st.session_state` (la memoria de la sesión), para que el valor elegido se conserve cuando la
+    # página se vuelve a ejecutar. Cada vez que se mueve, toda la página se recalcula con el nuevo valor.
     presupuesto = st.slider("Presupuesto de revisión (cargas)", 10, 300, 50, step=10, key="presupuesto")
+    # Curva de esfuerzo: para cada método y cada cantidad de cargas revisadas (hasta 300), cuántas
+    # anomalías se habrían encontrado. De ahí se toma la fila que corresponde al presupuesto elegido.
     curva = priorizacion.curva_de_esfuerzo(puntajes, ground_truth, legitimos, maximo=300)
     en_presupuesto = curva[curva["revisadas"] == presupuesto].set_index("metodo").loc[priorizacion.METODOS]
 
@@ -167,6 +265,7 @@ def pagina_realista():
                 f"{en_presupuesto.loc[mejor, 'recall']:.0%}")
 
     tabla = en_presupuesto.reset_index()[["metodo", "encontradas", "recall", "precision", "legitimos_revisados"]]
+    # Lo que no es anomalía ni caso legítimo dentro del presupuesto son cargas normales revisadas.
     tabla["normales_revisadas"] = presupuesto - tabla["encontradas"] - tabla["legitimos_revisados"]
     st.dataframe(
         tabla.rename(columns={"metodo": "Método", "encontradas": "Anomalías encontradas",
@@ -181,6 +280,7 @@ def pagina_realista():
     st.caption("Qué fracción de las anomalías se encuentra según cuántas cargas se revisan, en el orden de cada método.")
     fig = px.line(curva, x="revisadas", y="recall", color="metodo",
                   labels={"revisadas": "Cargas revisadas", "recall": "Anomalías encontradas", "metodo": "Método"})
+    # Línea vertical punteada en el presupuesto elegido, para leer la curva en ese punto.
     fig.add_vline(x=presupuesto, line_dash="dash", line_color="gray")
     fig.update_layout(yaxis_tickformat=".0%", height=400)
     st.plotly_chart(fig, use_container_width=True)
@@ -192,6 +292,9 @@ def pagina_realista():
     fig.update_layout(yaxis_tickformat=".0%", height=380)
     st.plotly_chart(fig, use_container_width=True)
 
+    # Cola de revisión: la lista concreta de cargas a revisar, en el orden del método elegido, con los
+    # motivos por los que cada una es sospechosa. `st.columns([2, 1])` crea dos columnas donde la
+    # primera ocupa el doble de ancho que la segunda.
     st.markdown("## 📋 Cola de revisión")
     col1, col2 = st.columns([2, 1])
     with col1:
@@ -202,6 +305,9 @@ def pagina_realista():
                                 help="Simula el resultado de la revisión. En la práctica no se conoce de antemano.")
     cola = priorizacion.cola_de_revision(puntajes, metodo, consumo, variables, alertas,
                                          cantidad=min(presupuesto, 100))
+    # Si se tildó "Mostrar el resultado real", se agrega una columna con lo que era cada carga según el
+    # ground truth: anomalía (con su tipo), caso legítimo (con su tipo) o normal. Con datos reales esto
+    # no se sabría hasta revisar; acá sirve para ver qué tan buena es la cola.
     if verificar:
         caso = legitimos.drop_duplicates("id_registro").set_index("id_registro")["tipo_caso"]
         tipo = ground_truth[ground_truth["id_registro"].isin(anomalas)].groupby("id_registro")["tipo_anomalia"].first()
@@ -214,6 +320,7 @@ def pagina_realista():
 
     st.markdown("## 🚗 Vehículos a auditar")
     st.caption(f"Vehículos con más cargas entre las {presupuesto} más sospechosas según {metodo}.")
+    # Se agregan los datos de cada vehículo (patente, tipo, estado, dirección general) desde la tabla de flota.
     vehiculos = priorizacion.vehiculos_prioritarios(puntajes, metodo, consumo, cantidad_cargas=presupuesto)
     info = flota.set_index("Matricula")[["Dominio", "TipoVehiculo", "Estado", "DireccionGral"]]
     st.dataframe(vehiculos.join(info, on="vehiculo_id").head(20), use_container_width=True, hide_index=True)
@@ -233,12 +340,15 @@ def pagina_realista():
     st.markdown("## 🔍 Qué mira el modelo supervisado")
     st.caption(f"Entrenado con {n_entrenamiento:,} cargas de {len(semillas)} períodos simulados anteriores "
                f"({n_anomalas} anomalías confirmadas).")
+    # Importancia de variables: cuánto pesa cada dato calculado para las cargas en las decisiones del
+    # Random Forest. Se muestran las diez principales; al pasar el mouse se ve su descripción.
     importancia = priorizacion.importancia_de_variables(modelo, variables.columns)
     fig = px.bar(importancia.head(10), x="importancia", y="variable", orientation="h", hover_data=["descripcion"],
                  labels={"importancia": "Importancia", "variable": ""})
     fig.update_layout(yaxis={"categoryorder": "total ascending"}, height=380)
     st.plotly_chart(fig, use_container_width=True)
 
+    # Valores de tres métodos que se citan en el texto de lectura final.
     reglas_i = en_presupuesto.loc["Reglas ingenuas"]
     combinado = en_presupuesto.loc["Combinado"]
     iforest = en_presupuesto.loc["Isolation Forest"]
@@ -261,6 +371,7 @@ def pagina_realista():
     st.caption(f"Semilla evaluada: {seed}. Semillas de entrenamiento: {', '.join(map(str, semillas))}.")
 
 
+# Punto de entrada: según el escenario elegido en la barra lateral se dibuja una página u otra.
 if escenario == "realista":
     pagina_realista()
 else:

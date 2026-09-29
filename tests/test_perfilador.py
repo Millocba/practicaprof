@@ -1,6 +1,22 @@
 """Tests del perfilador: el perfil describe estructura y calidad sin filtrar valores.
 
 Todos los datos se generan en el test (sintéticos).
+
+Qué prueba: el paquete `perfilador/`, que resume una fuente de datos (columnas,
+tipos, formatos, porcentaje de vacíos, cuantiles aproximados, relaciones entre
+tablas) en un "perfil" JSON, y el comparador que contrasta ese perfil con lo
+que produce el generador para encontrar brechas. También prueba la página de
+la app que usa el perfilador y su comando de consola.
+
+Por qué importa: el perfil está pensado para poder compartirse sin exponer
+datos. Por eso la mayoría de los tests verifican que no aparezcan valores
+concretos: patentes, nombres de personas, coordenadas, textos libres,
+categorías con muy pocos casos (que permitirían identificar a alguien) ni los
+valores mínimo y máximo exactos. Si alguno falla, el perfil podría estar
+filtrando información que no debería salir.
+
+Para una explicación general de qué es un test, pytest y un fixture, ver el
+docstring de `test_deteccion.py`.
 """
 import io
 import json
@@ -30,6 +46,10 @@ from perfilador.perfil import (  # noqa: E402
 )
 
 
+# Arma dos tablas sintéticas ("vehiculos" y "cargas") con columnas elegidas a
+# propósito: identificadores, personas, coordenadas, texto libre, un modelo con
+# solo 5 casos y patentes escritas de dos maneras. Usa un generador de números
+# aleatorios con semilla fija (7) para que los datos sean siempre los mismos.
 @pytest.fixture(scope="module")
 def tablas():
     rng = np.random.default_rng(7)
@@ -61,11 +81,16 @@ def perfil(tablas):
     return perfilar(tablas, origen="prueba")
 
 
+# Auxiliar: busca dentro del perfil la descripción de una columna por su nombre.
 def columna(perfil, tabla, nombre):
     return next(c for c in perfil["tablas"][tabla]["perfil_columnas"] if c["nombre"] == nombre)
 
 
 def test_no_filtra_valores_sensibles(perfil, tablas):
+    """El perfil completo no contiene patentes, nombres, textos libres, categorías raras ni coordenadas.
+
+    Si falla, el perfil deja ver valores concretos de la fuente y no se podría compartir.
+    """
     texto = json.dumps(perfil, ensure_ascii=False)
     for valor in ["ZZ000QQ", "zz 001qq", "PERSONA_SINTETICA_0", "texto libre sintético", "MODELO_RARO_UNICO"]:
         assert valor not in texto
@@ -74,6 +99,10 @@ def test_no_filtra_valores_sensibles(perfil, tablas):
 
 
 def test_detecta_columnas_sensibles(perfil):
+    """Clasifica bien las columnas sensibles (vehículo, persona, ubicación, texto libre) y no resume sus valores.
+
+    Si falla, una columna sensible se trataría como común y se publicarían sus categorías o estadísticas.
+    """
     assert columna(perfil, "vehiculos", "Dominio")["sensible"] == "vehiculo"
     assert columna(perfil, "vehiculos", "Chofer")["sensible"] == "persona"
     assert columna(perfil, "vehiculos", "Latitud")["sensible"] == "ubicacion"
@@ -84,6 +113,10 @@ def test_detecta_columnas_sensibles(perfil):
 
 
 def test_formatos_y_tipos(perfil):
+    """Reconoce formatos (A = letra, 9 = dígito) y tipos, y no publica mínimo ni máximo exactos.
+
+    Si falla, los tipos o formatos se describen mal, o se filtran los valores extremos.
+    """
     assert columna(perfil, "vehiculos", "Dominio")["formatos"][0]["formato"] == "AA999AA"
     assert columna(perfil, "cargas", "Fecha")["tipo"] == "fecha como texto"
     odometro = columna(perfil, "vehiculos", "Odometro")
@@ -94,6 +127,10 @@ def test_formatos_y_tipos(perfil):
 
 
 def test_grupos_chicos_se_suprimen(perfil):
+    """Las categorías con muy pocos casos se agrupan como "otra"; las frecuentes se muestran.
+
+    Si falla, un valor raro (que identificaría a pocos registros) aparecería en el perfil.
+    """
     categorias = columna(perfil, "vehiculos", "Modelo")["categorias"]
     assert all(c["valor"] in {"MODELO_COMUN", OTRA} for c in categorias)
     marcas = {c["valor"] for c in columna(perfil, "vehiculos", "Marca")["categorias"]}
@@ -101,6 +138,12 @@ def test_grupos_chicos_se_suprimen(perfil):
 
 
 def test_organizacion_geografia_y_codigos_son_sensibles():
+    """Detecta como sensibles las columnas de dependencia, contrato, geografía, personas y códigos.
+
+    También verifica que un precio no se marque como sensible y que los formatos
+    largos se resuman por su largo. Si falla, se publicarían nombres de áreas,
+    lugares o códigos identificatorios.
+    """
     n = 200
     df = pd.DataFrame({
         "Dependencia": [f"U.O.S. {i % 3} - AREA SINTETICA NUMERO {i % 3}" for i in range(n)],
@@ -131,6 +174,10 @@ def test_organizacion_geografia_y_codigos_son_sensibles():
 
 
 def test_resumir_formatos_largos_suma_por_banda():
+    """Los formatos largos se agrupan por banda de longitud sumando sus porcentajes; los cortos quedan igual.
+
+    Si falla, los textos largos se publicarían tal cual o los porcentajes no sumarían bien.
+    """
     formatos = [{"formato": "A" * 25, "pct": 30.0}, {"formato": "A" * 30, "pct": 20.0},
                 {"formato": "A" * 45, "pct": 10.0}, {"formato": "AA999AA", "pct": 35.0}, {"formato": OTRA, "pct": 5.0}]
     assert resumir_formatos_largos(formatos) == [
@@ -139,6 +186,10 @@ def test_resumir_formatos_largos_suma_por_banda():
 
 
 def test_cuantiles_redondeados():
+    """Los números del perfil se redondean a dos cifras significativas.
+
+    Si falla, se publicarían valores exactos que podrían reconocer un registro puntual.
+    """
     assert dos_cifras(123456) == 120000
     assert dos_cifras(0.0347) == 0.035
     c = perfilar_columna("Importe", pd.Series(np.arange(1000, 1100)))
@@ -146,6 +197,10 @@ def test_cuantiles_redondeados():
 
 
 def test_cuantiles_de_las_colas_se_suprimen_con_pocos_datos():
+    """Con pocos datos no se publican los cuantiles extremos (p05, p95); con suficientes sí, sin tocar los extremos.
+
+    Si falla, los cuantiles de las colas revelarían valores casi individuales.
+    """
     # 100 valores: p05 y p95 dejarían 5 observaciones afuera y quedarían pegados a los extremos
     chica = perfilar_columna("Importe", pd.Series(np.arange(100)))["numerico"]
     assert chica["p05"] is None and chica["p95"] is None
@@ -157,6 +212,12 @@ def test_cuantiles_de_las_colas_se_suprimen_con_pocos_datos():
 
 
 def test_aprobar_archivo_registra_revisor_y_mueve(tmp_path, perfil):
+    """Aprobar un perfil lo mueve de "pendientes" a "aprobados" y registra quién lo revisó y sus notas.
+
+    Si falla, la aprobación no deja constancia de la revisión o el archivo queda duplicado.
+    """
+    # Se trabaja dentro de `tmp_path` (carpeta temporal del test) para no tocar
+    # las carpetas reales de perfiles del proyecto.
     pendiente = tmp_path / "pendientes" / "perfil_x.json"
     pendiente.parent.mkdir()
     pendiente.write_text(json.dumps(perfil), encoding="utf-8")
@@ -168,6 +229,10 @@ def test_aprobar_archivo_registra_revisor_y_mueve(tmp_path, perfil):
 
 
 def test_tabla_chica_sin_estadisticas():
+    """Con menos filas que el mínimo de grupo no se calculan estadísticas ni se informa la cantidad de filas.
+
+    Si falla, una tabla muy chica quedaría descrita con tanto detalle que se podría reconstruir.
+    """
     c = perfilar_columna("Importe", pd.Series(range(MINIMO_GRUPO - 1)))
     assert c["tipo"] == "desconocido" and "numerico" not in c
     p = perfilar({"chica": pd.DataFrame({"a": range(5)})})
@@ -175,6 +240,11 @@ def test_tabla_chica_sin_estadisticas():
 
 
 def test_relacion_exacta_y_normalizada(perfil):
+    """Detecta la relación entre cargas y vehículos: la mitad coincide tal cual y el 100 % tras normalizar.
+
+    Si falla, el perfilador no encuentra relaciones entre tablas o no normaliza
+    diferencias de mayúsculas y espacios.
+    """
     rel = next(r for r in perfil["relaciones"] if r["origen"] == "cargas.dominio")
     assert rel["destino"] == "vehiculos.Dominio"
     assert rel["cobertura_normalizada_pct"] == 100.0
@@ -182,6 +252,10 @@ def test_relacion_exacta_y_normalizada(perfil):
 
 
 def test_lee_csv_con_punto_y_coma_y_ceros_a_la_izquierda():
+    """Lee CSV separados por punto y coma y conserva los códigos con ceros a la izquierda como texto.
+
+    Si falla, las columnas se leerían mal o un código como "00012" se convertiría en el número 12.
+    """
     csv = "codigo;litros\n" + "\n".join(f"{i:05d};{i * 1.5}" for i in range(30))
     df = leer_tablas(io.BytesIO(csv.encode()), "cargas.csv")["cargas"]
     assert list(df.columns) == ["codigo", "litros"]
@@ -189,6 +263,11 @@ def test_lee_csv_con_punto_y_coma_y_ceros_a_la_izquierda():
 
 
 def test_comparador_detecta_brechas(perfil, tablas):
+    """Al comparar con una versión a la que le falta una columna, se emparejan las tablas y se informan las brechas.
+
+    Si falla, el comparador no avisa de columnas no modeladas ni de diferencias
+    en las relaciones entre la fuente y el generador.
+    """
     sintetico = dict(tablas)
     sintetico["cargas"] = tablas["cargas"].drop(columns=["Observaciones"]).assign(
         dominio=tablas["cargas"]["dominio"].str.upper().str.replace(" ", ""))
@@ -202,10 +281,16 @@ def test_comparador_detecta_brechas(perfil, tablas):
 
 
 def test_cli_escribe_solo_el_perfil(tmp_path, tablas):
+    """El comando de consola `python -m perfilador perfilar` crea únicamente el archivo de perfil, sin valores sensibles.
+
+    Si falla, el comando deja archivos extra (copias, temporales) o escribe datos que no debería.
+    """
     fuente = tmp_path / "vehiculos.csv"
     tablas["vehiculos"].to_csv(fuente, index=False)
     salida = tmp_path / "perfil.json"
     antes = set(tmp_path.iterdir())
+    # subprocess.run ejecuta el comando como si se escribiera en una terminal
+    # aparte; check=True hace fallar el test si el comando termina con error.
     subprocess.run([sys.executable, "-m", "perfilador", "perfilar", str(fuente), "--salida", str(salida)],
                    cwd=RAIZ, check=True, capture_output=True)
     assert set(tmp_path.iterdir()) - antes == {salida}
@@ -213,17 +298,33 @@ def test_cli_escribe_solo_el_perfil(tmp_path, tablas):
 
 
 def test_pagina_sin_carga_de_archivos_fuera_de_local(monkeypatch):
+    """Si no está habilitada la variable de entorno, la página abre sin errores y avisa que la carga de archivos está deshabilitada.
+
+    Si falla, una instalación publicada permitiría subir archivos, o la página se rompe al abrir.
+    """
+    # AppTest es la herramienta de Streamlit para probar páginas sin abrir un
+    # navegador: ejecuta el script de la página y permite leer lo que mostraría
+    # (avisos, métricas, botones) e interactuar con los controles.
     from streamlit.testing.v1 import AppTest
 
+    # `monkeypatch` es un fixture de pytest que cambia algo solo durante este
+    # test y lo restaura al terminar. Acá borra la variable de entorno
+    # PERFILADOR_PERMITIR_ARCHIVOS (raising=False: no protesta si no existía).
     monkeypatch.delenv("PERFILADOR_PERMITIR_ARCHIVOS", raising=False)
+    # default_timeout: segundos máximos que puede tardar la página en ejecutarse.
     at = AppTest.from_file(str(RAIZ / "streamlit_app" / "pages" / "04_perfil_de_fuentes.py"), default_timeout=60).run()
     assert not at.exception
     assert any("deshabilitado" in w.value for w in at.warning)
 
 
 def test_pagina_local_habilita_la_carga(monkeypatch):
+    """Con la variable de entorno activada, la página habilita la carga y aclara que los datos quedan en memoria.
+
+    Si falla, la carga local no se habilita o falta el aviso de que no se guardan los archivos.
+    """
     from streamlit.testing.v1 import AppTest
 
+    # setenv define la variable de entorno solo durante este test.
     monkeypatch.setenv("PERFILADOR_PERMITIR_ARCHIVOS", "1")
     at = AppTest.from_file(str(RAIZ / "streamlit_app" / "pages" / "04_perfil_de_fuentes.py"), default_timeout=60).run()
     assert not at.exception
@@ -232,20 +333,31 @@ def test_pagina_local_habilita_la_carga(monkeypatch):
 
 
 def test_pagina_muestra_resumen_y_permite_aprobar(monkeypatch, perfil):
+    """Con un perfil ya generado, la página muestra el resumen y el botón de aprobar se habilita solo al indicar quién revisa.
+
+    Si falla, se podría aprobar un perfil sin registrar a la persona responsable.
+    """
     from streamlit.testing.v1 import AppTest
 
     monkeypatch.setenv("PERFILADOR_PERMITIR_ARCHIVOS", "1")
     at = AppTest.from_file(str(RAIZ / "streamlit_app" / "pages" / "04_perfil_de_fuentes.py"), default_timeout=60)
+    # session_state es la "memoria" de la página entre interacciones; se carga
+    # el perfil ahí para simular que la usuaria ya lo generó.
     at.session_state["perfil_generado"] = perfil
     at.run()
     assert not at.exception
     assert any(m.label == "Faltantes promedio por columna" for m in at.metric)
     assert at.button(key="aprobar_generado").disabled
+    # Simula escribir un nombre en el campo de texto y volver a ejecutar la página.
     at.text_input(key="revisor_generado").input("Revisora").run()
     assert not at.button(key="aprobar_generado").disabled
 
 
 def test_pagina_compara_un_perfil(monkeypatch, perfil):
+    """La vista de comparación funciona con el perfil recién generado y muestra las brechas por prioridad.
+
+    Si falla, la comparación con el generador se rompe o cambió el resumen de brechas altas, medias y bajas.
+    """
     from streamlit.testing.v1 import AppTest
 
     monkeypatch.setenv("PERFILADOR_PERMITIR_ARCHIVOS", "1")

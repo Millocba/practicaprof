@@ -4,6 +4,31 @@ Main Streamlit application for the synthetic data pipeline (Pipeline Maestro).
 Reads the same source as the Generador and Análisis pages
 (datasets/synthetics_maestro). If the data is missing it is generated with the
 default seed on first load (see data_loader.asegurar_datos_maestro).
+
+Página de inicio de la aplicación (en español, para quien recién empieza):
+
+- Qué muestra: un tablero con los números principales de los datos sintéticos
+  (cantidad de vehículos, transacciones de consumo, qué porcentaje del consumo
+  se puede vincular con un vehículo de la flota y el total facturado), un mapa
+  de las demás páginas, cuándo y con qué parámetros se generaron los datos, y
+  una tabla con el tamaño de cada dataset.
+- Para qué la usa quien audita: es el punto de partida. De un vistazo confirma
+  que hay datos cargados, que el volumen es razonable y que la vinculación
+  consumo ↔ flota es alta; si algo se ve raro, sabe a qué página ir para
+  investigar.
+- Cómo encaja en la app: Streamlit arma el menú lateral solo, con este archivo
+  como "Inicio" y cada archivo de la carpeta pages/ como una página más. Esta
+  página no calcula nada propio: lee los mismos CSV que el resto de las páginas
+  mediante las funciones de utils/data_loader.py.
+
+Cómo funciona Streamlit, en dos ideas:
+- Este archivo es un "script" que se ejecuta entero, de arriba a abajo, cada
+  vez que alguien abre la página o toca cualquier control (un botón, un
+  selector, etc.). Cada `st.algo(...)` dibuja un elemento en pantalla en el
+  orden en que aparece.
+- Como el script se re-ejecuta tan seguido, las funciones que leen archivos
+  usan una caché (`st.cache_data`, en data_loader.py): la primera vez leen el
+  CSV del disco y las siguientes devuelven el resultado guardado en memoria.
 """
 import streamlit as st
 import pandas as pd
@@ -11,6 +36,8 @@ from pathlib import Path
 import sys
 
 # Add utils to path
+# Se agrega la carpeta utils/ a la lista de lugares donde Python busca módulos,
+# para poder hacer `from data_loader import ...` aunque no sea un paquete instalado.
 utils_path = Path(__file__).parent / "utils"
 sys.path.insert(0, str(utils_path))
 
@@ -28,6 +55,8 @@ from data_loader import (
 )
 
 # Page config
+# set_page_config define el título de la pestaña del navegador, el ícono y el
+# ancho de la página. Tiene que ser la primera instrucción de Streamlit del script.
 st.set_page_config(
     page_title="Pipeline Maestro",
     page_icon="📊",
@@ -36,6 +65,9 @@ st.set_page_config(
 )
 
 # Custom CSS
+# Estilos propios para las cajas de color de la sección "Estado de la Generación".
+# unsafe_allow_html=True le permite a st.markdown interpretar HTML/CSS en lugar
+# de mostrarlo como texto; se usa solo con contenido escrito por el proyecto.
 st.markdown("""
 <style>
     .success-box {
@@ -60,9 +92,18 @@ st.markdown("# 📊 Pipeline Maestro de Datos Sintéticos")
 st.markdown("**Sistema integral para gestión, visualización y análisis del dataset integrado**")
 
 # Load data (same source as the Generador and Análisis pages)
+# El "escenario" elige qué juego de datos sintéticos se usa: el realista (anomalías
+# sutiles y casos legítimos que se les parecen) o el didáctico (anomalías obvias).
+# selector_escenario() dibuja la opción en la barra lateral y guarda la elección en
+# st.session_state: una especie de "memoria" que Streamlit conserva entre
+# re-ejecuciones y entre páginas, así el escenario elegido vale en toda la app.
 escenario = selector_escenario()
 st.caption(f"Escenario: **{NOMBRES_ESCENARIO[escenario]}** — se cambia en la barra lateral.")
+# Si todavía no hay datos en disco (por ejemplo, la primera vez o después de un
+# reinicio en la nube), los genera con la semilla por defecto antes de seguir.
 asegurar_datos_maestro(escenario)
+# Cada load_* lee un CSV y lo devuelve como DataFrame (una tabla de pandas).
+# Si el archivo no existe, devuelve una tabla vacía en lugar de fallar.
 flota = load_flota(escenario)
 telemetria = load_telemetria(escenario)
 consumo = load_consumo_maestro(escenario)
@@ -70,9 +111,13 @@ solicitudes = load_solicitudes(escenario)
 facturacion = load_facturacion(escenario)
 metadata = load_maestro_metadata(escenario)
 
+# Sin flota o sin consumo no tiene sentido calcular los indicadores: son las dos
+# tablas sobre las que se apoya el resto del análisis.
 hay_datos = not flota.empty and not consumo.empty
 
 # Main metrics
+# Indicadores principales (KPIs). Sirven para comprobar rápido que los datos
+# tienen el volumen esperado antes de analizarlos.
 st.markdown("## 📈 Estado General del Pipeline")
 
 if not hay_datos:
@@ -82,11 +127,16 @@ if not hay_datos:
         "después volvé a esta página."
     )
 
+# st.columns(4) divide el ancho de la página en 4 columnas. Todo lo que se
+# dibuja dentro de un bloque `with colN:` aparece en esa columna.
 col1, col2, col3, col4 = st.columns(4)
 
+# El try/except evita que un dato con formato inesperado rompa toda la página:
+# si falla, se muestra un mensaje de error y el resto de la página sigue.
 try:
     with col1:
         if not flota.empty:
+            # st.metric muestra un número grande con su título; st.caption, un texto chico debajo.
             st.metric("Vehículos", f"{len(flota):,}")
             if "Estado" in flota.columns:
                 activos = (flota["Estado"] != "BAJA").sum()
@@ -99,6 +149,8 @@ try:
         if not consumo.empty:
             st.metric("Transacciones de consumo", f"{len(consumo):,}")
             if "litros" in consumo.columns:
+                # to_numeric con errors="coerce" convierte a número y deja vacío lo
+                # que no se pueda convertir, para que un valor mal cargado no impida sumar.
                 litros = pd.to_numeric(consumo["litros"], errors="coerce").sum()
                 st.caption(f"{litros:,.0f} litros en total")
         else:
@@ -106,6 +158,9 @@ try:
             st.caption("sin datos")
 
     with col3:
+        # Vinculación: qué porcentaje de las cargas de combustible tiene una patente
+        # (dominio) que existe en la flota. Una carga que no se puede vincular con
+        # ningún vehículo es, en sí misma, algo que quien audita querría revisar.
         if hay_datos and {"dominio"} <= set(consumo.columns) and {"Dominio"} <= set(flota.columns):
             vinculadas = consumo["dominio"].isin(flota["Dominio"]).sum()
             pct = vinculadas / len(consumo) * 100
@@ -128,6 +183,8 @@ except Exception as e:
     st.error(f"❌ Error al mostrar KPIs: {str(e)}")
 
 # Info section
+# Mapa de la app: una tarjeta por página, en filas de tres columnas. Es texto
+# fijo; la navegación real se hace desde el menú lateral.
 st.markdown("---")
 st.markdown("## ℹ️ Navegación")
 
@@ -219,6 +276,9 @@ with col3:
     """)
 
 # Status boxes (computed from the loaded data, not hardcoded)
+# Izquierda: con qué parámetros se generaron los datos (sale de metadata.json).
+# Saber la semilla permite volver a generar exactamente los mismos datos, lo que
+# hace que cualquier hallazgo se pueda reproducir. Derecha: filas por entidad.
 st.markdown("---")
 st.markdown("## ✅ Estado de la Generación")
 
@@ -254,6 +314,7 @@ with col2:
         "Solicitudes": solicitudes,
         "Facturación": facturacion,
     }
+    # Arma la lista HTML: una línea por tabla, con su cantidad de registros o "sin datos".
     items = "".join(
         f"<li>{nombre}: {len(df):,} registros</li>" if not df.empty
         else f"<li>{nombre}: sin datos</li>"
@@ -267,12 +328,16 @@ with col2:
     """, unsafe_allow_html=True)
 
 # Datasets overview
+# Tabla resumen de todos los archivos: registros, columnas, tamaño y valores
+# faltantes. Muchos faltantes en una columna es una primera señal de mala calidad.
 st.markdown("---")
 st.markdown("## 📂 Resumen de Datasets")
 
 try:
     datasets_info = get_maestro_datasets_info(escenario)
     if not datasets_info.empty:
+        # st.dataframe muestra una tabla interactiva (se puede ordenar y buscar).
+        # column_config solo cambia los títulos y el formato de cada columna en pantalla.
         st.dataframe(
             datasets_info,
             use_container_width=True,

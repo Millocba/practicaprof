@@ -1,18 +1,48 @@
+# GitHub Actions es el servicio de GitHub que ejecuta tareas automáticas en
+# computadoras de GitHub cada vez que pasa algo en el repositorio (por ejemplo,
+# cuando alguien sube cambios). Cada archivo .yml dentro de .github/workflows/
+# define un "workflow" (flujo de trabajo). Este corre todos los tests del
+# proyecto para avisar si un cambio rompió algo; el resultado aparece como una
+# marca verde (pasaron) o una cruz roja (alguno falló) junto a cada cambio.
+#
+# El formato es YAML: la estructura se marca con la sangría (espacios, nunca
+# tabulaciones) y todo lo que va después de "#" es un comentario.
+
+# Nombre con el que el workflow aparece en la pestaña "Actions" de GitHub.
 name: tests
 
+# "on" define cuándo se ejecuta el workflow.
 on:
+  # Cuando se suben commits (push) a la rama main o a cualquier rama cuyo
+  # nombre empiece con "dev-" (el asterisco significa "cualquier cosa").
   push:
     branches: [main, "dev-*"]
+  # Cuando se abre o actualiza un pull request (una propuesta para incorporar
+  # cambios de una rama a otra), sin importar la rama.
   pull_request:
 
+# "jobs" son los trabajos que realiza el workflow. Acá hay uno solo.
 jobs:
+  # Nombre interno del trabajo.
   pytest:
+    # Sistema operativo de la máquina virtual en la que corre: la última
+    # versión de Ubuntu (Linux) que ofrece GitHub.
     runs-on: ubuntu-latest
+    # "steps" son los pasos, que se ejecutan en orden. Si uno falla, el
+    # trabajo se detiene y queda marcado como fallido.
     steps:
+      # 1. Descarga el código del repositorio en la máquina virtual.
       - uses: actions/checkout@v4
+      # 2. Instala Python en la versión indicada. "cache: pip" guarda las
+      #    librerías descargadas para que las próximas ejecuciones sean más
+      #    rápidas.
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
+      # 3. Instala las librerías que necesita el proyecto, listadas en
+      #    requirements.txt.
       - run: pip install -r requirements.txt
+      # 4. Ejecuta todos los tests con pytest (-q muestra una salida resumida).
+      #    Si algún test falla, este paso falla y el workflow queda en rojo.
       - run: python -m pytest -q

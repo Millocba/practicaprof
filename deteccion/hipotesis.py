@@ -6,14 +6,44 @@ la hipótesis propone (historial del vehículo, estado de la flota, GPS, etc.).
 
 El veredicto se calcula con los datos: la hipótesis se sostiene cuando la regla
 con contexto mejora el F1 de la ingenua en al menos MEJORA_MINIMA_F1.
+
+Para qué sirve este archivo
+---------------------------
+El proyecto parte de hipótesis: afirmaciones que se quieren poner a prueba, por
+ejemplo "mirar el historial del vehículo reduce las falsas alarmas del odómetro".
+Este módulo las escribe como datos (la lista HIPOTESIS) y las contrasta usando las
+alertas de `reglas.py` y las métricas de `evaluacion.py`.
+
+Regla ingenua vs. regla con contexto
+------------------------------------
+- Una regla "ingenua" mira un solo dato con un criterio fijo, por ejemplo
+  "alertar si los litros superan la capacidad del tanque". Es simple, pero suele
+  dar muchas falsas alarmas (falsos positivos) porque no conoce las circunstancias.
+- Una regla "con contexto" agrega información: el historial del propio vehículo,
+  su estado en la flota, el recorrido del GPS, las solicitudes, etc. La idea es
+  distinguir un caso sospechoso de uno que solo lo parece (un "caso legítimo").
+
+Si la regla con contexto mejora el F1 (ver `evaluacion.py`) en al menos 0,10, se
+dice que la hipótesis "se sostiene". El umbral evita declarar ganadora a una regla
+por una diferencia mínima que podría deberse al azar de los datos.
+
+Lo usan `__main__.py` y la aplicación Streamlit (página de hipótesis).
 """
 import pandas as pd
 
+# Mejora mínima de F1 (en una escala de 0 a 1) para considerar que el contexto aporta.
 MEJORA_MINIMA_F1 = 0.10
 
 # regla None = no hay regla posible sin la fuente que aporta la hipótesis; una lista de
 # reglas se evalúa como la unión de sus alertas. "nivel": "factura" evalúa por factura:
 # una línea irregular cuenta como una factura con problemas.
+#
+# Cada hipótesis es un diccionario con:
+# - codigo / titulo / enunciado: cómo se identifica y qué afirma, en palabras.
+# - tipos: los tipos de anomalía del ground truth sobre los que se evalúa.
+# - reglas: lista de (nombre de regla, descripción) ordenada de la más ingenua a
+#   la de más contexto; la primera y la última son las que se comparan.
+# - contexto: qué información extra usa la regla con contexto.
 HIPOTESIS = [
     {
         "codigo": "H2b",
@@ -119,12 +149,19 @@ HIPOTESIS = [
 
 
 def _nombres(regla):
+    """Normaliza una entrada de `reglas` a una lista de nombres de reglas.
+
+    En HIPOTESIS una regla puede escribirse como un texto (una regla), una lista
+    (varias reglas que se evalúan juntas) o None (no existe regla posible). Esta
+    función devuelve siempre una lista, para tratar los tres casos de la misma forma.
+    """
     if regla is None:
         return []
     return [regla] if isinstance(regla, str) else list(regla)
 
 
 def describir_regla(regla):
+    """Texto para mostrar una regla en una tabla: los nombres unidos con " + ", o "—" si no hay regla."""
     return " + ".join(_nombres(regla)) or "—"
 
 
@@ -134,10 +171,18 @@ def evaluar_regla(alertas, ground_truth, casos_legitimos, regla, tipos, agrupar=
     Un acierto es un registro alertado que tiene alguna anomalía de `tipos`. Los falsos
     positivos se clasifican en: caso legítimo, otra anomalía o normal. `agrupar` traduce
     ids a la unidad de evaluación (por ejemplo, línea de factura -> factura).
+
+    Clasificar los falsos positivos ayuda a entender el error: no es lo mismo
+    alertar un "caso legítimo" (algo raro pero justificado, como un viaje largo),
+    que alertar un registro con otra anomalía distinta, o uno totalmente normal.
+
+    Devuelve: un diccionario con los conteos (reales, alertas, tp, fp, fn), las
+    métricas (precision, recall, f1) y el desglose de los falsos positivos.
     """
     agrupar = agrupar or {}
 
     def unidad(ids):
+        """Traduce cada id a su unidad de evaluación (si no está en `agrupar`, queda igual)."""
         return {agrupar.get(i, i) for i in ids}
 
     reales = unidad(ground_truth.loc[ground_truth["tipo_anomalia"].isin(tipos), "id_registro"])
@@ -169,6 +214,12 @@ def contrastar_hipotesis(alertas, ground_truth, casos_legitimos, facturacion_det
 
     Las hipótesis cuyas reglas no emitieron ninguna alerta ni tienen casos en el ground
     truth (por ejemplo, H9 sin detalle de facturación) se omiten.
+
+    Recibe: las alertas de todas las reglas, el ground truth, los casos legítimos y
+    (opcional) el detalle de facturación para evaluar H9 por factura.
+    Devuelve dos tablas: la primera con las métricas de cada regla de cada hipótesis;
+    la segunda con el veredicto de cada hipótesis ("Se sostiene", "No se sostiene" o
+    "Sin casos para evaluar") y los F1 de la regla ingenua y de la de contexto.
     """
     agrupaciones = {"factura": factura_de_cada_linea(facturacion_detalle)}
     filas, veredictos = [], []
@@ -183,6 +234,7 @@ def contrastar_hipotesis(alertas, ground_truth, casos_legitimos, facturacion_det
             resultados.append(m)
             filas.append({"hipotesis": h["codigo"], "orden": orden, "regla": describir_regla(regla),
                           "descripcion": descripcion, **m})
+        # Se compara la primera regla (la más ingenua) con la última (la de más contexto)
         ingenua, contexto = resultados[0], resultados[-1]
         if ingenua["reales"] == 0:
             veredicto = "Sin casos para evaluar"
@@ -240,12 +292,19 @@ HIPOTESIS_DESCRIPTIVAS = {
 
 
 def hipotesis_del_escenario(escenario):
-    """Hipótesis que aplican a un escenario, en el orden en que se presentan."""
+    """Hipótesis que aplican a un escenario, en el orden en que se presentan.
+
+    Recibe "realista" o "didactico" y devuelve la lista de diccionarios de hipótesis
+    que la aplicación muestra para ese escenario.
+    """
     if escenario == "realista":
         return [HIPOTESIS_DESCRIPTIVAS["H1"]] + HIPOTESIS
     return [HIPOTESIS_DESCRIPTIVAS[c] for c in ["H1", "H2", "H3a"]]
 
 
 def reglas_de(regla):
-    """Nombres de reglas de una entrada de `reglas` (str, lista o None)."""
+    """Nombres de reglas de una entrada de `reglas` (str, lista o None).
+
+    Es la versión pública de `_nombres`, para que otros módulos (la aplicación) la usen.
+    """
     return _nombres(regla)
