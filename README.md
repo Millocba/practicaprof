@@ -114,21 +114,21 @@ Promedio de 5 semillas, 200 vehículos cada una.
 - El registro interno (pedido y rendición de cada carga, como en la fuente) no comparte ningún identificador con el reporte del proveedor. La regla ingenua de H8 reproduce el cruce de un sistema operativo: por dominio y día, cada pedido toma la carga más cercana, sin tolerancias. La regla con contexto usa el dominio del vehículo dueño de la tarjeta (o la persona, si la tarjeta es personal), una ventana de 3 horas antes a media hora después y una asignación óptima (método húngaro) que prefiere pedidos no anulados y con los mismos litros.
 - La comparación de totales mensuales (H9) solo detecta 68% de las facturas con irregularidades: un sobreprecio o una línea de más cambian menos del 1% del total, mientras que los desfases de corte y los ajustes documentados sí superan ese umbral.
 
-**Escenario realista: priorización de la revisión.** Qué encuentra cada método según cuántas cargas se revisan, de unas 67 anomalías de comportamiento en las cargas por dataset (prevalencia 1,3%). Con 50 revisiones, el máximo posible es 75%.
+**Escenario realista: priorización de la revisión.** Qué encuentra cada método según cuántas cargas se revisan, de unas 103 anomalías de comportamiento en las cargas por dataset (prevalencia 1,5%), en promedio de 5 semillas. Con 50 revisiones, el máximo posible es 49%.
 
 | Método | Revisando 50 | Revisando 100 | Legítimos revisados en vano (de 100) |
 |---|---|---|---|
-| Reglas ingenuas | 42% | 75% | 45 |
-| Isolation Forest | 23% | 37% | 18 |
-| Reglas con contexto | 72% | 99% | 1 |
-| Modelo supervisado (entrenado con otras semillas) | 72% | 99% | 14* |
-| Combinado (reglas con contexto + modelo) | 74% | 100% | 14* |
+| Reglas ingenuas | 12% | 23% | 61 |
+| Isolation Forest | 11% | 17% | 25 |
+| Reglas con contexto | 44% | 85% | 4 |
+| Modelo supervisado (entrenado con otras semillas) | 48% | 80% | 7 |
+| Combinado (reglas con contexto + modelo) | 48% | 88% | 3 |
 
-\* Revisan casos legítimos recién después de haber encontrado todas las anomalías: con 50 revisiones, el combinado no revisa ninguno.
+Con 50 revisiones, el combinado no revisa ningún caso legítimo.
 
-**Escenario realista: facturas a revisar.** La conciliación línea por línea marca unas 15 de 45 facturas por dataset y encuentra todas las irregularidades de facturación (19 por dataset), con un importe en juego de 3.000 a 6.200 por dataset.
+**Escenario realista: facturas a revisar.** La conciliación línea por línea marca unas 24 de 100 facturas por dataset y encuentra todas las irregularidades de facturación (31 por dataset), con un importe en juego de 3.100 a 5.100 por dataset.
 
-- El modelo supervisado llega al nivel de las reglas con contexto sin que nadie las haya escrito: aprende de auditorías anteriores.
+- El modelo supervisado queda cerca de las reglas con contexto, y las supera revisando 50, sin que nadie las haya escrito: aprende de auditorías anteriores.
 - Isolation Forest confunde lo raro con lo sospechoso, porque los viajes largos y los tanques no registrados también son raros.
 - La combinación de reglas con contexto y modelo es la que mejor ordena la revisión. Cada caso de la cola trae su motivo.
 - **Límite:** las reglas con contexto y el modelo se evalúan con datos del mismo generador que los define. Miden cuánto aporta cada fuente bajo los supuestos del escenario, no el desempeño esperable con datos reales.
