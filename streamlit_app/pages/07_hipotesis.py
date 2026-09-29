@@ -49,10 +49,11 @@ st.caption("Esta página siempre usa el escenario **Realista**: las hipótesis t
 
 @st.cache_data
 def calcular(flota, consumo, ground_truth, legitimos, estaciones, telemetria_diaria, solicitudes,
-             facturacion, facturacion_detalle, contratos=None, transferencias=None, telemetria=None):
+             facturacion, facturacion_detalle, contratos=None, transferencias=None, telemetria=None,
+             excepciones=None):
     alertas = ejecutar_reglas(flota, consumo, estaciones, telemetria_diaria, solicitudes, facturacion,
                               facturacion_detalle, contratos=contratos, transferencias=transferencias,
-                              telemetria=telemetria)
+                              telemetria=telemetria, excepciones=excepciones)
     detalle, veredictos = contrastar_hipotesis(alertas, ground_truth, legitimos, facturacion_detalle)
     return alertas, detalle, veredictos
 
@@ -61,7 +62,8 @@ alertas, detalle, veredictos = calcular(datos["flota"], datos["consumo"], datos[
                                         datos["casos_legitimos"], datos["estaciones"],
                                         datos["telemetria_diaria"], datos["solicitudes"],
                                         datos["facturacion"], datos["facturacion_detalle"],
-                                        datos["contratos"], datos["transferencias"], datos["telemetria"])
+                                        datos["contratos"], datos["transferencias"], datos["telemetria"],
+                                        datos["excepciones_odometro"])
 consumo = datos["consumo"]
 legitimos = datos["casos_legitimos"]
 ground_truth = datos["ground_truth"]
@@ -179,12 +181,12 @@ for h in HIPOTESIS:
 
 seccion(
     "Relación con las hipótesis del proyecto",
-    ayuda="Cierra el círculo: estas doce hipótesis son la evidencia de las ideas que el README "
+    ayuda="Cierra el círculo: estas trece hipótesis son la evidencia de las ideas que el README "
           "plantea al principio, y cada una está sostenida o no con números de acá. Leé el "
           "**límite** del final antes de citar cualquier resultado: todo se midió contra un "
           "generador que también produjo los casos legítimos.")
 st.markdown(
-    "- *Integrar fuentes permite detectar situaciones invisibles en análisis aislados*: H6 a H11 "
+    "- *Integrar fuentes permite detectar situaciones invisibles en análisis aislados*: H6 a H12 "
     "(estado de la flota, GPS, registro interno, facturación, contratos y telemetría).\n"
     "- *Los umbrales adecuados varían según el tipo de vehículo y su contexto* y *el historial "
     "individual puede ser más informativo que un umbral general*: H2c, H3b y H5.\n"

@@ -121,3 +121,19 @@ def test_las_cargas_de_otra_red_cierran_el_tramo_del_odometro():
     secuencia = secuencia_odometro(consumo, fuera=fuera).set_index("id")
     assert secuencia.loc["C2", "km"] == 200 and secuencia.loc["C3", "km"] == 400
     assert bool(secuencia.loc["FUERA-R1", "fuera"])
+
+
+def test_odometro_sin_avance_solo_alerta_sin_excepcion_ese_dia():
+    """H12: la excepción puede durar un solo día; la lectura repetida el día siguiente es una alerta."""
+    from deteccion.reglas import cargas_exceptuadas, detectar_sin_avance_sin_excepcion
+
+    flota = pd.DataFrame({"Matricula": ["V1"], "Dominio": ["ZA001AA"], "ExcepcionOdometro": ["NO"],
+                          "FechaHastaExcepcionOdometro": [None]})
+    consumo = pd.DataFrame({"id": ["C1", "C2", "C3", "C4"], "vehiculo_id": "V1",
+                            "fecha": ["2024-03-01", "2024-03-05", "2024-03-09", "2024-03-09"],
+                            "odometro": [1000, 1000, 1000, 1000]})
+    excepciones = pd.DataFrame({"patente": ["za 001 aa"], "fecha_creacion": ["2024-03-05"], "fecha_hasta": ["2024-03-05"]})
+    exceptuadas = cargas_exceptuadas(consumo, flota, excepciones)
+    assert exceptuadas == {"C2"}
+    alertas = detectar_sin_avance_sin_excepcion(secuencia_odometro(consumo), exceptuadas)
+    assert list(alertas["id_registro"]) == ["C3"]      # C4 es del mismo día que C3: no se vuelve a leer el tablero

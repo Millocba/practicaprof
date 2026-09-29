@@ -24,7 +24,7 @@ ARCHIVOS_REQUERIDOS = {
     "didactico": ["flota.csv", "consumo.csv", "ground_truth.csv", "diccionario.json"],
     "realista": ["flota.csv", "consumo.csv", "ground_truth.csv", "casos_legitimos.csv", "estaciones.csv",
                  "telemetria_diaria.csv", "facturacion_detalle.csv", "contratos.csv", "transferencias.csv",
-                 "diccionario.json"],
+                 "excepciones_odometro.csv", "diccionario.json"],
 }
 
 # Parámetros del dataset que se genera automáticamente si no hay datos
@@ -195,6 +195,12 @@ def load_transferencias(escenario="realista"):
     return _leer_csv("transferencias", escenario)
 
 
+@st.cache_data
+def load_excepciones_odometro(escenario="realista"):
+    """Historial de excepciones de odómetro (solo escenario realista)."""
+    return _leer_csv("excepciones_odometro", escenario)
+
+
 def load_dataset_deteccion(escenario):
     """Las tablas que usan la detección y la evaluación, como dict (None si no existen)."""
     def o_none(df):
@@ -214,6 +220,7 @@ def load_dataset_deteccion(escenario):
         "contratos": o_none(load_contratos(escenario)) if realista else None,
         "transferencias": o_none(load_transferencias(escenario)) if realista else None,
         "telemetria": o_none(load_telemetria(escenario)) if realista else None,
+        "excepciones_odometro": o_none(load_excepciones_odometro(escenario)) if realista else None,
     }
 
 

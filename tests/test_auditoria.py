@@ -36,7 +36,13 @@ def con_forma_real(s):
         "SubEstado": flota["SubEstado"], "TipoVehiculo": flota["TipoVehiculo"], "TipoCombustible": flota["TipoCombustible"],
         "CapacidadTanque": flota["CapacidadTanque"], "NumeroTarjeta": flota["NumeroTarjeta"],
         "NumeroContrato": flota["NumeroContrato"], "Cupo": flota["Cupo"], "Dependencia": flota["Dependencia"],
-        "DireccionGral": flota["DireccionGral"]})
+        "DireccionGral": flota["DireccionGral"], "ExcepcionOdometro": flota["ExcepcionOdometro"],
+        "FechaHastaExcepcionOdometro": flota["FechaHastaExcepcionOdometro"]})
+    excepciones = s["excepciones_odometro"]
+    exceptuados = pd.DataFrame({
+        "id": range(1, len(excepciones) + 1), "patente": excepciones["patente"], "motivo": "MOTIVO SINTETICO",
+        "activo": excepciones["activo"].map({"SI": 1, "NO": 0}),
+        "fecha_creacion": excepciones["fecha_creacion"] + " 10:00:00", "fecha_hasta": excepciones["fecha_hasta"]})
     reporte = pd.DataFrame({
         "FECHA": instante.dt.strftime("%d/%m/%Y ") + instante.dt.hour.astype(str) + instante.dt.strftime(":%M:%S"),
         "ESTABLECIMIENTO": consumo["estacion"].str.replace("EST-", "00") + " - ESTACION FICTICIA",
@@ -80,7 +86,7 @@ def con_forma_real(s):
         + ultima.dt.strftime("%H:%M:%S")})
     return {"padron": padron, "reporte": reporte, "interno": interno, "fact_contratos": contratos.rename(
         columns={"limite_mensual": "limite"})[["numero", "limite"]], "fact_periodos": periodos, "fact_facturas": fact,
-        "fact_transacciones": lineas, "dispositivos": dispositivos}
+        "fact_transacciones": lineas, "dispositivos": dispositivos, "moviles_exceptuados": exceptuados}
 
 
 @pytest.fixture(scope="module")
@@ -107,7 +113,9 @@ def test_el_adaptador_traduce_y_vincula(sintetico):
 
 
 def test_la_auditoria_corre_las_hipotesis_con_datos(resultado):
-    assert {"H1", "H8", "H9", "H11"} <= set(resultado["hipotesis"])
+    assert {"H1", "H8", "H9", "H11", "H12"} <= set(resultado["hipotesis"])
+    odometro = resultado["diagnostico"]["odometro"]
+    assert odometro["sin_avance_con_excepcion"] not in (0, "1–19")      # el historial cubre las repetidas
     assert not {"H6", "H7", "H10"} & set(resultado["hipotesis"])   # faltan las fuentes que necesitan
     assert resultado["cruce_registro"]["cargas_con_pedido_cruce_con_contexto_pct"] > 90
     assert resultado["modelos"]["variables"]["ratio_litros_tanque"]["real"] is not None

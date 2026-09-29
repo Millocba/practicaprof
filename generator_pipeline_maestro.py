@@ -40,7 +40,7 @@ DIRECTORIOS_ESCENARIO = {
 SEED = 42
 # Versión de los datos que produce el generador: cambiarla cuando cambie lo que genera, así la
 # aplicación regenera los datos que tenga en disco de una versión anterior
-VERSION_GENERADOR = "2.2"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md); 2.1: horas del día en el orden del odómetro; 2.2: forma de cargar calibrada
+VERSION_GENERADOR = "2.3"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md); 2.1: horas del día en el orden del odómetro; 2.2: forma de cargar calibrada; 2.3: excepciones de odómetro
 
 # Ventana temporal de los datos: consumos y solicitudes entre FECHA_INICIO y
 # FECHA_INICIO + DIAS_VENTANA. FECHA_REFERENCIA hace de "ahora" para la telemetría.
@@ -86,6 +86,7 @@ CATALOGO_ANOMALIAS = {
     "CARGA_CON_CUPO_AGOTADO": ("H10", "ALTA"),
     "DISPOSITIVO_ACTIVO_EN_BAJA": ("H11", "ALTA"),
     "TRANSFERENCIA_SIN_NECESIDAD": ("H10", "MEDIA"),
+    "ODOMETRO_SIN_AVANCE": ("H12", "MEDIA"),
 }
 
 ESCENARIOS = ("didactico", "realista")
@@ -113,6 +114,7 @@ CATALOGO_LEGITIMOS = {
     "DOMINIO_CON_FORMATO": "el dominio se registró con espacios, guiones o minúsculas; normalizado es el del vehículo",
     "TRANSFERENCIA_DE_SALDO": "el contrato recibió saldo de otro porque la proyección del mes no alcanzaba",
     "DISPOSITIVO_EN_DEPOSITO": "el móvil está de baja y su dispositivo quedó en el grupo de depósito, sin transmitir",
+    "ODOMETRO_EXCEPTUADO": "el vehículo tiene una excepción de odómetro vigente ese día: la lectura se repite",
 }
 
 COLUMNAS_CASOS_LEGITIMOS = ["tabla", "id_registro", "vehiculo_id", "tipo_caso", "descripcion"]
@@ -225,6 +227,15 @@ PROB_SEGUNDO_TURNO = 0.04       # días con carga en que el vehículo sigue en o
 KM_SEGUNDO_TURNO = (0.4, 1.0)   # km del segundo turno respecto de los habituales del día
 FACTOR_KM_DIA = 1.6             # escala de los km habituales por día de cada tipo de vehículo
 FACTOR_KM_POR_TIPO = {"MOTOCICLETA": 1.0, "PICK-UP": 2.2}  # la fuente: 35 L por carga en la mediana, 17% de menos de 10 L
+
+# Excepciones de odómetro (H12). En la fuente, el 1,5% de la flota tiene la excepción vigente; mientras
+# dura, la carga repite la última lectura. Una excepción puede durar un solo día.
+EXCEPCIONES_ODOMETRO = {
+    "vigente": 3,          # vehículos cada 200 con la excepción vigente hasta después de la ventana
+    "cumplida": 3,         # excepciones que ya vencieron (una de un solo día)
+    "sin_excepcion": 3,    # anomalías: la lectura se repite sin excepción (una, después de que venció)
+}
+MOTIVOS_EXCEPCION = ["ODOMETRO SIN FUNCIONAR", "TABLERO EN REPARACION", "CAMBIO DE INSTRUMENTAL"]
 
 # Casos legítimos que en la fuente son una proporción de las cargas, no una cantidad por vehículo
 PROPORCION_DE_CARGAS = {
@@ -348,6 +359,20 @@ TABLAS = {
                                        "etapa del trámite de baja; vacío si está en servicio"),
             "FechaEstado": ("fecha", "Último cambio a un estado distinto de EN SERVICIO; vacía si está en servicio",
                             REALISTA),
+            "ExcepcionOdometro": ("SI / NO", "Si el vehículo tiene hoy una excepción de odómetro vigente", REALISTA),
+            "FechaHastaExcepcionOdometro": ("fecha DD/MM/AAAA", "Hasta cuándo rige la excepción; vacía si no tiene",
+                                            REALISTA),
+        },
+    },
+    "excepciones_odometro": {
+        "grano": "una excepción de odómetro (vigente o cumplida)", "clave": "id", "escenarios": ("realista",),
+        "columnas": {
+            "id": ("texto", "Clave de la excepción, EXC-NNNN"),
+            "patente": ("texto", "Dominio sintético del vehículo exceptuado"),
+            "motivo": ("categoría", "Motivo sintético: ODOMETRO SIN FUNCIONAR, TABLERO EN REPARACION o CAMBIO DE INSTRUMENTAL"),
+            "activo": ("SI / NO", "Si la excepción sigue vigente"),
+            "fecha_creacion": ("fecha", "Desde cuándo rige la excepción"),
+            "fecha_hasta": ("fecha", "Último día en que rige; puede ser el mismo día de la creación"),
         },
     },
     "telemetria": {
@@ -543,6 +568,8 @@ RELACIONES = [
     ("solicitudes", "dominio + fecha + hora", "consumo", "dominio + fecha + hora", "1:1", REALISTA,
      "sin clave común: se cruza por dominio y horario; en las tarjetas personales, por solicitante y conductor"),
     ("telemetria", "Placa", "flota", "Dominio", "N:1", AMBOS, "uno por vehículo en el realista"),
+    ("excepciones_odometro", "patente", "flota", "Dominio", "N:1", REALISTA,
+     "mientras rige, la carga repite la lectura del odómetro"),
     ("telemetria_diaria", "Placa", "telemetria", "Placa", "N:1", REALISTA, ""),
     ("facturacion", "periodo", "consumo", "fecha (mes)", "1:N", ("didactico",), "suma de las cargas del mes"),
     ("facturacion", "proveedor", "estaciones", "marca", "N:1", REALISTA, ""),
@@ -2024,6 +2051,93 @@ class GeneradorMaestro:
         """Si algún día del mes el contrato empieza con el saldo en cero o menos y carga igual."""
         return cls._dia_de_saldo_agotado(contrato, mes, limites, transferencias, por_dia) is not None
 
+    def aplicar_excepciones_de_odometro(self):
+        """Realista: excepciones de odómetro (H12).
+
+        Mientras rige una excepción, la carga repite la última lectura del odómetro (caso legítimo
+        ODOMETRO_EXCEPTUADO); al terminar, la lectura vuelve al valor real. Si la lectura se repite
+        sin una excepción vigente ese día, es la anomalía ODOMETRO_SIN_AVANCE (en uno de los
+        vehículos, porque la excepción ya venció). El padrón muestra el estado de hoy
+        (ExcepcionOdometro y FechaHastaExcepcionOdometro) y excepciones_odometro.csv, el historial.
+        Solo toma vehículos en servicio sin otras etiquetas y usa un generador aleatorio propio.
+        """
+        rng = random.Random(self.seed + 4_000_003)
+        consumo, flota = self.datasets["consumo"], self.datasets["flota"]
+        etiquetados = {a["vehiculo_id"] for a in self.anomalias} | {c["vehiculo_id"] for c in self.casos_legitimos}
+        en_servicio = set(flota.loc[flota["Estado"] == "EN SERVICIO", "Matricula"])
+        orden = consumo.assign(_fecha=pd.to_datetime(consumo["fecha"])).sort_values(["vehiculo_id", "_fecha", "id"])
+        por_vehiculo = {m: list(g.index) for m, g in orden.groupby("vehiculo_id")
+                        if m in en_servicio and m not in etiquetados and g["odometro"].notna().all() and len(g) >= 12}
+        candidatos = sorted(por_vehiculo)
+        rng.shuffle(candidatos)
+        cantidad = {k: max(1, round(v * self.n_flota / 200)) for k, v in EXCEPCIONES_ODOMETRO.items()}
+        dominio = flota.set_index("Matricula")["Dominio"]
+        fecha_de = orden["_fecha"]
+        excepciones, vigentes = [], {}
+
+        def congelar(m, desde, hasta):
+            """Repite en las cargas desde..hasta (posiciones) la lectura de la carga anterior."""
+            indices = por_vehiculo[m]
+            lectura = consumo.at[indices[desde - 1], "odometro"]
+            for i in indices[desde:hasta + 1]:
+                consumo.at[i, "odometro"] = lectura
+            return indices[desde:hasta + 1]
+
+        def excepcion(m, inicio, fin, activa):
+            excepciones.append({"id": f"EXC-{len(excepciones) + 1:04d}", "patente": dominio[m],
+                                "motivo": rng.choice(MOTIVOS_EXCEPCION), "activo": "SI" if activa else "NO",
+                                "fecha_creacion": inicio.date().isoformat(), "fecha_hasta": fin.date().isoformat()})
+
+        def etiquetar(m, indices, cubiertas, detalle):
+            for i in indices:
+                if fecha_de[i] in cubiertas:
+                    self._registrar_legitimo(consumo.at[i, "id"], m, "ODOMETRO_EXCEPTUADO",
+                                             CATALOGO_LEGITIMOS["ODOMETRO_EXCEPTUADO"])
+                else:
+                    self._registrar_anomalia("consumo", consumo.at[i, "id"], m, "ODOMETRO_SIN_AVANCE", "odometro",
+                                             detalle)
+
+        for m in candidatos[:cantidad["vigente"]]:
+            n = len(por_vehiculo[m])
+            desde = rng.randint(n // 3, 2 * n // 3)
+            indices = congelar(m, desde, n - 1)
+            inicio = fecha_de[indices[0]] - timedelta(days=rng.randint(0, 3))
+            fin = FECHA_REFERENCIA + timedelta(days=rng.randint(30, 180))
+            excepcion(m, inicio, fin, activa=True)
+            vigentes[m] = fin
+            etiquetar(m, indices, set(fecha_de[indices]), "")
+
+        for k, m in enumerate(candidatos[cantidad["vigente"]:cantidad["vigente"] + cantidad["cumplida"]]):
+            n = len(por_vehiculo[m])
+            desde = rng.randint(2, n - 4)
+            largo = 0 if k == 0 else rng.randint(1, 3)          # la primera, de un solo día y una sola carga
+            indices = congelar(m, desde, desde + largo)
+            inicio = fecha_de[indices[0]] - (timedelta(0) if largo == 0 else timedelta(days=rng.randint(0, 2)))
+            excepcion(m, inicio, fecha_de[indices[-1]], activa=False)
+            etiquetar(m, indices, set(fecha_de[indices]), "")
+
+        inicio_sin = cantidad["vigente"] + cantidad["cumplida"]
+        for k, m in enumerate(candidatos[inicio_sin:inicio_sin + cantidad["sin_excepcion"]]):
+            n = len(por_vehiculo[m])
+            desde = rng.randint(2, n - 7)
+            indices = congelar(m, desde, desde + rng.randint(2, 5))
+            cubiertas = set()
+            if k == 0:
+                # Tuvo una excepción por la primera carga, pero la lectura se siguió repitiendo después
+                excepcion(m, fecha_de[indices[0]], fecha_de[indices[0]], activa=False)
+                cubiertas = {fecha_de[indices[0]]}
+                detalle = "la lectura se repite después de que venció la excepción"
+            else:
+                detalle = "la lectura se repite sin excepción de odómetro"
+            etiquetar(m, indices, cubiertas, detalle)
+
+        flota["ExcepcionOdometro"] = flota["Matricula"].map(lambda m: "SI" if m in vigentes else "NO")
+        flota["FechaHastaExcepcionOdometro"] = flota["Matricula"].map(
+            lambda m: vigentes[m].strftime("%d/%m/%Y") if m in vigentes else None)
+        self.datasets["excepciones_odometro"] = pd.DataFrame(
+            excepciones, columns=["id", "patente", "motivo", "activo", "fecha_creacion", "fecha_hasta"])
+        logger.info(f"✓ Excepciones de odómetro: {len(vigentes)} vigentes, {len(excepciones) - len(vigentes)} cumplidas")
+
     def aplicar_telemetria_de_bajas(self):
         """Realista: grupo de cada dispositivo y dispositivos de los móviles de baja.
 
@@ -2102,6 +2216,7 @@ class GeneradorMaestro:
                 self.generar_flota_realista()
                 self.generar_estaciones()
                 self.generar_consumo_realista()  # también genera la telemetría
+                self.aplicar_excepciones_de_odometro()
             else:
                 self.generar_flota()
                 self.generar_telemetria()

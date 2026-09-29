@@ -204,7 +204,7 @@ MODULOS = [
     {
         "titulo": "🔍 5. Análisis por hipótesis",
         "cuerpo": "Qué encuentran las reglas en los datos\n"
-                  "- Calidad de datos y vinculación\n- Una vista por hipótesis (H1 a H11)\n"
+                  "- Calidad de datos y vinculación\n- Una vista por hipótesis (H1 a H12)\n"
                   "- Antes y después: regla ingenua vs. con contexto",
         "que": "Para cada hipótesis muestra cuánto marca la regla ingenua y cuánto la regla con contexto, con los casos "
                "concretos, **sin usar** la verdad de referencia.",
@@ -230,7 +230,7 @@ MODULOS = [
         "cuerpo": "¿Cuánto aporta el contexto?\n"
                   "- Regla ingenua vs. regla con contexto\n- Falsas alarmas por casos legítimos\n"
                   "- Veredicto calculado de cada hipótesis",
-        "que": "Contrasta las doce hipótesis del escenario realista: cada una se sostiene si la regla con contexto "
+        "que": "Contrasta las trece hipótesis del escenario realista: cada una se sostiene si la regla con contexto "
                "mejora el F1 de la ingenua en al menos 0,10. El veredicto sale de los datos.",
         "por_que": "Es la evidencia central del proyecto: integrar fuentes y usar el contexto de cada vehículo, contrato "
                    "o dispositivo separa las irregularidades de los casos legítimos que se les parecen.",

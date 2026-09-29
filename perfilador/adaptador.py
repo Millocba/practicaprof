@@ -13,7 +13,7 @@ import re
 import pandas as pd
 
 from deteccion.reglas import GRUPO_DEPOSITO
-from perfilador.controles import leer_fecha_texto
+from perfilador.controles import acotar, leer_fecha_texto
 from perfilador.perfil import _normalizar_valor
 
 ESTACION_AJENA = "ESTACION AJENA"
@@ -26,7 +26,9 @@ FIRMAS = {
     "transacciones_facturadas": {"factura_id", "remito", "importe_yer"},
     "contratos": {"numero", "limite"},
     "periodos": {"id", "fecha_inicio", "fecha_fin"},
+    "excepciones_odometro": {"patente", "motivo", "activo", "fecha_hasta"},
 }
+HASTA_SIN_FECHA = "2100-01-01"   # una excepción activa sin fecha hasta rige indefinidamente
 
 
 def _texto(serie):
@@ -64,6 +66,8 @@ def adaptar(tablas, proveedor=None):
         "NumeroTarjeta": _texto(padron["NumeroTarjeta"]), "NumeroContrato": _numero(padron.get("NumeroContrato")),
         "Dependencia": padron.get("Dependencia"), "DireccionGral": padron.get("DireccionGral"),
         "FechaEstado": pd.NaT,     # la fuente no trae la fecha del cambio de estado
+        "ExcepcionOdometro": padron.get("ExcepcionOdometro"),
+        "FechaHastaExcepcionOdometro": padron.get("FechaHastaExcepcionOdometro"),
     }).dropna(subset=["Matricula"]).drop_duplicates("Matricula")
     por_tarjeta = flota.dropna(subset=["NumeroTarjeta"]).drop_duplicates("NumeroTarjeta").set_index("NumeroTarjeta")
     por_dominio = flota.assign(clave=flota["Dominio"].map(lambda d: _normalizar_valor(d) if pd.notna(d) else None)
@@ -165,6 +169,26 @@ def adaptar(tablas, proveedor=None):
             "facturas_con_contrato_pct": round(100 * datos["facturacion"]["contrato"].notna().mean(), 1),
             "lineas_con_carga_del_reporte_pct": round(
                 100 * datos["facturacion_detalle"]["referencia_consumo"].isin(datos["consumo"]["id"]).mean(), 1),
+        }
+
+    excepciones = buscar(tablas, "excepciones_odometro")
+    if excepciones is not None:
+        def dia(serie):
+            return pd.to_datetime(serie.astype("string").str.strip(), errors="coerce", format="mixed",
+                                  dayfirst=True).dt.strftime("%Y-%m-%d")
+        activo = excepciones["activo"].astype("string").str.strip().str.upper().isin(["SI", "1", "TRUE"])
+        hasta = dia(excepciones["fecha_hasta"])
+        datos["excepciones_odometro"] = pd.DataFrame({
+            "patente": _texto(excepciones["patente"]),
+            "activo": activo.map({True: "SI", False: "NO"}),
+            "fecha_creacion": dia(excepciones.get("fecha_creacion", pd.Series(pd.NA, index=excepciones.index))
+                                  ).fillna("1900-01-01"),
+            "fecha_hasta": hasta.where(hasta.notna() | ~activo, HASTA_SIN_FECHA),
+        })
+        diagnostico["excepciones_odometro"] = {
+            "excepciones": acotar(len(excepciones)),
+            "con_vehiculo_del_padron_pct": round(100 * datos["excepciones_odometro"]["patente"].map(
+                lambda d: _normalizar_valor(d) if pd.notna(d) else None).isin(por_dominio.index).mean(), 1),
         }
 
     dispositivos = buscar(tablas, "dispositivos")

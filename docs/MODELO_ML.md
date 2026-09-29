@@ -20,18 +20,18 @@ Cada carga de la cola viene con sus **motivos** ("cargó 140% de lo autorizado",
 
 ## Resultados
 
-Escenario realista, semilla 42: 7.078 cargas, 92 anomalías de comportamiento.
+Escenario realista, semilla 42: 7.086 cargas, 108 anomalías de comportamiento.
 
 | Método | Revisando 50: encontradas | Precisión | Casos legítimos revisados | Revisando 100: encontradas |
 |---|---|---|---|---|
-| Reglas ingenuas | 8 (9%) | 16% | 32 | 26 (28%) |
-| Isolation Forest | 11 (12%) | 22% | 10 | 20 (22%) |
-| Reglas con contexto | 43 (47%) | 86% | 1 | 87 (95%) |
-| Modelo supervisado | 50 (54%) | 100% | 0 | 76 (83%) |
-| **Combinado** | **50 (54%)** | **100%** | **0** | **87 (95%)** |
+| Reglas ingenuas | 11 (10%) | 22% | 30 | 26 (24%) |
+| Isolation Forest | 5 (5%) | 10% | 17 | 15 (14%) |
+| Reglas con contexto | 39 (36%) | 78% | 1 | 83 (77%) |
+| Modelo supervisado | 49 (45%) | 98% | 0 | 85 (79%) |
+| **Combinado** | **50 (46%)** | **100%** | **0** | **89 (82%)** |
 
-- El **Isolation Forest** rinde apenas mejor que las reglas ingenuas: las anomalías del escenario realista son sutiles, y los casos legítimos que se les parecen (tanques auxiliares, viajes largos) también son raros. Ser raro no alcanza para ser sospechoso.
-- El **combinado** acierta todo lo que revisa en las primeras 50 y, revisando 100, encuentra lo mismo que las reglas con contexto: las reglas aportan lo que sabemos explicar y el modelo, el orden.
+- El **Isolation Forest** rinde peor que las reglas ingenuas: las anomalías del escenario realista son sutiles, y los casos legítimos que se les parecen (tanques auxiliares, viajes largos) también son raros. Ser raro no alcanza para ser sospechoso.
+- El **combinado** acierta todo lo que revisa en las primeras 50 y, revisando 100, encuentra 89 contra 83 de las reglas con contexto: las reglas aportan lo que sabemos explicar y el modelo, el orden.
 
 ## Por qué estos modelos
 
@@ -40,7 +40,7 @@ Escenario realista, semilla 42: 7.078 cargas, 92 anomalías de comportamiento.
 **Random Forest.**
 
 - Trabaja bien con datos tabulares chicos y variables mezcladas (proporciones, km, indicadores de sí o no).
-- Maneja el desbalance: solo el 1,4% de las cargas son anomalías (`class_weight="balanced_subsample"`).
+- Maneja el desbalance: solo el 1,5% de las cargas son anomalías (`class_weight="balanced_subsample"`).
 - Da una probabilidad para ordenar y la importancia de cada variable para explicar.
 - No necesita un ajuste fino.
 
@@ -53,17 +53,17 @@ Variables que más pesan en el modelo supervisado:
 
 | Variable | Importancia |
 |---|---|
-| Rendimiento km/L frente al habitual del vehículo | 24% |
-| Cambio de odómetro desde la carga anterior | 17% |
-| Tanques cargados en el día | 13% |
-| Litros cargados / litros autorizados | 12% |
+| Rendimiento km/L frente al habitual del vehículo | 23% |
+| Cambio de odómetro desde la carga anterior | 18% |
+| Tanques cargados en el día | 11% |
+| Litros cargados / litros autorizados | 11% |
 
 Tienen sentido para un auditor, y eso permite confiar en el orden que propone.
 
 ## Cómo se entrena
 
-- **Datos de entrenamiento:** tres datasets realistas generados con **otras semillas** (1001, 1002 y 1003), como si fueran auditorías anteriores ya resueltas. Son 20.984 cargas, 285 anómalas.
-- **Variables:** 14 por carga, calculadas de las tablas y nunca de la verdad de referencia:
+- **Datos de entrenamiento:** tres datasets realistas generados con **otras semillas** (1001, 1002 y 1003), como si fueran auditorías anteriores ya resueltas. Son 21.005 cargas, 317 anómalas.
+- **Variables:** 15 por carga, calculadas de las tablas y nunca de la verdad de referencia:
   - litros frente al tanque y a lo habitual del vehículo;
   - km y retrocesos del odómetro;
   - rendimiento relativo;
@@ -71,7 +71,8 @@ Tienen sentido para un auditor, y eso permite confiar en el orden que propone.
   - distancia de la estación a la zona habitual y al recorrido GPS;
   - vehículo inactivo;
   - sin pedido en el registro interno;
-  - litros frente a lo autorizado.
+  - litros frente a lo autorizado;
+  - excepción de odómetro vigente.
 - **Cargas en otra red:** el registro interno anota también las cargas en estaciones de otros proveedores, con odómetro y litros. Se intercalan en la secuencia de cada vehículo para calcular los km y el rendimiento, pero no se puntúan: no están en el reporte.
 - **Etiqueta:** la carga tiene una anomalía de comportamiento. Las de calidad de datos y facturación quedan fuera: las cubren las reglas.
 - **Modelo:** Random Forest con 300 árboles; tarda menos de un minuto. Se aplica al dataset actual, cuyas etiquetas **nunca ve**.
@@ -101,5 +102,5 @@ Antes de la etapa 1, la **auditoría agregada** corre las reglas y los modelos s
 ## Limitaciones
 
 - El modelo aprende las anomalías tal como las inyecta el generador. Con datos reales los patrones serán otros: estos resultados son un **techo de referencia**, no una promesa de desempeño.
-- Frente a las reglas con contexto la mejora es chica (50 contra 43 revisando 50; empatan revisando 100). Su valor está en ordenar dentro de lo marcado y en rescatar casos que las reglas no ven.
-- Hay pocas anomalías para aprender: unas 90 por dataset. Con datos reales, la etapa 2 depende de cuántas revisiones se registren.
+- Frente a las reglas con contexto la mejora es chica (50 contra 39 revisando 50; 89 contra 83 revisando 100). Su valor está en ordenar dentro de lo marcado y en rescatar casos que las reglas no ven.
+- Hay pocas anomalías para aprender: unas 110 por dataset. Con datos reales, la etapa 2 depende de cuántas revisiones se registren.

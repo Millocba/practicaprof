@@ -32,11 +32,11 @@ from deteccion.reglas import reglas_del_dataset
 
 REGLAS_INGENUAS = ["litros_mayor_a_tanque", "odometro_disminuye", "salto_historial_vehiculo",
                    "fraccionamiento_diario", "rendimiento_bajo_odometro", "carga_lejos_de_base",
-                   "cruce_por_dominio_y_dia"]
+                   "cruce_por_dominio_y_dia", "odometro_sin_avance"]
 REGLAS_CONTEXTO = ["exceso_sin_antecedente", "retroceso_con_contexto", "salto_con_contexto",
                    "fraccionamiento_sin_recorrido", "rendimiento_bajo_gps", "carga_vehiculo_inactivo",
                    "carga_lejos_del_gps", "carga_sin_registro", "carga_de_registro_anulado", "desacuerdo_de_litros",
-                   "supera_autorizado_con_tolerancia"]
+                   "supera_autorizado_con_tolerancia", "sin_avance_sin_excepcion"]
 REGLAS_FACTURACION = ["factura_no_concilia", "pdf_no_concilia", "linea_sin_consumo", "linea_duplicada", "sobreprecio",
                       "precio_de_surtidor", "producto_no_combustible"]
 
@@ -48,7 +48,8 @@ SEMILLAS_ENTRENAMIENTO = [1001, 1002, 1003]
 
 def _variables_y_reglas(dataset):
     variables = construir_variables(dataset["flota"], dataset["consumo"], dataset.get("estaciones"),
-                                    dataset.get("telemetria_diaria"), dataset.get("solicitudes"))
+                                    dataset.get("telemetria_diaria"), dataset.get("solicitudes"),
+                                    dataset.get("excepciones_odometro"))
     alertas = reglas_del_dataset(dataset)
     return variables, alertas
 
@@ -66,7 +67,8 @@ def datos_de_entrenamiento(semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200):
                 raise RuntimeError(resultado["error"])
             dataset = cargar_dataset(directorio)
         variables = construir_variables(dataset["flota"], dataset["consumo"], dataset["estaciones"],
-                                        dataset["telemetria_diaria"], dataset["solicitudes"])
+                                        dataset["telemetria_diaria"], dataset["solicitudes"],
+                                        dataset.get("excepciones_odometro"))
         anomalas = ids_con_anomalia_de_comportamiento(dataset["ground_truth"])
         partes_x.append(variables)
         partes_y.append(pd.Series(variables.index.isin(list(anomalas)).astype(int), index=variables.index))

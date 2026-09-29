@@ -21,6 +21,7 @@ from deteccion.reglas import (
     distancia_a_zona_habitual,
     distancia_al_recorrido_gps,
     ejecutar_reglas,
+    cargas_exceptuadas,
     cargas_fuera_del_reporte,
     cruzar_registro,
     secuencia_odometro,
@@ -31,7 +32,7 @@ REGLAS_COMPORTAMIENTO = ["litros_mayor_a_tanque", "odometro_disminuye", "salto_h
 
 # Hipótesis de comportamiento (las de calidad de datos y vinculación, CALIDAD y H1,
 # no son problemas de detección de outliers)
-HIPOTESIS_COMPORTAMIENTO = {"H2", "H3a", "H4", "H5", "H6", "H7", "H8"}
+HIPOTESIS_COMPORTAMIENTO = {"H2", "H3a", "H4", "H5", "H6", "H7", "H8", "H12"}
 
 VARIABLES = {
     "ratio_litros_tanque": "litros cargados / capacidad del tanque",
@@ -52,10 +53,12 @@ VARIABLES_CONTEXTO = {
     "vehiculo_inactivo": "1 si la carga es posterior a la baja o salida de servicio",
     "sin_solicitud": "1 si la carga no tiene pedido en el registro interno (por dominio o persona y horario)",
     "litros_vs_autorizado": "litros cargados / litros autorizados en su pedido (1 si no tiene)",
+    "odometro_exceptuado": "1 si el vehículo tiene una excepción de odómetro vigente ese día",
 }
 
 
-def construir_variables(flota, consumo, estaciones=None, telemetria_diaria=None, solicitudes=None):
+def construir_variables(flota, consumo, estaciones=None, telemetria_diaria=None, solicitudes=None,
+                        excepciones=None):
     """Una fila por transacción con las variables del modelo.
 
     Las transacciones sin carga anterior válida (primera del vehículo, odómetro
@@ -102,6 +105,7 @@ def construir_variables(flota, consumo, estaciones=None, telemetria_diaria=None,
     desde = pd.Series(pd.to_datetime(inactivos.set_index("Matricula")["FechaEstado"])
                       .reindex(consumo["vehiculo_id"]).to_numpy(), index=consumo.index)
     variables["vehiculo_inactivo"] = (pd.to_datetime(consumo["fecha"]) >= desde).astype(int).values
+    variables["odometro_exceptuado"] = variables.index.isin(list(cargas_exceptuadas(consumo, flota, excepciones))).astype(int)
 
     if solicitudes is not None and "rendido" in solicitudes.columns:
         pares, _ = cruzar_registro(consumo, solicitudes, excluir_ids=duplicados, flota=flota)

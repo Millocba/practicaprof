@@ -19,7 +19,8 @@ from deteccion.datos import cargar_dataset
 from deteccion.hipotesis import hipotesis_del_escenario, reglas_de
 from deteccion.modelo import construir_variables, entrenar_isolation_forest, ids_con_anomalia_de_comportamiento
 from deteccion.priorizacion import REGLAS_CONTEXTO, entrenar_supervisado
-from deteccion.reglas import ESTACION_AJENA, cargas_fuera_del_reporte, cruzar_registro, leer_fecha, reglas_del_dataset
+from deteccion.reglas import (ESTACION_AJENA, cargas_exceptuadas, cargas_fuera_del_reporte, cruzar_registro,
+                              leer_fecha, reglas_del_dataset)
 from perfilador.adaptador import adaptar
 from perfilador.controles import acotar
 from perfilador.perfil import MINIMO_GRUPO, VERSION, dos_cifras
@@ -55,7 +56,8 @@ def _cuantiles(serie):
 
 def _variables(datos):
     """Variables del modelo con las mismas fuentes que tiene la fuente real (sin estaciones ni GPS diario)."""
-    return construir_variables(datos["flota"], datos["consumo"], None, None, datos.get("solicitudes"))
+    return construir_variables(datos["flota"], datos["consumo"], None, None, datos.get("solicitudes"),
+                               datos.get("excepciones_odometro"))
 
 
 def _modelo_sintetico(semillas, n_flota):
@@ -85,6 +87,24 @@ def _unidad(ids, datos):
         if df is not None and ids and set(ids) <= set(df[columna]):
             return tabla, len(df)
     return None, 0
+
+
+def _odometro(datos, alertas):
+    """Excepciones de odómetro (H12): cuántos vehículos están exceptuados y cuántas cargas cubren."""
+    flota, consumo = datos["flota"], datos["consumo"]
+    exceptuadas = cargas_exceptuadas(consumo, flota, datos.get("excepciones_odometro"))
+    sin_avance = set(alertas.loc[alertas["regla"] == "odometro_sin_avance", "id_registro"])
+    sin_excepcion = set(alertas.loc[alertas["regla"] == "sin_avance_sin_excepcion", "id_registro"])
+    si = flota["ExcepcionOdometro"].astype("string").str.strip().str.upper().eq("SI") \
+        if "ExcepcionOdometro" in flota.columns else pd.Series(False, index=flota.index)
+    return {
+        "vehiculos_exceptuados_hoy": acotar(int(si.sum())),
+        "cargas_con_excepcion_vigente": acotar(len(exceptuadas)),
+        "cargas_sin_avance": acotar(len(sin_avance)),
+        "sin_avance_con_excepcion": acotar(len(sin_avance & exceptuadas)),
+        "sin_avance_el_mismo_dia_o_con_excepcion": acotar(len(sin_avance - sin_excepcion)),
+        "sin_avance_sin_excepcion": acotar(len(sin_excepcion)),
+    }
 
 
 def _cobertura(datos, alertas, registro_del_periodo=None):
@@ -173,6 +193,7 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
             len(datos["facturacion_detalle"])) if len(datos["facturacion_detalle"]) else None
 
     alertas = reglas_del_dataset(datos)
+    diagnostico["odometro"] = _odometro(datos, alertas)
     diagnostico["cobertura"] = _cobertura(datos, alertas, registro_del_periodo if registro is not None else None)
     por_regla = {}
     for regla, grupo in alertas.groupby("regla"):

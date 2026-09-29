@@ -71,6 +71,7 @@ python -m perfilador auditar /ruta/de/los/archivos --base-url-env VARIABLE --pro
   - cuantiles de las variables del modelo, reales frente a sintéticos, para ver si el modelo generaliza;
   - coincidencias entre los métodos en las 100 cargas más prioritarias;
   - diagnósticos de la traducción;
+  - **odómetro** (`diagnostico.odometro`): vehículos exceptuados hoy, cargas con excepción vigente y cargas sin avance, separadas en las cubiertas por una excepción o del mismo día y las que no tienen justificación (H12). Usa `ExcepcionOdometro` y `FechaHastaExcepcionOdometro` del padrón y el historial de excepciones si está;
   - **alcance y cobertura** (`diagnostico.cobertura`): de qué red es cada fuente (el reporte, la facturación y los contratos, de un proveedor; el registro interno, de todas), cargas, pedidos y líneas facturadas por mes, qué parte de los vehículos del registro aparece en el reporte, si los pedidos rendidos sin carga son de vehículos que el reporte trae ese mes y cuántas cargas de otra red cierran tramos de odómetro.
 - **Privacidad:** los conteos de 1 a 19 se informan como `1–19`. No sale ningún identificador, carga, vehículo ni persona.
 - **Qué no corre:** las hipótesis cuyos datos no están en la fuente, es decir, la ubicación de las estaciones (H7), el GPS diario, la fecha del cambio de estado (H6) y las transferencias (H10). El diagnóstico lo informa.
