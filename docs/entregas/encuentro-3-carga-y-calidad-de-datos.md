@@ -49,7 +49,7 @@ Ninguna hipótesis del mapa original quedó descartada. H1, H2 y H3 evolucionaro
 
 ### 3.1 Generador oficial y escenarios
 
-Se consolidó un único generador (`generator_pipeline_maestro.py`), que reemplaza las versiones anteriores conservadas en `legacy/`. Produce cinco entidades relacionadas (flota, telemetría, consumo, solicitudes y facturación) junto con un `ground_truth.csv` que registra cada anomalía inyectada. La misma semilla reproduce siempre los mismos datos.
+Se consolidó un único generador (`generator_pipeline_maestro.py`), que reemplaza las versiones anteriores conservadas en `legacy/`. En el escenario didáctico produce cinco entidades relacionadas (flota, telemetría, consumo, solicitudes y facturación) junto con un `ground_truth.csv` que registra cada anomalía inyectada. El escenario realista amplía ese modelo con estaciones, contratos, transferencias, telemetría diaria, excepciones de odómetro, detalle de facturación y casos legítimos (ver `docs/DICCIONARIO_DATOS.md`). La misma semilla reproduce siempre los mismos datos.
 
 El generador ofrece dos escenarios:
 
@@ -72,7 +72,26 @@ Se construyó una base de datos SQLite (`base_datos/`) para el escenario realist
 
 El paquete `deteccion/` implementa reglas ingenuas, reglas con contexto, un Isolation Forest y un modelo supervisado, evaluados siempre contra el ground truth del generador. En el escenario didáctico, la línea base de reglas alcanza F1 1,00 (funciona como techo de referencia, porque se diseñó conociendo cómo se inyectan las anomalías) y el Isolation Forest alcanza F1 0,77.
 
-Sobre el escenario realista se agregó además la priorización de revisión: combinando reglas con contexto y el modelo supervisado, revisando 100 casos se encuentra el 100 % de las anomalías de comportamiento en las cargas (frente al 75 % de las reglas ingenuas solas y al 37 % del Isolation Forest).
+Sobre el escenario realista se agregó además la priorización de revisión: qué proporción de las anomalías de comportamiento en las cargas encuentra cada método según cuántos casos se revisan (promedio de 5 semillas, ~103 anomalías por dataset; con 50 revisiones el máximo posible es 49 %, porque hay más de 100 anomalías):
+
+| Método | Revisando 50 | Revisando 100 |
+| :--- | :--- | :--- |
+| Reglas ingenuas | 12 % | 23 % |
+| Isolation Forest | 11 % | 17 % |
+| Reglas con contexto | 44 % | 85 % |
+| Modelo supervisado | 48 % | 80 % |
+| Combinado (reglas con contexto + modelo) | 48 % | 88 % |
+
+### 3.5 Resultados agregados sobre fuentes reales
+
+Sin incorporar filas reales al proyecto, las auditorías agregadas aprobadas (`perfiles/aprobados/auditoria_2026-09-29.json` y `auditoria_2026-09-30.json`) permitieron contrastar el generador contra el comportamiento real de una flota:
+
+- El reporte de consumo real cubre 67 de 217 días.
+- El 96,6 % de las cargas encuentra su pedido correspondiente en el registro interno.
+- En agosto, el único mes completo del reporte, el 100 % de las líneas facturadas tiene su carga asociada.
+- H12 (excepción de odómetro) detecta 827 cargas sin avance de odómetro y sin excepción vigente.
+
+Estos resultados, todos agregados, se usaron para recalibrar la forma de cargar del generador (versión 2.2). El detalle completo está en `docs/BITACORA.md`, entradas del 29 y el 30 de septiembre.
 
 ## 4. Producto y Gestión
 
@@ -93,7 +112,7 @@ El backlog analítico pasó de tres hipótesis en formulación conceptual a trec
 | Perfilador | Comparación agregada contra fuentes externas | `perfilador/`, `perfiles/` |
 | Detección | Reglas, modelos, evaluación y priorización | `deteccion/` |
 | Aplicación | Exploración, análisis por hipótesis y documentación viva | `streamlit_app/` |
-| Pruebas automatizadas | Generador, reglas, modelo, base de datos y páginas | `tests/` (ejecutan en cada push) |
+| Pruebas automatizadas | Generador, reglas, modelo, base de datos y páginas | `tests/` (corren en cada push a `main` y a ramas `dev-*`, y en cada pull request) |
 
 ### 4.3 Ciclo de CRISP-DM
 
