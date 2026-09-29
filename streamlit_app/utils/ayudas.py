@@ -39,3 +39,17 @@ def seccion(titulo, ayuda=None, nivel=2):
 def subtitulo(titulo, ayuda=None, nivel=3):
     """Igual que `seccion`, para los títulos internos de una sección."""
     seccion(titulo, ayuda, nivel=nivel)
+
+
+def tarjeta(titulo, cuerpo, ayuda):
+    """Tarjeta de un módulo: título con un "?" al lado que despliega la ayuda, y el resumen debajo.
+
+    Pensada para ir dentro de una columna (usa un nivel de columnas propio).
+    """
+    columna_titulo, columna_ayuda = st.columns([6, 1], vertical_alignment="center")
+    with columna_titulo:
+        st.markdown(f"### {titulo}")
+    with columna_ayuda:
+        with st.popover(ICONO_AYUDA, help=f"¿Para qué sirve {titulo.split(' ', 2)[-1]}?"):
+            st.markdown(ayuda)
+    st.markdown(cuerpo)

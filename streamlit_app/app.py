@@ -16,7 +16,7 @@ sys.path.insert(0, str(utils_path))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from deteccion.reglas import normalizar_dominio  # noqa: E402
-from ayudas import seccion  # noqa: E402
+from ayudas import seccion, tarjeta  # noqa: E402
 from data_loader import (
     NOMBRES_ESCENARIO,
     selector_escenario,
@@ -147,97 +147,124 @@ except Exception as e:
 st.markdown("---")
 seccion(
     "ℹ️ Navegación",
-    ayuda="Las páginas y para qué sirve cada una. No es un orden obligatorio: _generador y "
-          "datasets son de preparación, el diccionario y el perfilador describen los datos, y "
-          "las de análisis y priorización van al final. Si querés entender el método de punta a "
-          "punta, seguí el orden en que están; si ya sabés qué buscás, entrá directo por donde "
-          "corresponda.")
-col1, col2, col3 = st.columns(3)
+    ayuda="Las nueve páginas, en el mismo orden que la barra lateral. Cada tarjeta tiene su **?** con "
+          "qué hace, por qué existe y un consejo.\n\n"
+          "**Ruta sugerida** para entender el método de punta a punta:\n"
+          "1. **Generador** y **Datasets**: de dónde salen los datos y qué contienen.\n"
+          "2. **Análisis por hipótesis**: lo que encuentran las reglas, como lo vería un auditor.\n"
+          "3. **Detección** e **Hipótesis**: cuánto de eso era cierto y cuánto aporta el contexto.\n"
+          "4. **Modelo de ML**: qué revisar primero con un presupuesto limitado.\n\n"
+          "**Diccionario**, **Perfil de fuentes** y **Documentación** son de consulta: entrá cuando "
+          "necesites una definición, el origen de las proporciones o el estado del proyecto.")
 
-with col1:
-    st.markdown("""
-    ### 🎯 1. Generador
-    Ejecuta el pipeline maestro de entidades sintéticas
-    - Configura cantidad de vehículos y seed
-    - Visualiza resultados
-    - Descarga archivos
-    """)
+MODULOS = [
+    {
+        "titulo": "🎯 1. Generador",
+        "cuerpo": "Crea los datos sintéticos del proyecto\n"
+                  "- Escenario didáctico o realista\n- Cantidad de vehículos y semilla\n- Descarga de archivos",
+        "que": "Ejecuta el generador maestro: flota, telemetría, cargas, registro interno, contratos, facturación, "
+               "la verdad de referencia (las anomalías que inyectó) y los casos legítimos que se les parecen.",
+        "por_que": "El proyecto no usa datos reales: todo sale de acá y se puede reproducir con la semilla. El "
+                   "escenario realista está calibrado con el perfil agregado de fuentes reales.",
+        "consejo": "Con la misma semilla los datos son idénticos. Cambiar la semilla o la cantidad de vehículos "
+                   "sirve para ver si las conclusiones se sostienen; los números de las demás páginas cambian.",
+    },
+    {
+        "titulo": "📋 2. Datasets",
+        "cuerpo": "Explora y filtra los datos del proyecto\n"
+                  "- Cada tabla con su grano y su clave\n- Filtros y búsquedas\n- Exportación",
+        "que": "Muestra cada tabla generada, con su grano (qué representa una fila), su clave y la descripción de "
+               "cada columna, con filtros y exportación.",
+        "por_que": "Antes de analizar conviene conocer qué hay y cómo viene: formatos, faltantes, relaciones.",
+        "consejo": "La verdad de referencia y los casos legítimos son tablas de **evaluación**: las reglas y los "
+                   "modelos no las ven, solo se usan para medirlos.",
+    },
+    {
+        "titulo": "📖 3. Diccionario de datos",
+        "cuerpo": "Qué contiene cada tabla\n"
+                  "- Grano, clave y columnas\n- Diagrama de relaciones\n- Catálogos de anomalías y casos legítimos",
+        "que": "Presenta las tablas, sus columnas y relaciones (con diagrama) y los catálogos de anomalías y de casos "
+               "legítimos, a partir del diccionario que escribe el generador junto a los datos.",
+        "por_que": "Es la referencia común del equipo: qué significa cada columna y cómo se vinculan las fuentes.",
+        "consejo": "Las flechas punteadas no son claves: el registro interno y el reporte del proveedor no comparten "
+                   "ningún identificador y se cruzan por dominio y horario, como en la realidad.",
+    },
+    {
+        "titulo": "🔬 4. Perfil de fuentes",
+        "cuerpo": "Qué le falta al generador\n"
+                  "- Estructura y calidad, sin guardar datos\n- Comparación con los datos sintéticos\n"
+                  "- Informe de brechas",
+        "que": "Describe una fuente real solo con agregados (tipos, formatos, faltantes, proporciones, relaciones) y "
+               "la compara con los datos sintéticos.",
+        "por_que": "Acercar el generador a la realidad sin traer datos reales al proyecto. De acá salieron los estados "
+                   "de la flota, la telemetría por estado, los litros por carga y las demás proporciones.",
+        "consejo": "En la app publicada no se pueden subir archivos (irían a un servidor externo): el perfil se genera "
+                   "en la máquina donde están los datos y una persona lo aprueba antes de versionarlo.",
+    },
+    {
+        "titulo": "🔍 5. Análisis por hipótesis",
+        "cuerpo": "Qué encuentran las reglas en los datos\n"
+                  "- Calidad de datos y vinculación\n- Una vista por hipótesis (H1 a H12)\n"
+                  "- Antes y después: regla ingenua vs. con contexto",
+        "que": "Para cada hipótesis muestra cuánto marca la regla ingenua y cuánto la regla con contexto, con los casos "
+               "concretos, **sin usar** la verdad de referencia.",
+        "por_que": "Es la vista del auditor: lo que se vería trabajando con datos reales, donde no se sabe de antemano "
+                   "qué es irregular.",
+        "consejo": "Empezá por el Resumen. Que la regla con contexto marque menos no prueba que sea mejor: eso se "
+                   "valida en Detección e Hipótesis.",
+    },
+    {
+        "titulo": "🎯 6. Detección",
+        "cuerpo": "Reglas evaluadas contra el ground truth\n"
+                  "- Precisión, recall y F1 por tipo y por regla\n- Origen de cada falsa alarma\n"
+                  "- Explorador de errores",
+        "que": "Compara lo que marcan las reglas con las anomalías que inyectó el generador y clasifica cada falsa "
+               "alarma: caso legítimo, otra anomalía o carga normal.",
+        "por_que": "Detectar es concluir que algo parece anómalo; evaluar es medir si lo era. Esta página hace lo "
+                   "segundo.",
+        "consejo": "Un F1 alto con datos del mismo generador que define las reglas es un **techo de referencia**, no el "
+                   "desempeño esperable con datos reales.",
+    },
+    {
+        "titulo": "🧪 7. Hipótesis",
+        "cuerpo": "¿Cuánto aporta el contexto?\n"
+                  "- Regla ingenua vs. regla con contexto\n- Falsas alarmas por casos legítimos\n"
+                  "- Veredicto calculado de cada hipótesis",
+        "que": "Contrasta las trece hipótesis del escenario realista: cada una se sostiene si la regla con contexto "
+               "mejora el F1 de la ingenua en al menos 0,10. El veredicto sale de los datos.",
+        "por_que": "Es la evidencia central del proyecto: integrar fuentes y usar el contexto de cada vehículo, contrato "
+                   "o dispositivo separa las irregularidades de los casos legítimos que se les parecen.",
+        "consejo": "Mirá la columna de falsas alarmas por casos legítimos: ahí se ve mejor el aporte del contexto "
+                   "(por ejemplo, H8 baja de cientos a cero).",
+    },
+    {
+        "titulo": "🤖 8. Modelo de ML",
+        "cuerpo": "Qué revisar primero\n"
+                  "- Cola de revisión con motivos\n- Curva de esfuerzo por método\n- Vehículos y facturas a revisar",
+        "que": "Ordena las cargas por prioridad de revisión con reglas, Isolation Forest, un modelo supervisado "
+               "entrenado con datasets de otras semillas y una combinación, y muestra la curva de esfuerzo.",
+        "por_que": "Nadie revisa todo: con un presupuesto limitado de revisiones, importa en qué orden se mira.",
+        "consejo": "Mové el presupuesto y compará cuántas anomalías encuentra cada método revisando la misma cantidad "
+                   "de casos. La primera vez, el modelo supervisado tarda unos segundos en entrenarse.",
+    },
+    {
+        "titulo": "📚 9. Documentación",
+        "cuerpo": "La documentación con valores actuales\n"
+                  "- Estado actual del proyecto\n- Bitácora de cambios\n- Descarga en .md o .zip",
+        "que": "Muestra los documentos del proyecto con variables que toman los valores de los datos en uso, la "
+               "bitácora con el historial de git y la descarga de uno o de todos.",
+        "por_que": "Tener el marco del proyecto al día para presentaciones y seguimiento, sin copiar números a mano.",
+        "consejo": "**Estado actual** se completa solo con los datos en uso; la **bitácora** registra cada cambio con "
+                   "su motivo. Si regenerás con otra semilla, el estado cambia y la bitácora no.",
+    },
+]
 
-with col2:
-    st.markdown("""
-    ### 📋 2. Datasets
-    Explora y filtra los datos del proyecto
-    - Visualiza toda la información
-    - Aplica filtros y búsquedas
-    - Exporta datos
-    """)
-
-with col3:
-    st.markdown("""
-    ### 🔍 3. Análisis por hipótesis
-    Qué encuentran las reglas en los datos
-    - Calidad de datos y vinculación
-    - Una vista por hipótesis (H1 a H11)
-    - Antes y después: regla ingenua vs. con contexto
-    """)
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    st.markdown("""
-    ### 🎯 4. Detección
-    Reglas base evaluadas contra el ground truth
-    - Precision, recall y F1 por tipo y por regla
-    - Umbral fijo vs. historial del vehículo
-    - Explorador de errores
-    """)
-
-with col2:
-    st.markdown("""
-    ### 🧪 5. Hipótesis
-    Análisis del escenario realista
-    - Regla ingenua vs. regla con contexto
-    - Falsas alarmas por casos legítimos
-    - Veredicto de cada hipótesis
-    """)
-
-with col3:
-    st.markdown("""
-    ### 🤖 6. Modelo de ML
-    Qué revisar primero
-    - Cola de revisión con motivos
-    - Curva de esfuerzo por método
-    - Vehículos a auditar
-    """)
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    st.markdown("""
-    ### 📖 7. Diccionario de datos
-    Qué contiene cada tabla
-    - Grano, clave y columnas
-    - Diagrama de relaciones
-    - Catálogos de anomalías y casos legítimos
-    """)
-
-with col2:
-    st.markdown("""
-    ### 📚 8. Documentación
-    La documentación con valores actuales
-    - Estado actual del proyecto
-    - Bitácora de cambios
-    - Descarga en .md o .zip
-    """)
-
-with col3:
-    st.markdown("""
-    ### 🔬 9. Perfil de fuentes
-    Qué le falta al generador
-    - Estructura y calidad, sin guardar datos
-    - Comparación con los datos sintéticos
-    - Informe de brechas con sugerencias
-    """)
+for fila in range(0, len(MODULOS), 3):
+    for columna, modulo in zip(st.columns(3), MODULOS[fila:fila + 3]):
+        with columna:
+            tarjeta(modulo["titulo"], modulo["cuerpo"],
+                    f"**Qué hace.** {modulo['que']}\n\n**Por qué.** {modulo['por_que']}\n\n"
+                    f"**Consejo.** {modulo['consejo']}")
 
 # Status boxes (computed from the loaded data, not hardcoded)
 st.markdown("---")

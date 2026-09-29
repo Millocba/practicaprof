@@ -49,6 +49,8 @@ El entorno del proyecto no recibe filas reales. Un futuro perfilador autorizado 
 
 El paquete `perfilador/` aplica estas reglas a archivos CSV o Excel: se ejecuta en la máquina donde están los archivos, los lee en memoria y escribe solo el perfil agregado en `perfiles/pendientes/`, que no se versiona. Un perfil pasa a `perfiles/aprobados/` únicamente con la revisión manual registrada (responsable y fecha). La página **Perfil de fuentes** de la aplicación solo acepta archivos cuando corre en la máquina local; en la aplicación publicada acepta perfiles ya generados. El procedimiento está en [perfiles/README.md](../perfiles/README.md).
 
+Cada fuente real tiene su alcance, y un resultado vale solo dentro de él: el reporte de consumo, la facturación y los contratos disponibles son de un solo proveedor; el registro interno anota las cargas de todas las redes. La auditoría agregada informa ese alcance y la cobertura de cada fuente por mes.
+
 ## Criterio de detención
 
 Si una estadística permite reconocer una persona, activo, lugar o evento, no sale del entorno controlado. Si existe duda, se considera sensible.

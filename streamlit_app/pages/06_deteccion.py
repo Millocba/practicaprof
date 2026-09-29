@@ -49,10 +49,11 @@ if flota.empty or consumo.empty or ground_truth.empty:
 
 @st.cache_data
 def calcular(flota, consumo, ground_truth, estaciones, telemetria_diaria, legitimos, solicitudes,
-             facturacion, facturacion_detalle, contratos=None, transferencias=None, telemetria=None):
+             facturacion, facturacion_detalle, contratos=None, transferencias=None, telemetria=None,
+             excepciones=None):
     alertas = ejecutar_reglas(flota, consumo, estaciones, telemetria_diaria, solicitudes, facturacion,
                               facturacion_detalle, contratos=contratos, transferencias=transferencias,
-                              telemetria=telemetria)
+                              telemetria=telemetria, excepciones=excepciones)
     por_regla = evaluar_por_regla(alertas, ground_truth)
     if legitimos is not None:
         ids_legitimos = set(legitimos["id_registro"])
@@ -74,7 +75,8 @@ def calcular(flota, consumo, ground_truth, estaciones, telemetria_diaria, legiti
 alertas, por_tipo, por_regla = calcular(flota, consumo, ground_truth, datos["estaciones"],
                                         datos["telemetria_diaria"], legitimos, datos["solicitudes"],
                                         datos["facturacion"], datos["facturacion_detalle"],
-                                        datos["contratos"], datos["transferencias"], datos["telemetria"])
+                                        datos["contratos"], datos["transferencias"], datos["telemetria"],
+                                        datos["excepciones_odometro"])
 
 if escenario == "didactico":
     st.warning(
@@ -94,9 +96,10 @@ else:
 # KPIs
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Transacciones analizadas", f"{len(consumo):,}",
-            help="Cargas de combustible que entraron al análisis. Es el denominador de todas "
-                 "las tasas de esta página: un recall del 80% significa que de cada 100 "
-                 "cargas reales se detectaron 80, no que se detectaron 80 en total.")
+            help="Cargas de combustible que entraron al análisis. Las tasas no se calculan "
+                 "sobre este total: un recall del 80% significa que se detectaron 80 de cada "
+                 "100 anomalías reales, y una precisión del 80%, que 80 de cada 100 alertas "
+                 "eran anomalías.")
 col2.metric("Anomalías en el ground truth", f"{len(ground_truth):,}",
             help="Anomalías que el generador inyectó a propósito y dejó anotadas. Son la verdad "
                  "de referencia: ninguna regla las ve, solo se usan para medir después.")

@@ -292,7 +292,7 @@ try:
         ayuda="Inventario de los archivos generados: cuántas filas y columnas tiene cada tabla, "
               "cuánto pesa y cuántos valores nulos contiene. El inventario cubre las entidades "
               "operativas, no las tablas de evaluación: `ground_truth` y `casos_legitimos` se "
-              "consultan en las páginas de Detección y de Conjuntos de hipótesis. Un **nulo** no "
+              "consultan en las páginas de Detección y de Hipótesis. Un **nulo** no "
               "siempre es un error: el generador deja vacíos algunos campos a propósito para que "
               "las reglas de calidad tengan algo que encontrar, y `metadata.json` registra esa "
               "fecha de corte.")

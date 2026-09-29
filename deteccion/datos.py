@@ -4,6 +4,7 @@ from pathlib import Path
 import pandas as pd
 
 ARCHIVOS = ["flota", "consumo", "ground_truth", "casos_legitimos", "estaciones", "telemetria", "telemetria_diaria",
+            "excepciones_odometro",
             "solicitudes", "facturacion", "facturacion_detalle", "contratos", "transferencias"]
 
 
