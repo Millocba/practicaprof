@@ -40,7 +40,7 @@ DIRECTORIOS_ESCENARIO = {
 SEED = 42
 # Versión de los datos que produce el generador: cambiarla cuando cambie lo que genera, así la
 # aplicación regenera los datos que tenga en disco de una versión anterior
-VERSION_GENERADOR = "2.1"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md); 2.1: horas del día en el orden del odómetro
+VERSION_GENERADOR = "2.2"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md); 2.1: horas del día en el orden del odómetro; 2.2: forma de cargar calibrada
 
 # Ventana temporal de los datos: consumos y solicitudes entre FECHA_INICIO y
 # FECHA_INICIO + DIAS_VENTANA. FECHA_REFERENCIA hace de "ahora" para la telemetría.
@@ -212,8 +212,25 @@ N_RUTAS = 5
 FRACCIONES_RUTA = [0.25, 0.45, 0.65, 0.85, 1.0]  # una estación en cada tramo de la ruta
 TASA_DIAS_SIN_SENAL = 0.03      # días en que el dispositivo no reporta
 PROB_DIA_SIN_USO = 0.25
-PROB_CARGA_PARCIAL = 0.25
+# Forma de cargar, calibrada con la auditoría agregada de las fuentes (docs/BITACORA.md, 2026-09-29):
+# la flota carga seguido y completa el tanque (unas 7 cargas por mes por vehículo en servicio,
+# 59% del tanque y 35 L por carga en la mediana y un rendimiento estable entre cargas)
+PROB_CARGA_PARCIAL = 0.0        # la fuente casi no muestra cargas parciales: la siguiente parecería un rendimiento imposible
+CARGA_PARCIAL = (0.6, 0.9)      # nivel del tanque, en fracción, al que llega una carga parcial
 RESERVA_TANQUE = 0.05           # fracción del tanque en la que el vehículo obliga a cargar
+UMBRAL_CARGA = (0.25, 0.7)      # nivel por debajo del cual cada vehículo carga al final del día
+UMBRAL_CARGA_POR_TIPO = {"MOTOCICLETA": (0.1, 0.3)}  # con un tanque chico se carga casi vacío
+VARIACION_KM_DIA = (0.3, 2.2)   # km del día respecto de los habituales del vehículo
+PROB_SEGUNDO_TURNO = 0.04       # días con carga en que el vehículo sigue en otro turno y vuelve a cargar
+KM_SEGUNDO_TURNO = (0.4, 1.0)   # km del segundo turno respecto de los habituales del día
+FACTOR_KM_DIA = 1.6             # escala de los km habituales por día de cada tipo de vehículo
+FACTOR_KM_POR_TIPO = {"MOTOCICLETA": 1.0, "PICK-UP": 2.2}  # la fuente: 35 L por carga en la mediana, 17% de menos de 10 L
+
+# Casos legítimos que en la fuente son una proporción de las cargas, no una cantidad por vehículo
+PROPORCION_DE_CARGAS = {
+    "TARJETA_PERSONAL": 0.011,      # cargas con tarjeta personal (fuente: 1,1%)
+    "ESTACION_AJENA": 0.075,        # cargas en otra red, solo en el registro (fuente: 7,2% de los pedidos)
+}
 
 # Cantidad de casos por cada 200 vehículos (escala con n_flota)
 EVENTOS_REALISTA = {
@@ -236,8 +253,6 @@ EVENTOS_REALISTA = {
     "DESACUERDO_DE_LITROS": 6,      # el registro declara de 2 a 18 L distintos que la carga
     "CARGA_SUPERA_AUTORIZADO": 6,   # 15% a 50% más que lo autorizado
     "PENDIENTE_DE_RENDICION": 37,   # legítimos: ~1,1% de las cargas (fuente)
-    "TARJETA_PERSONAL": 40,         # legítimos: ~1,2% de las cargas (fuente)
-    "ESTACION_AJENA": 240,          # legítimos: ~7% de los registros (fuente)
     "REGISTRO_REHECHO": 27,         # legítimos: con los anulados con carga, ~0,9% de registros anulados (fuente)
     "TOLERANCIA_MEDICION": 10,      # legítimos: 1% a 3% más que lo autorizado
     "TOTAL_INFLADO": 2,             # facturas
@@ -1016,9 +1031,9 @@ class GeneradorMaestro:
             # Uso real del vehículo: guía la simulación pero no forma parte de los datos
             self._perfiles[matricula] = {
                 "rendimiento": rng.uniform(*rendimiento),
-                "km_dia": rng.uniform(*km_dia),
+                "km_dia": rng.uniform(*km_dia) * FACTOR_KM_POR_TIPO.get(tipo, FACTOR_KM_DIA),
                 "base": (rng.uniform(*ZONA_BASE["lat"]), rng.uniform(*ZONA_BASE["lon"])),
-                "umbral_carga": rng.uniform(0.15, 0.35),
+                "umbral_carga": rng.uniform(*UMBRAL_CARGA_POR_TIPO.get(tipo, UMBRAL_CARGA)),
             }
 
         df = pd.DataFrame(rows)
@@ -1132,10 +1147,10 @@ class GeneradorMaestro:
                 "_capacidad": cap_reg, "_orden": len(cargas),
             })
 
-        def cargar(fecha, pos, dia):
+        def cargar(fecha, pos, dia, completa=False):
             nonlocal combustible, fraccionado
-            if rng.random() < PROB_CARGA_PARCIAL:
-                objetivo = cap_real * rng.uniform(0.6, 0.9)
+            if not completa and PROB_CARGA_PARCIAL and rng.random() < PROB_CARGA_PARCIAL:
+                objetivo = cap_real * rng.uniform(*CARGA_PARCIAL)
             else:
                 objetivo = cap_real * rng.uniform(0.95, 1.0)
             al_tanque = max(objetivo - combustible, 0.08 * cap_real)
@@ -1186,7 +1201,7 @@ class GeneradorMaestro:
                 origen, destino = viaje[1], base
                 km = distancia_km(*base, *viaje[1]) * 1.2
             elif activo and rng.random() >= PROB_DIA_SIN_USO:
-                km = perfil["km_dia"] * rng.uniform(0.5, 1.5)
+                km = perfil["km_dia"] * rng.uniform(*VARIACION_KM_DIA)
 
             cargas_previas = len(cargas)
             rendimiento_dia = perfil["rendimiento"] * rng.uniform(0.9, 1.1)
@@ -1200,6 +1215,14 @@ class GeneradorMaestro:
                     cargar(fecha, _interpolar(origen, destino, recorrido / km), dia)
             if activo and combustible < perfil["umbral_carga"] * cap_real:
                 cargar(fecha, destino, dia)
+            if (PROB_SEGUNDO_TURNO and activo and km > 0 and len(cargas) > cargas_previas
+                    and rng.random() < PROB_SEGUNDO_TURNO):
+                # Otro turno con el mismo vehículo: recorre más y completa el tanque al terminar
+                extra = perfil["km_dia"] * rng.uniform(*KM_SEGUNDO_TURNO)
+                combustible -= min(extra / rendimiento_dia, max(combustible - RESERVA_TANQUE * cap_real, 0))
+                odo += extra
+                km += extra
+                cargar(fecha, destino, dia, completa=True)
             hubo_carga = len(cargas) > cargas_previas
 
             # Cargas que no llegan al tanque del vehículo: el combustible no cambia
@@ -1397,12 +1420,14 @@ class GeneradorMaestro:
         return consumo[~consumo["id"].isin(duplicadas)]
 
     def _repartir(self, candidatos, roles):
-        """Asigna a cada rol una cantidad de candidatos distintos (según EVENTOS_REALISTA)."""
+        """Asigna a cada rol una cantidad de candidatos distintos: una proporción de los candidatos
+        (PROPORCION_DE_CARGAS) o una cantidad cada 200 vehículos (EVENTOS_REALISTA)."""
         candidatos = list(candidatos)
         self.rng.shuffle(candidatos)
         asignacion, posicion = {}, 0
         for rol in roles:
-            n = self._cantidad(rol)
+            n = (round(PROPORCION_DE_CARGAS[rol] * len(candidatos)) if rol in PROPORCION_DE_CARGAS
+                 else self._cantidad(rol))
             for candidato in candidatos[posicion:posicion + n]:
                 asignacion[candidato] = rol
             posicion += n
@@ -1705,7 +1730,10 @@ class GeneradorMaestro:
                 "estado": rng.choice(["PAGADA", "PENDIENTE", "VENCIDA"]),
                 "numero_transacciones": len(combustible),
             })
-        for factura in rng.sample(facturas, min(self._cantidad("TOTAL_INFLADO"), len(facturas))):
+        # Una factura con un ajuste documentado es un caso legítimo: no puede ser también la inflada
+        con_ajuste = {c["id_registro"] for c in self.casos_legitimos if c["tipo_caso"] == "AJUSTE_DOCUMENTADO"}
+        sin_ajuste = [f for f in facturas if f["numero_factura"] not in con_ajuste]
+        for factura in rng.sample(sin_ajuste, min(self._cantidad("TOTAL_INFLADO"), len(sin_ajuste))):
             real = factura["total_monto"]
             factura["total_monto"] = round(real * rng.uniform(1.03, 1.10), 2)
             self._registrar_anomalia("facturacion", factura["numero_factura"], None, "TOTAL_INFLADO",

@@ -136,7 +136,8 @@ def test_la_salida_no_tiene_identificadores(resultado, sintetico):
 def test_el_adaptador_tolera_tipos_y_tarjetas_repetidas_de_la_fuente(sintetico):
     """La fuente trae el documento del conductor como número y tarjetas repetidas en el padrón."""
     tablas = con_forma_real(sintetico)
-    tablas["reporte"]["NRO IDENTIFICACION CONDUCTOR"] = pd.to_numeric(tablas["reporte"]["NRO IDENTIFICACION CONDUCTOR"])
+    tablas["reporte"]["NRO IDENTIFICACION CONDUCTOR"] = pd.to_numeric(tablas["reporte"]["NRO IDENTIFICACION CONDUCTOR"],
+                                                                     errors="coerce")   # un vacío llega como NaN
     padron = tablas["padron"]
     tablas["padron"] = pd.concat([padron, padron.head(3).assign(Matricula=lambda d: d["Matricula"] + "-B")],
                                  ignore_index=True)

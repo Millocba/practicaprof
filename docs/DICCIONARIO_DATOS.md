@@ -219,10 +219,10 @@ Cada vehículo se simula día por día desde un perfil propio que no forma parte
 | `estaciones.csv` | una estación de servicio | 65 (40 en la zona de operación, 25 sobre rutas) |
 | `telemetria.csv` | un dispositivo GPS | ~100 (80% de los vehículos en servicio, 47% de los fuera de servicio, casi ninguno de baja) |
 | `telemetria_diaria.csv` | un dispositivo y un día | ~26.000 (3% de los días sin señal) |
-| `consumo.csv` | una carga del reporte del proveedor | ~3.200 (los vehículos fuera de servicio o de baja dejan de cargar; las cargas en otra red solo están en el registro interno) |
-| `solicitudes.csv` | un pedido del registro interno | ~3.400 (uno por carga, más los de estaciones de otra red y los anulados) |
+| `consumo.csv` | una carga del reporte del proveedor | ~7.100 (los vehículos fuera de servicio o de baja dejan de cargar; las cargas en otra red solo están en el registro interno) |
+| `solicitudes.csv` | un pedido del registro interno | ~7.600 (uno por carga, más los de estaciones de otra red y los anulados) |
 | `facturacion.csv` | una factura del proveedor por contrato, mes y familia de combustible | ~105 (6 contratos × 2 familias × 9 meses) |
-| `facturacion_detalle.csv` | una línea de factura | ~3.400 (una por carga facturada, más ajustes) |
+| `facturacion_detalle.csv` | una línea de factura | ~7.100 (una por carga facturada, más ajustes) |
 | `contratos.csv` | un contrato de abastecimiento | 6, con su tope mensual en pesos |
 | `transferencias.csv` | una transferencia de saldo entre contratos | ~50 (unas 5 por mes) |
 | `ground_truth.csv` | una anomalía inyectada | ~125 |

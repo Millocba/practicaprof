@@ -4,7 +4,7 @@ El componente de ML no es un modelo único: es un **sistema de priorización** q
 
 ## El problema
 
-Nadie revisa todas las cargas. Con unas 3.200 cargas en nueve meses, un auditor puede mirar 50 o 100. La pregunta útil no es "¿esta carga es anómala?" sino **"¿en qué orden revisarlas para encontrar la mayor cantidad de irregularidades con el tiempo disponible?"**. Por eso los métodos se comparan con una **curva de esfuerzo**: cuántas anomalías encuentra cada uno revisando la misma cantidad de casos.
+Nadie revisa todas las cargas. Con unas 7.000 cargas en nueve meses, un auditor puede mirar 50 o 100. La pregunta útil no es "¿esta carga es anómala?" sino **"¿en qué orden revisarlas para encontrar la mayor cantidad de irregularidades con el tiempo disponible?"**. Por eso los métodos se comparan con una **curva de esfuerzo**: cuántas anomalías encuentra cada uno revisando la misma cantidad de casos.
 
 ## Los métodos
 
@@ -20,18 +20,18 @@ Cada carga de la cola viene con sus **motivos** ("cargó 140% de lo autorizado",
 
 ## Resultados
 
-Escenario realista, semilla 42: 3.191 cargas, 79 anomalías de comportamiento.
+Escenario realista, semilla 42: 7.078 cargas, 92 anomalías de comportamiento.
 
 | Método | Revisando 50: encontradas | Precisión | Casos legítimos revisados | Revisando 100: encontradas |
 |---|---|---|---|---|
-| Reglas ingenuas | 15 (19%) | 30% | 28 | 28 (35%) |
-| Isolation Forest | 17 (22%) | 34% | 12 | 31 (39%) |
-| Reglas con contexto | 46 (58%) | 92% | 1 | 74 (94%) |
-| Modelo supervisado | 47 (59%) | 94% | 1 | 64 (81%) |
-| **Combinado** | **49 (62%)** | **98%** | **0** | **74 (94%)** |
+| Reglas ingenuas | 8 (9%) | 16% | 32 | 26 (28%) |
+| Isolation Forest | 11 (12%) | 22% | 10 | 20 (22%) |
+| Reglas con contexto | 43 (47%) | 86% | 1 | 87 (95%) |
+| Modelo supervisado | 50 (54%) | 100% | 0 | 76 (83%) |
+| **Combinado** | **50 (54%)** | **100%** | **0** | **87 (95%)** |
 
-- El **Isolation Forest** rinde casi como las reglas ingenuas: las anomalías del escenario realista son sutiles, y los casos legítimos que se les parecen (tanques auxiliares, viajes largos) también son raros. Ser raro no alcanza para ser sospechoso.
-- El **combinado** encuentra lo mismo que las reglas con contexto o algo más, con menos casos legítimos revisados: las reglas aportan lo que sabemos explicar y el modelo, el orden.
+- El **Isolation Forest** rinde apenas mejor que las reglas ingenuas: las anomalías del escenario realista son sutiles, y los casos legítimos que se les parecen (tanques auxiliares, viajes largos) también son raros. Ser raro no alcanza para ser sospechoso.
+- El **combinado** acierta todo lo que revisa en las primeras 50 y, revisando 100, encuentra lo mismo que las reglas con contexto: las reglas aportan lo que sabemos explicar y el modelo, el orden.
 
 ## Por qué estos modelos
 
@@ -40,7 +40,7 @@ Escenario realista, semilla 42: 3.191 cargas, 79 anomalías de comportamiento.
 **Random Forest.**
 
 - Trabaja bien con datos tabulares chicos y variables mezcladas (proporciones, km, indicadores de sí o no).
-- Maneja el desbalance: solo el 2,6% de las cargas son anomalías (`class_weight="balanced_subsample"`).
+- Maneja el desbalance: solo el 1,4% de las cargas son anomalías (`class_weight="balanced_subsample"`).
 - Da una probabilidad para ordenar y la importancia de cada variable para explicar.
 - No necesita un ajuste fino.
 
@@ -53,16 +53,16 @@ Variables que más pesan en el modelo supervisado:
 
 | Variable | Importancia |
 |---|---|
-| Cambio de odómetro desde la carga anterior | 16% |
-| Litros cargados / litros autorizados | 15% |
-| Rendimiento km/L frente al habitual del vehículo | 15% |
-| Tanques cargados en el día | 12% |
+| Rendimiento km/L frente al habitual del vehículo | 24% |
+| Cambio de odómetro desde la carga anterior | 17% |
+| Tanques cargados en el día | 13% |
+| Litros cargados / litros autorizados | 12% |
 
 Tienen sentido para un auditor, y eso permite confiar en el orden que propone.
 
 ## Cómo se entrena
 
-- **Datos de entrenamiento:** tres datasets realistas generados con **otras semillas** (1001, 1002 y 1003), como si fueran auditorías anteriores ya resueltas. Son 8.349 cargas, 213 anómalas.
+- **Datos de entrenamiento:** tres datasets realistas generados con **otras semillas** (1001, 1002 y 1003), como si fueran auditorías anteriores ya resueltas. Son 20.984 cargas, 285 anómalas.
 - **Variables:** 14 por carga, calculadas de las tablas y nunca de la verdad de referencia:
   - litros frente al tanque y a lo habitual del vehículo;
   - km y retrocesos del odómetro;
@@ -74,7 +74,7 @@ Tienen sentido para un auditor, y eso permite confiar en el orden que propone.
   - litros frente a lo autorizado.
 - **Cargas en otra red:** el registro interno anota también las cargas en estaciones de otros proveedores, con odómetro y litros. Se intercalan en la secuencia de cada vehículo para calcular los km y el rendimiento, pero no se puntúan: no están en el reporte.
 - **Etiqueta:** la carga tiene una anomalía de comportamiento. Las de calidad de datos y facturación quedan fuera: las cubren las reglas.
-- **Modelo:** Random Forest con 300 árboles; tarda unos 13 segundos. Se aplica al dataset actual, cuyas etiquetas **nunca ve**.
+- **Modelo:** Random Forest con 300 árboles; tarda menos de un minuto. Se aplica al dataset actual, cuyas etiquetas **nunca ve**.
 - **Isolation Forest:** se ajusta sobre el mismo dataset que puntúa, porque no usa etiquetas.
 - **Frecuencia:** hoy se entrena una vez por sesión de la aplicación y queda en caché.
 
@@ -101,5 +101,5 @@ Antes de la etapa 1, la **auditoría agregada** corre las reglas y los modelos s
 ## Limitaciones
 
 - El modelo aprende las anomalías tal como las inyecta el generador. Con datos reales los patrones serán otros: estos resultados son un **techo de referencia**, no una promesa de desempeño.
-- Frente a las reglas con contexto la mejora es chica (49 contra 46 revisando 50). Su valor está en ordenar dentro de lo marcado y en rescatar casos que las reglas no ven.
-- Hay pocas anomalías para aprender: unas 80 por dataset. Con datos reales, la etapa 2 depende de cuántas revisiones se registren.
+- Frente a las reglas con contexto la mejora es chica (50 contra 43 revisando 50; empatan revisando 100). Su valor está en ordenar dentro de lo marcado y en rescatar casos que las reglas no ven.
+- Hay pocas anomalías para aprender: unas 90 por dataset. Con datos reales, la etapa 2 depende de cuántas revisiones se registren.
