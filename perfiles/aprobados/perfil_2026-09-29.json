@@ -1,0 +1,1443 @@
+{
+  "perfilador_version": "1.1",
+  "generado": "2026-09-29",
+  "origen": "flota",
+  "revision": {
+    "revisado": true,
+    "responsable": "meli",
+    "fecha": "2026-09-29",
+    "notas": null
+  },
+  "reglas": {
+    "minimo_grupo": 20,
+    "max_categorias": 50
+  },
+  "tablas": {
+    "5edec563-8acd-4f59-acc3-8c0abf226702": {
+      "nombre": "5edec563-8acd-4f59-acc3-8c0abf226702",
+      "filas": "1.000–9.999",
+      "filas_aprox": 6600.0,
+      "columnas": 27,
+      "filas_duplicadas_pct": 0.0,
+      "columnas_candidatas_a_clave": [
+        "Matricula"
+      ],
+      "perfil_columnas": [
+        {
+          "nombre": "Matricula",
+          "nombre_normalizado": "matricula",
+          "faltantes_pct": 0.0,
+          "cardinalidad": "1.001–10.000",
+          "unicos_pct": 100.0,
+          "sensible": "identificador",
+          "formatos": [
+            {
+              "formato": "9999",
+              "pct": 50.7
+            },
+            {
+              "formato": "A-9999",
+              "pct": 23.5
+            },
+            {
+              "formato": "99999",
+              "pct": 22.9
+            },
+            {
+              "formato": "A-999",
+              "pct": 2.4
+            },
+            {
+              "formato": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 0.5
+            }
+          ],
+          "largo": {
+            "p10": 4,
+            "p50": 4,
+            "p90": 6
+          },
+          "calidad": {
+            "espacios_extra_pct": 0.0,
+            "vacios_textuales_pct": 0.0,
+            "mayusculas_mixtas_pct": 0.0,
+            "numeros_como_texto_pct": 73.8
+          },
+          "tipo": "texto"
+        },
+        {
+          "nombre": "Dominio",
+          "nombre_normalizado": "dominio",
+          "faltantes_pct": 0.0,
+          "cardinalidad": "1.001–10.000",
+          "unicos_pct": 98.8,
+          "sensible": "vehiculo",
+          "formatos": [
+            {
+              "formato": "AA999AA",
+              "pct": 52.2
+            },
+            {
+              "formato": "AAA999",
+              "pct": 22.1
+            },
+            {
+              "formato": "A999AAA",
+              "pct": 20.8
+            },
+            {
+              "formato": "999AAA",
+              "pct": 3.1
+            },
+            {
+              "formato": "A/A",
+              "pct": 1.2
+            },
+            {
+              "formato": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 0.6
+            }
+          ],
+          "largo": {
+            "p10": 6,
+            "p50": 7,
+            "p90": 7
+          },
+          "calidad": {
+            "espacios_extra_pct": 0.4,
+            "vacios_textuales_pct": 1.2,
+            "mayusculas_mixtas_pct": 0.0,
+            "numeros_como_texto_pct": 0.1
+          },
+          "tipo": "texto"
+        },
+        {
+          "nombre": "Dependencia",
+          "nombre_normalizado": "dependencia",
+          "faltantes_pct": 0.0,
+          "cardinalidad": "1.001–10.000",
+          "unicos_pct": 17.2,
+          "sensible": "organizacion",
+          "formatos": [
+            {
+              "formato": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 73.5
+            },
+            {
+              "formato": "TEXTO_21-40",
+              "pct": 16.1
+            },
+            {
+              "formato": "TEXTO_MAS_DE_40",
+              "pct": 4.2
+            },
+            {
+              "formato": "A.A.A. AAA AAAAAA",
+              "pct": 2.7
+            },
+            {
+              "formato": "A.A.A. AAAAA",
+              "pct": 1.8
+            },
+            {
+              "formato": "A.A.A. AAA AAAAAAA",
+              "pct": 1.6
+            }
+          ],
+          "largo": {
+            "p10": 18,
+            "p50": 37,
+            "p90": 49
+          },
+          "calidad": {
+            "espacios_extra_pct": 2.0,
+            "vacios_textuales_pct": 0.0,
+            "mayusculas_mixtas_pct": 0.0,
+            "numeros_como_texto_pct": 0.0
+          },
+          "tipo": "texto"
+        },
+        {
+          "nombre": "Identificable",
+          "nombre_normalizado": "identificable",
+          "faltantes_pct": 0.0,
+          "cardinalidad": "2–10",
+          "unicos_pct": 0.0,
+          "sensible": null,
+          "formatos": [
+            {
+              "formato": "AA",
+              "pct": 100.0
+            }
+          ],
+          "largo": {
+            "p10": 2,
+            "p50": 2,
+            "p90": 2
+          },
+          "calidad": {
+            "espacios_extra_pct": 0.0,
+            "vacios_textuales_pct": 0.0,
+            "mayusculas_mixtas_pct": 0.0,
+            "numeros_como_texto_pct": 0.0
+          },
+          "tipo": "texto",
+          "categorias": [
+            {
+              "valor": "SI",
+              "pct": 79.5
+            },
+            {
+              "valor": "NO",
+              "pct": 20.5
+            }
+          ]
+        },
+        {
+          "nombre": "TipoVehiculo",
+          "nombre_normalizado": "tipo vehiculo",
+          "faltantes_pct": 0.0,
+          "cardinalidad": "11–100",
+          "unicos_pct": 0.2,
+          "sensible": null,
+          "formatos": [
+            {
+              "formato": "AAAAA",
+              "pct": 36.7
+            },
+            {
+              "formato": "AAAA-AA",
+              "pct": 34.9
+            },
+            {
+              "formato": "AAAAAAAAAAA",
+              "pct": 24.9
+            },
+            {
+              "formato": "AAAA-AA 9A9",
+              "pct": 1.8
+            },
+            {
+              "formato": "AAAAAA",
+              "pct": 1.1
+            },
+            {
+              "formato": "AAAAAAA",
+              "pct": 0.3
+            },
+            {
+              "formato": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 0.3
+            }
+          ],
+          "largo": {
+            "p10": 5,
+            "p50": 7,
+            "p90": 11
+          },
+          "calidad": {
+            "espacios_extra_pct": 0.0,
+            "vacios_textuales_pct": 0.0,
+            "mayusculas_mixtas_pct": 0.0,
+            "numeros_como_texto_pct": 0.0
+          },
+          "tipo": "texto",
+          "categorias": [
+            {
+              "valor": "SEDAN",
+              "pct": 36.7
+            },
+            {
+              "valor": "PICK-UP",
+              "pct": 34.9
+            },
+            {
+              "valor": "MOTOCICLETA",
+              "pct": 24.9
+            },
+            {
+              "valor": "PICK-UP 4X4",
+              "pct": 1.8
+            },
+            {
+              "valor": "CAMION",
+              "pct": 0.5
+            },
+            {
+              "valor": "FURGON",
+              "pct": 0.4
+            },
+            {
+              "valor": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 0.8
+            }
+          ]
+        },
+        {
+          "nombre": "Marca",
+          "nombre_normalizado": "marca",
+          "faltantes_pct": 0.0,
+          "cardinalidad": "11–100",
+          "unicos_pct": 0.6,
+          "sensible": null,
+          "formatos": [
+            {
+              "formato": "AAAA",
+              "pct": 26.0
+            },
+            {
+              "formato": "AAAAAA",
+              "pct": 24.2
+            },
+            {
+              "formato": "AAAAAAAAA",
+              "pct": 12.4
+            },
+            {
+              "formato": "AAAAAAAA",
+              "pct": 11.3
+            },
+            {
+              "formato": "AAAAA",
+              "pct": 10.4
+            },
+            {
+              "formato": "AAAAAAA",
+              "pct": 9.0
+            },
+            {
+              "formato": "AAAAAAAAAA",
+              "pct": 4.6
+            },
+            {
+              "formato": "A/A",
+              "pct": 1.7
+            },
+            {
+              "formato": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 0.4
+            }
+          ],
+          "largo": {
+            "p10": 4,
+            "p50": 6,
+            "p90": 9
+          },
+          "calidad": {
+            "espacios_extra_pct": 0.0,
+            "vacios_textuales_pct": 1.7,
+            "mayusculas_mixtas_pct": 0.0,
+            "numeros_como_texto_pct": 0.0
+          },
+          "tipo": "texto",
+          "categorias": [
+            {
+              "valor": "FIAT",
+              "pct": 24.0
+            },
+            {
+              "valor": "NISSAN",
+              "pct": 20.6
+            },
+            {
+              "valor": "CHEVROLET",
+              "pct": 12.4
+            },
+            {
+              "valor": "KAWASAKI",
+              "pct": 11.2
+            },
+            {
+              "valor": "HONDA",
+              "pct": 9.9
+            },
+            {
+              "valor": "RENAULT",
+              "pct": 6.3
+            },
+            {
+              "valor": "VOLKSWAGEN",
+              "pct": 4.6
+            },
+            {
+              "valor": "TOYOTA",
+              "pct": 2.4
+            },
+            {
+              "valor": "S/D",
+              "pct": 1.7
+            },
+            {
+              "valor": "FORD",
+              "pct": 1.7
+            },
+            {
+              "valor": "PEUGEOT",
+              "pct": 1.2
+            },
+            {
+              "valor": "MONDIAL",
+              "pct": 0.7
+            },
+            {
+              "valor": "YAMAHA",
+              "pct": 0.4
+            },
+            {
+              "valor": "KELLER",
+              "pct": 0.4
+            },
+            {
+              "valor": "ZANELLA",
+              "pct": 0.4
+            },
+            {
+              "valor": "IVECO",
+              "pct": 0.3
+            },
+            {
+              "valor": "CITROEN",
+              "pct": 0.3
+            },
+            {
+              "valor": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 1.4
+            }
+          ]
+        },
+        {
+          "nombre": "Modelo",
+          "nombre_normalizado": "modelo",
+          "faltantes_pct": 0.0,
+          "cardinalidad": "101–1.000",
+          "unicos_pct": 3.3,
+          "sensible": null,
+          "formatos": [
+            {
+              "formato": "AAAAAAAA",
+              "pct": 17.0
+            },
+            {
+              "formato": "AAAAAA",
+              "pct": 15.9
+            },
+            {
+              "formato": "AAAAA",
+              "pct": 14.1
+            },
+            {
+              "formato": "AAA999",
+              "pct": 11.2
+            },
+            {
+              "formato": "A99",
+              "pct": 9.1
+            },
+            {
+              "formato": "AA",
+              "pct": 8.3
+            },
+            {
+              "formato": "AAAA",
+              "pct": 6.7
+            },
+            {
+              "formato": "AAAAAAA",
+              "pct": 4.1
+            },
+            {
+              "formato": "AAAAAAAA 9A9 AAAAAAAAAA",
+              "pct": 3.8
+            },
+            {
+              "formato": "AAA",
+              "pct": 2.3
+            },
+            {
+              "formato": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 7.5
+            }
+          ],
+          "largo": {
+            "p10": 3,
+            "p50": 6,
+            "p90": 8
+          },
+          "calidad": {
+            "espacios_extra_pct": 0.1,
+            "vacios_textuales_pct": 0.3,
+            "mayusculas_mixtas_pct": 3.8,
+            "numeros_como_texto_pct": 1.6
+          },
+          "tipo": "texto"
+        },
+        {
+          "nombre": "Color",
+          "nombre_normalizado": "color",
+          "faltantes_pct": 35.6,
+          "cardinalidad": "101–1.000",
+          "unicos_pct": 3.1,
+          "sensible": null,
+          "formatos": [
+            {
+              "formato": "AAAAAAAAAAAAA",
+              "pct": 64.1
+            },
+            {
+              "formato": "AAAAAA",
+              "pct": 11.1
+            },
+            {
+              "formato": "AAAA",
+              "pct": 7.8
+            },
+            {
+              "formato": "AAAAAAAAAAA",
+              "pct": 3.8
+            },
+            {
+              "formato": "AAAAA",
+              "pct": 3.4
+            },
+            {
+              "formato": "A",
+              "pct": 3.0
+            },
+            {
+              "formato": "AAAAAAAAAAAAA_A9999_",
+              "pct": 1.2
+            },
+            {
+              "formato": "-",
+              "pct": 1.1
+            },
+            {
+              "formato": "9",
+              "pct": 0.8
+            },
+            {
+              "formato": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 3.8
+            }
+          ],
+          "largo": {
+            "p10": 4,
+            "p50": 13,
+            "p90": 13
+          },
+          "calidad": {
+            "espacios_extra_pct": 1.3,
+            "vacios_textuales_pct": 1.3,
+            "mayusculas_mixtas_pct": 2.3,
+            "numeros_como_texto_pct": 0.8
+          },
+          "tipo": "texto"
+        },
+        {
+          "nombre": "NumeroChasis",
+          "nombre_normalizado": "numero chasis",
+          "faltantes_pct": 37.4,
+          "cardinalidad": "1.001–10.000",
+          "unicos_pct": 87.8,
+          "sensible": "identificador",
+          "formatos": [
+            {
+              "formato": "9AAAA99A9AA999999",
+              "pct": 25.0
+            },
+            {
+              "formato": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 23.1
+            },
+            {
+              "formato": "9AAAAAA99AAA99999",
+              "pct": 15.7
+            },
+            {
+              "formato": "9AA999AA9AA999999",
+              "pct": 10.7
+            },
+            {
+              "formato": "9",
+              "pct": 7.9
+            },
+            {
+              "formato": "9AAAA9999AA999999",
+              "pct": 4.2
+            },
+            {
+              "formato": "AA999999",
+              "pct": 3.9
+            },
+            {
+              "formato": "9AAAA99AAAA999999",
+              "pct": 2.9
+            },
+            {
+              "formato": "9AA999999A9999999",
+              "pct": 2.4
+            },
+            {
+              "formato": "9A99AAAA9AA999999",
+              "pct": 2.1
+            },
+            {
+              "formato": "TEXTO_21-40",
+              "pct": 2.1
+            }
+          ],
+          "largo": {
+            "p10": 2,
+            "p50": 17,
+            "p90": 17
+          },
+          "calidad": {
+            "espacios_extra_pct": 0.4,
+            "vacios_textuales_pct": 1.5,
+            "mayusculas_mixtas_pct": 5.4,
+            "numeros_como_texto_pct": 10.8
+          },
+          "tipo": "texto"
+        },
+        {
+          "nombre": "NumeroMotor",
+          "nombre_normalizado": "numero motor",
+          "faltantes_pct": 37.5,
+          "cardinalidad": "1.001–10.000",
+          "unicos_pct": 87.6,
+          "sensible": "identificador",
+          "formatos": [
+            {
+              "formato": "AA99A999A999999",
+              "pct": 29.8
+            },
+            {
+              "formato": "AA999AAA99999",
+              "pct": 17.4
+            },
+            {
+              "formato": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 16.6
+            },
+            {
+              "formato": "999999999999999",
+              "pct": 13.5
+            },
+            {
+              "formato": "9",
+              "pct": 7.9
+            },
+            {
+              "formato": "A9AA999A999999",
+              "pct": 3.6
+            },
+            {
+              "formato": "999A99999999999",
+              "pct": 3.0
+            },
+            {
+              "formato": "AA99A9999999",
+              "pct": 2.4
+            },
+            {
+              "formato": "AAA999999",
+              "pct": 2.4
+            },
+            {
+              "formato": "99",
+              "pct": 1.9
+            },
+            {
+              "formato": "AA9A999999999",
+              "pct": 1.6
+            }
+          ],
+          "largo": {
+            "p10": 2,
+            "p50": 14,
+            "p90": 15
+          },
+          "calidad": {
+            "espacios_extra_pct": 3.3,
+            "vacios_textuales_pct": 1.6,
+            "mayusculas_mixtas_pct": 0.0,
+            "numeros_como_texto_pct": 24.8
+          },
+          "tipo": "texto"
+        },
+        {
+          "nombre": "Año",
+          "nombre_normalizado": "ano",
+          "faltantes_pct": 0.0,
+          "cardinalidad": "11–100",
+          "unicos_pct": 0.9,
+          "sensible": null,
+          "tipo": "entero",
+          "formatos": [
+            {
+              "formato": "9999",
+              "pct": 92.3
+            },
+            {
+              "formato": "9",
+              "pct": 7.6
+            },
+            {
+              "formato": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 0.2
+            }
+          ],
+          "numerico": {
+            "p05": 0,
+            "p25": 2000.0,
+            "p50": 2000.0,
+            "p75": 2000.0,
+            "p95": 2000.0,
+            "ceros_pct": 7.4,
+            "negativos_pct": 0.0,
+            "enteros_pct": 100.0
+          }
+        },
+        {
+          "nombre": "Procedencia",
+          "nombre_normalizado": "procedencia",
+          "faltantes_pct": 45.7,
+          "cardinalidad": "2–10",
+          "unicos_pct": 0.1,
+          "sensible": null,
+          "formatos": [
+            {
+              "formato": "AAAAAAAAAA",
+              "pct": 88.0
+            },
+            {
+              "formato": "AAAAAAAAA",
+              "pct": 10.2
+            },
+            {
+              "formato": "AAAAAAAA",
+              "pct": 1.3
+            },
+            {
+              "formato": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 0.5
+            }
+          ],
+          "largo": {
+            "p10": 9,
+            "p50": 10,
+            "p90": 10
+          },
+          "calidad": {
+            "espacios_extra_pct": 0.0,
+            "vacios_textuales_pct": 0.0,
+            "mayusculas_mixtas_pct": 100.0,
+            "numeros_como_texto_pct": 0.0
+          },
+          "tipo": "texto",
+          "categorias": [
+            {
+              "valor": "Patrimonio",
+              "pct": 88.0
+            },
+            {
+              "valor": "Secuestro",
+              "pct": 10.2
+            },
+            {
+              "valor": "Comodato",
+              "pct": 1.3
+            },
+            {
+              "valor": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 0.5
+            }
+          ]
+        },
+        {
+          "nombre": "TipoCombustible",
+          "nombre_normalizado": "tipo combustible",
+          "faltantes_pct": 0.0,
+          "cardinalidad": "2–10",
+          "unicos_pct": 0.0,
+          "sensible": null,
+          "formatos": [
+            {
+              "formato": "AAAAA",
+              "pct": 61.9
+            },
+            {
+              "formato": "AAAAAA",
+              "pct": 38.1
+            }
+          ],
+          "largo": {
+            "p10": 5,
+            "p50": 5,
+            "p90": 6
+          },
+          "calidad": {
+            "espacios_extra_pct": 0.0,
+            "vacios_textuales_pct": 0.0,
+            "mayusculas_mixtas_pct": 0.0,
+            "numeros_como_texto_pct": 0.0
+          },
+          "tipo": "texto",
+          "categorias": [
+            {
+              "valor": "NAFTA",
+              "pct": 61.9
+            },
+            {
+              "valor": "GASOIL",
+              "pct": 38.1
+            }
+          ]
+        },
+        {
+          "nombre": "CapacidadTanque",
+          "nombre_normalizado": "capacidad tanque",
+          "faltantes_pct": 0.0,
+          "cardinalidad": "11–100",
+          "unicos_pct": 0.9,
+          "sensible": null,
+          "tipo": "entero",
+          "formatos": [
+            {
+              "formato": "99",
+              "pct": 92.6
+            },
+            {
+              "formato": "9",
+              "pct": 6.5
+            },
+            {
+              "formato": "999",
+              "pct": 0.9
+            },
+            {
+              "formato": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 0.0
+            }
+          ],
+          "numerico": {
+            "p05": 8.0,
+            "p25": 27.0,
+            "p50": 50.0,
+            "p75": 70.0,
+            "p95": 80.0,
+            "ceros_pct": 0.0,
+            "negativos_pct": 0.0,
+            "enteros_pct": 100.0
+          }
+        },
+        {
+          "nombre": "RelacionConsumo",
+          "nombre_normalizado": "relacion consumo",
+          "faltantes_pct": 0.0,
+          "cardinalidad": "11–100",
+          "unicos_pct": 0.3,
+          "sensible": null,
+          "formatos": [
+            {
+              "formato": "A",
+              "pct": 100.0
+            }
+          ],
+          "largo": {
+            "p10": 1,
+            "p50": 1,
+            "p90": 1
+          },
+          "calidad": {
+            "espacios_extra_pct": 0.0,
+            "vacios_textuales_pct": 0.0,
+            "mayusculas_mixtas_pct": 0.0,
+            "numeros_como_texto_pct": 0.0
+          },
+          "tipo": "texto",
+          "categorias": [
+            {
+              "valor": "J",
+              "pct": 46.0
+            },
+            {
+              "valor": "I",
+              "pct": 14.7
+            },
+            {
+              "valor": "D",
+              "pct": 11.4
+            },
+            {
+              "valor": "E",
+              "pct": 6.0
+            },
+            {
+              "valor": "C",
+              "pct": 5.0
+            },
+            {
+              "valor": "Q",
+              "pct": 4.9
+            },
+            {
+              "valor": "K",
+              "pct": 4.9
+            },
+            {
+              "valor": "P",
+              "pct": 2.3
+            },
+            {
+              "valor": "H",
+              "pct": 1.4
+            },
+            {
+              "valor": "L",
+              "pct": 1.3
+            },
+            {
+              "valor": "A",
+              "pct": 0.6
+            },
+            {
+              "valor": "B",
+              "pct": 0.5
+            },
+            {
+              "valor": "R",
+              "pct": 0.4
+            },
+            {
+              "valor": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 0.6
+            }
+          ]
+        },
+        {
+          "nombre": "ExcepcionOdometro",
+          "nombre_normalizado": "excepcion odometro",
+          "faltantes_pct": 0.0,
+          "cardinalidad": "2–10",
+          "unicos_pct": 0.0,
+          "sensible": null,
+          "formatos": [
+            {
+              "formato": "AA",
+              "pct": 100.0
+            }
+          ],
+          "largo": {
+            "p10": 2,
+            "p50": 2,
+            "p90": 2
+          },
+          "calidad": {
+            "espacios_extra_pct": 0.0,
+            "vacios_textuales_pct": 0.0,
+            "mayusculas_mixtas_pct": 0.0,
+            "numeros_como_texto_pct": 0.0
+          },
+          "tipo": "texto",
+          "categorias": [
+            {
+              "valor": "NO",
+              "pct": 98.4
+            },
+            {
+              "valor": "SI",
+              "pct": 1.6
+            }
+          ]
+        },
+        {
+          "nombre": "FechaHastaExcepcionOdometro",
+          "nombre_normalizado": "fecha hasta excepcion odometro",
+          "faltantes_pct": 98.4,
+          "cardinalidad": "11–100",
+          "unicos_pct": 50.5,
+          "sensible": null,
+          "formatos": [
+            {
+              "formato": "99/99/9999",
+              "pct": 100.0
+            }
+          ],
+          "largo": {
+            "p10": 10,
+            "p50": 10,
+            "p90": 10
+          },
+          "calidad": {
+            "espacios_extra_pct": 0.0,
+            "vacios_textuales_pct": 0.0,
+            "mayusculas_mixtas_pct": 0.0,
+            "numeros_como_texto_pct": 0.0
+          },
+          "tipo": "fecha como texto",
+          "fechas_invalidas_pct": 0.0,
+          "fechas": {
+            "meses_con_datos": 9,
+            "por_mes": {
+              "2026-11": 20
+            },
+            "meses_suprimidos": 8,
+            "dia_semana_pct": {
+              "Monday": 27.6,
+              "Wednesday": 24.8
+            }
+          }
+        },
+        {
+          "nombre": "NumeroTarjeta",
+          "nombre_normalizado": "numero tarjeta",
+          "faltantes_pct": 4.5,
+          "cardinalidad": "1.001–10.000",
+          "unicos_pct": 99.7,
+          "sensible": "identificador",
+          "formatos": [
+            {
+              "formato": "99999999999999999",
+              "pct": 98.5
+            },
+            {
+              "formato": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 0.7
+            },
+            {
+              "formato": "TEXTO_21-40",
+              "pct": 0.5
+            },
+            {
+              "formato": "9999999999999999",
+              "pct": 0.3
+            }
+          ],
+          "largo": {
+            "p10": 17,
+            "p50": 17,
+            "p90": 17
+          },
+          "calidad": {
+            "espacios_extra_pct": 0.1,
+            "vacios_textuales_pct": 0.0,
+            "mayusculas_mixtas_pct": 0.0,
+            "numeros_como_texto_pct": 99.3
+          },
+          "tipo": "número como texto"
+        },
+        {
+          "nombre": "NumeroContrato",
+          "nombre_normalizado": "numero contrato",
+          "faltantes_pct": 0.0,
+          "cardinalidad": "2–10",
+          "unicos_pct": 0.1,
+          "sensible": "identificador",
+          "tipo": "entero",
+          "formatos": [
+            {
+              "formato": "9",
+              "pct": 100.0
+            }
+          ]
+        },
+        {
+          "nombre": "LimiteSaldo",
+          "nombre_normalizado": "limite saldo",
+          "faltantes_pct": 0.0,
+          "cardinalidad": "101–1.000",
+          "unicos_pct": 2.1,
+          "sensible": null,
+          "tipo": "decimal",
+          "formatos": [
+            {
+              "formato": "9999999.9",
+              "pct": 39.8
+            },
+            {
+              "formato": "99999.9",
+              "pct": 35.4
+            },
+            {
+              "formato": "999999.99",
+              "pct": 9.1
+            },
+            {
+              "formato": "99999.99",
+              "pct": 5.0
+            },
+            {
+              "formato": "9.9",
+              "pct": 4.4
+            },
+            {
+              "formato": "999999.9",
+              "pct": 3.4
+            },
+            {
+              "formato": "9999.9",
+              "pct": 1.9
+            },
+            {
+              "formato": "999999999.99",
+              "pct": 0.6
+            },
+            {
+              "formato": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 0.3
+            }
+          ],
+          "numerico": {
+            "p05": 4100.0,
+            "p25": 51000.0,
+            "p50": 1000000.0,
+            "p75": 5000000.0,
+            "p95": 5000000.0,
+            "ceros_pct": 4.4,
+            "negativos_pct": 0.0,
+            "enteros_pct": 84.9
+          }
+        },
+        {
+          "nombre": "LimiteLitros",
+          "nombre_normalizado": "limite litros",
+          "faltantes_pct": 0.0,
+          "cardinalidad": "101–1.000",
+          "unicos_pct": 1.9,
+          "sensible": null,
+          "tipo": "entero",
+          "formatos": [
+            {
+              "formato": "9999",
+              "pct": 52.4
+            },
+            {
+              "formato": "999",
+              "pct": 38.3
+            },
+            {
+              "formato": "9",
+              "pct": 4.4
+            },
+            {
+              "formato": "99999",
+              "pct": 3.8
+            },
+            {
+              "formato": "99",
+              "pct": 0.9
+            },
+            {
+              "formato": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 0.2
+            }
+          ],
+          "numerico": {
+            "p05": 60.0,
+            "p25": 750.0,
+            "p50": 1400.0,
+            "p75": 2500.0,
+            "p95": 4000.0,
+            "ceros_pct": 4.4,
+            "negativos_pct": 0.0,
+            "enteros_pct": 100.0
+          }
+        },
+        {
+          "nombre": "RetiraDni",
+          "nombre_normalizado": "retira dni",
+          "faltantes_pct": 0.0,
+          "cardinalidad": "1.001–10.000",
+          "unicos_pct": 16.9,
+          "sensible": "persona",
+          "tipo": "entero",
+          "formatos": [
+            {
+              "formato": "99999999",
+              "pct": 95.6
+            },
+            {
+              "formato": "9",
+              "pct": 4.4
+            }
+          ]
+        },
+        {
+          "nombre": "RetiraNombre",
+          "nombre_normalizado": "retira nombre",
+          "faltantes_pct": 4.4,
+          "cardinalidad": "1.001–10.000",
+          "unicos_pct": 17.6,
+          "sensible": "persona",
+          "formatos": [
+            {
+              "formato": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 78.5
+            },
+            {
+              "formato": "TEXTO_MAS_DE_40",
+              "pct": 21.5
+            }
+          ],
+          "largo": {
+            "p10": 45,
+            "p50": 51,
+            "p90": 61
+          },
+          "calidad": {
+            "espacios_extra_pct": 0.2,
+            "vacios_textuales_pct": 0.0,
+            "mayusculas_mixtas_pct": 0.0,
+            "numeros_como_texto_pct": 0.0
+          },
+          "tipo": "texto"
+        },
+        {
+          "nombre": "Cupo",
+          "nombre_normalizado": "cupo",
+          "faltantes_pct": 0.0,
+          "cardinalidad": "11–100",
+          "unicos_pct": 0.8,
+          "sensible": null,
+          "tipo": "entero",
+          "formatos": [
+            {
+              "formato": "99",
+              "pct": 90.1
+            },
+            {
+              "formato": "9",
+              "pct": 9.1
+            },
+            {
+              "formato": "999",
+              "pct": 0.8
+            },
+            {
+              "formato": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 0.0
+            }
+          ],
+          "numerico": {
+            "p05": 8.0,
+            "p25": 23.0,
+            "p50": 50.0,
+            "p75": 70.0,
+            "p95": 80.0,
+            "ceros_pct": 0.0,
+            "negativos_pct": 0.0,
+            "enteros_pct": 100.0
+          }
+        },
+        {
+          "nombre": "Estado",
+          "nombre_normalizado": "estado",
+          "faltantes_pct": 0.0,
+          "cardinalidad": "2–10",
+          "unicos_pct": 0.0,
+          "sensible": null,
+          "formatos": [
+            {
+              "formato": "AA AAAAAAAA",
+              "pct": 51.6
+            },
+            {
+              "formato": "AAAAAAA AA AAAA",
+              "pct": 35.8
+            },
+            {
+              "formato": "AAAAA AA AAAAAAAA",
+              "pct": 12.6
+            }
+          ],
+          "largo": {
+            "p10": 11,
+            "p50": 11,
+            "p90": 17
+          },
+          "calidad": {
+            "espacios_extra_pct": 0.0,
+            "vacios_textuales_pct": 0.0,
+            "mayusculas_mixtas_pct": 100.0,
+            "numeros_como_texto_pct": 0.0
+          },
+          "tipo": "texto",
+          "categorias": [
+            {
+              "valor": "En Servicio",
+              "pct": 51.6
+            },
+            {
+              "valor": "Tramite en Baja",
+              "pct": 35.8
+            },
+            {
+              "valor": "Fuera de Servicio",
+              "pct": 12.6
+            }
+          ]
+        },
+        {
+          "nombre": "SubEstado",
+          "nombre_normalizado": "sub estado",
+          "faltantes_pct": 51.6,
+          "cardinalidad": "11–100",
+          "unicos_pct": 0.6,
+          "sensible": null,
+          "formatos": [
+            {
+              "formato": "AAAAAAA AA AAAAAAAA AA AA AAAA. AAAAAAAAAA",
+              "pct": 37.4
+            },
+            {
+              "formato": "AAAAAAA AAAAAAAA AA AA AAAA. AAAAAAAAAA",
+              "pct": 36.6
+            },
+            {
+              "formato": "AAAAAAAA AA AAAAA",
+              "pct": 7.9
+            },
+            {
+              "formato": "AAAAA AAAAAAAAA AAAAAAAAA",
+              "pct": 5.6
+            },
+            {
+              "formato": "AAAAAAAA AA AAAAAAA",
+              "pct": 4.3
+            },
+            {
+              "formato": "AAAAAAAAA",
+              "pct": 1.8
+            },
+            {
+              "formato": "AAAAAAAA AAAAAAAAAA",
+              "pct": 1.3
+            },
+            {
+              "formato": "AAAAAAAA AA AAAAAAAA",
+              "pct": 1.2
+            },
+            {
+              "formato": "AAAAAAAA AA AAAA AAAAAAAAA",
+              "pct": 1.0
+            },
+            {
+              "formato": "AAAAAAAA AA AAAAAAAAAA",
+              "pct": 0.9
+            },
+            {
+              "formato": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 2.0
+            }
+          ],
+          "largo": {
+            "p10": 17,
+            "p50": 39,
+            "p90": 42
+          },
+          "calidad": {
+            "espacios_extra_pct": 0.0,
+            "vacios_textuales_pct": 0.0,
+            "mayusculas_mixtas_pct": 100.0,
+            "numeros_como_texto_pct": 0.0
+          },
+          "tipo": "texto",
+          "categorias": [
+            {
+              "valor": "Tramite no iniciado en el Dpto. Transporte",
+              "pct": 37.4
+            },
+            {
+              "valor": "Tramite iniciado en el Dpto. Transporte",
+              "pct": 36.6
+            },
+            {
+              "valor": "Problema de motor",
+              "pct": 7.0
+            },
+            {
+              "valor": "Otros problemas mecanicos",
+              "pct": 5.6
+            },
+            {
+              "valor": "Problema de bateria",
+              "pct": 3.9
+            },
+            {
+              "valor": "Siniestro",
+              "pct": 1.8
+            },
+            {
+              "valor": "Problema electricos",
+              "pct": 1.3
+            },
+            {
+              "valor": "Problema de embrague",
+              "pct": 1.0
+            },
+            {
+              "valor": "Problema de tren delantero",
+              "pct": 1.0
+            },
+            {
+              "valor": "Problema de bomba",
+              "pct": 0.9
+            },
+            {
+              "valor": "Problemas de neumaticos",
+              "pct": 0.7
+            },
+            {
+              "valor": "Problema de frenos",
+              "pct": 0.7
+            },
+            {
+              "valor": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 2.2
+            }
+          ]
+        },
+        {
+          "nombre": "DireccionGral",
+          "nombre_normalizado": "direccion gral",
+          "faltantes_pct": 0.0,
+          "cardinalidad": "11–100",
+          "unicos_pct": 0.2,
+          "sensible": "ubicacion",
+          "formatos": [
+            {
+              "formato": "TEXTO_21-40",
+              "pct": 84.4
+            },
+            {
+              "formato": "TEXTO_MAS_DE_40",
+              "pct": 11.2
+            },
+            {
+              "formato": "AAAAAAAAAAA AAAAAAA",
+              "pct": 2.5
+            },
+            {
+              "formato": "OTRA_CATEGORIA_SINTETIZABLE",
+              "pct": 2.0
+            }
+          ],
+          "largo": {
+            "p10": 33,
+            "p50": 35,
+            "p90": 42
+          },
+          "calidad": {
+            "espacios_extra_pct": 0.0,
+            "vacios_textuales_pct": 0.0,
+            "mayusculas_mixtas_pct": 0.0,
+            "numeros_como_texto_pct": 0.0
+          },
+          "tipo": "texto"
+        }
+      ]
+    }
+  },
+  "relaciones": []
+}
