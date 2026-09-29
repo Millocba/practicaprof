@@ -12,10 +12,12 @@ Sigue las reglas de docs/REAL_DATA_BOUNDARY.md:
 
 El archivo se procesa en memoria y no se escribe nada salvo el perfil que se decida guardar.
 """
+import json
 import math
 import re
 import unicodedata
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -122,12 +124,23 @@ def _formatos(serie_texto, total):
     return formatos, conteo
 
 
+CUANTILES = {"p05": 0.05, "p25": 0.25, "p50": 0.5, "p75": 0.75, "p95": 0.95}
+
+
+def cuantil_publicable(q, n):
+    """Un cuantil se publica solo si deja al menos MINIMO_GRUPO observaciones de cada lado.
+
+    Con pocos datos, p05 o p95 quedan pegados al mínimo o al máximo real y lo revelan.
+    """
+    return min(q, 1 - q) * n >= MINIMO_GRUPO
+
+
 def _numerico(serie):
     valores = serie.astype(float)
-    cuantiles = valores.quantile([0.05, 0.25, 0.5, 0.75, 0.95])
+    cuantiles = valores.quantile(list(CUANTILES.values()))
     return {
-        "p05": dos_cifras(cuantiles[0.05]), "p25": dos_cifras(cuantiles[0.25]), "p50": dos_cifras(cuantiles[0.5]),
-        "p75": dos_cifras(cuantiles[0.75]), "p95": dos_cifras(cuantiles[0.95]),
+        **{clave: dos_cifras(cuantiles[q]) if cuantil_publicable(q, len(valores)) else None
+           for clave, q in CUANTILES.items()},
         "ceros_pct": pct(int((valores == 0).sum()), len(valores)),
         "negativos_pct": pct(int((valores < 0).sum()), len(valores)),
         "enteros_pct": pct(int((valores == valores.round()).sum()), len(valores)),
@@ -337,6 +350,20 @@ def leer_tablas(archivo, nombre):
         if numeros.notna().mean() >= 0.98:
             df[columna] = pd.to_numeric(df[columna], errors="coerce")
     return {base: df}
+
+
+def aprobar_archivo(origen, carpeta_aprobados, responsable, notas=None):
+    """Registra la revisión manual de un perfil pendiente y lo mueve a la carpeta de aprobados."""
+    origen = Path(origen)
+    perfil = json.loads(origen.read_text(encoding="utf-8"))
+    perfil["revision"] = {"revisado": True, "responsable": responsable, "fecha": date.today().isoformat(),
+                          "notas": notas or None}
+    destino = Path(carpeta_aprobados) / origen.name
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    destino.write_text(json.dumps(perfil, indent=2, ensure_ascii=False), encoding="utf-8")
+    if origen.resolve() != destino.resolve():
+        origen.unlink()
+    return destino
 
 
 def perfilar(tablas, origen="fuente"):

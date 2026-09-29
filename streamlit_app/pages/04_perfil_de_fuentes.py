@@ -28,7 +28,7 @@ from perfilador.comparar import (  # noqa: E402
     perfil_de_directorio,
     sugerir_emparejamiento,
 )
-from perfilador.perfil import MINIMO_GRUPO, OTRA, leer_tablas, perfilar  # noqa: E402
+from perfilador.perfil import MINIMO_GRUPO, OTRA, aprobar_archivo, leer_tablas, perfilar  # noqa: E402
 
 PENDIENTES = RAIZ / "perfiles" / "pendientes"
 APROBADOS = RAIZ / "perfiles" / "aprobados"
@@ -67,6 +67,21 @@ def tabla_de_columnas(tabla):
                       "Formatos": formatos, "Categorías": categorias,
                       "Mediana": (c.get("numerico") or {}).get("p50")})
     return pd.DataFrame(filas)
+
+
+def resumen_seguro(perfil):
+    """Faltantes promedio y cantidad de columnas por tipo: solo agregados del perfil, nunca valores."""
+    columnas = [c for t in perfil["tablas"].values() for c in t["perfil_columnas"]]
+    faltantes = [c["faltantes_pct"] for c in columnas if c.get("faltantes_pct") is not None]
+    tipos = pd.Series([c.get("tipo", "error") for c in columnas]).value_counts()
+    return (round(sum(faltantes) / len(faltantes), 1) if faltantes else None), tipos
+
+
+def mostrar_resumen_seguro(perfil):
+    faltantes, tipos = resumen_seguro(perfil)
+    col1, col2 = st.columns([1, 3])
+    col1.metric("Faltantes promedio por columna", f"{faltantes}%" if faltantes is not None else "—")
+    col2.markdown("**Tipos detectados:** " + " · ".join(f"{tipo} ({n})" for tipo, n in tipos.items()))
 
 
 def mostrar_perfil(perfil):
@@ -116,23 +131,26 @@ if vista == VISTAS[0]:
     else:
         st.info("🔐 Los archivos se leen **en memoria** y no se guardan. Solo se conserva el perfil agregado, "
                 "que tenés que revisar antes de aprobarlo.")
-        archivos = st.file_uploader("Archivos de la fuente (CSV o Excel)", type=["csv", "xlsx", "xls", "xlsm"],
-                                    accept_multiple_files=True, key="archivos_fuente")
         origen = st.text_input("Nombre de la fuente (para identificar el perfil)", value="fuentes reales",
                                key="origen_fuente")
-        if archivos and st.button("🔬 Perfilar", type="primary", key="perfilar"):
+        archivos = st.file_uploader("Archivos de la fuente (CSV o Excel)", type=["csv", "xlsx", "xls", "xlsm"],
+                                    accept_multiple_files=True, key="archivos_fuente")
+        firma = (origen, tuple((a.name, a.size) for a in archivos)) if archivos else None
+        if firma and firma != st.session_state.get("firma_perfilada"):
             tablas = {}
             for archivo in archivos:
                 tablas.update(leer_tablas(archivo, archivo.name))
             with st.spinner("Perfilando..."):
                 st.session_state["perfil_generado"] = perfilar(tablas, origen=origen)
+            st.session_state["firma_perfilada"] = firma
             del tablas  # los datos no se conservan: solo el perfil
         perfil = st.session_state.get("perfil_generado")
         if perfil:
+            mostrar_resumen_seguro(perfil)
             mostrar_perfil(perfil)
             texto = json.dumps(perfil, indent=2, ensure_ascii=False)
-            col1, col2 = st.columns(2)
             nombre_archivo = f"perfil_{date.today().isoformat()}.json"
+            col1, col2 = st.columns(2)
             col1.download_button("⬇️ Descargar el perfil (JSON)", texto, file_name=nombre_archivo,
                                  mime="application/json", use_container_width=True, key="descargar_perfil")
             if col2.button("💾 Guardar en perfiles/pendientes/", use_container_width=True, key="guardar_pendiente"):
@@ -141,6 +159,18 @@ if vista == VISTAS[0]:
                 st.success(f"Guardado en `perfiles/pendientes/{nombre_archivo}` (no se versiona hasta aprobarlo).")
             with st.expander("Ver el JSON completo antes de guardarlo o compartirlo"):
                 st.json(perfil)
+
+            st.markdown("**Aprobar** después de revisar que no contenga nombres, identificadores ni valores sensibles:")
+            col1, col2 = st.columns(2)
+            revisor = col1.text_input("Nombre del revisor", key="revisor_generado")
+            notas = col2.text_input("Notas (opcional)", key="notas_generado")
+            if st.button("✅ Aprobar y mover a perfiles/aprobados/", disabled=not revisor, key="aprobar_generado"):
+                pendiente = PENDIENTES / nombre_archivo
+                if not pendiente.exists():
+                    PENDIENTES.mkdir(parents=True, exist_ok=True)
+                    pendiente.write_text(texto, encoding="utf-8")
+                destino = aprobar_archivo(pendiente, APROBADOS, revisor, notas)
+                st.success(f"Aprobado: `perfiles/aprobados/{destino.name}`. Commitealo para que quede versionado.")
 
 # ---------------------------------------------------------------- Comparar
 elif vista == VISTAS[1]:
@@ -246,11 +276,7 @@ else:
             responsable = col1.text_input("Responsable de la revisión", key="responsable")
             notas = col2.text_input("Notas (opcional)", key="notas_revision")
             if st.button("✅ Aprobar y mover a perfiles/aprobados/", disabled=not responsable, key="aprobar"):
-                perfil["revision"] = {"revisado": True, "responsable": responsable, "fecha": date.today().isoformat(),
-                                      "notas": notas or None}
-                APROBADOS.mkdir(parents=True, exist_ok=True)
-                (APROBADOS / ruta.name).write_text(json.dumps(perfil, indent=2, ensure_ascii=False), encoding="utf-8")
-                ruta.unlink()
+                aprobar_archivo(ruta, APROBADOS, responsable, notas)
                 st.success(f"Aprobado: `perfiles/aprobados/{ruta.name}`. Commitealo para que quede versionado.")
     else:
         st.caption("Los perfiles pendientes solo se ven con la app corriendo en la máquina local.")

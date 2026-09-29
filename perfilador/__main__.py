@@ -16,7 +16,7 @@ from datetime import date
 from pathlib import Path
 
 from perfilador.comparar import comparar, informe_markdown, perfil_de_directorio, sugerir_emparejamiento
-from perfilador.perfil import leer_tablas, perfilar
+from perfilador.perfil import aprobar_archivo, leer_tablas, perfilar
 
 RAIZ = Path(__file__).parent.parent
 PENDIENTES = RAIZ / "perfiles" / "pendientes"
@@ -41,14 +41,7 @@ def cmd_perfilar(args):
 
 
 def cmd_aprobar(args):
-    origen = Path(args.perfil)
-    perfil = json.loads(origen.read_text(encoding="utf-8"))
-    perfil["revision"] = {"revisado": True, "responsable": args.responsable, "fecha": date.today().isoformat(),
-                          "notas": args.notas}
-    destino = APROBADOS / origen.name
-    guardar(perfil, destino)
-    if origen.resolve() != destino.resolve():
-        origen.unlink()
+    destino = aprobar_archivo(args.perfil, APROBADOS, args.responsable, args.notas)
     print(f"Perfil aprobado por {args.responsable}: {destino}")
 
 

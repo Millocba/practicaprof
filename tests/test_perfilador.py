@@ -20,6 +20,7 @@ from perfilador.comparar import comparar, sugerir_emparejamiento  # noqa: E402
 from perfilador.perfil import (  # noqa: E402
     MINIMO_GRUPO,
     OTRA,
+    aprobar_archivo,
     dos_cifras,
     formato,
     leer_tablas,
@@ -105,6 +106,28 @@ def test_cuantiles_redondeados():
     assert all(v == dos_cifras(v) for v in c["numerico"].values() if isinstance(v, float) and v > 100)
 
 
+def test_cuantiles_de_las_colas_se_suprimen_con_pocos_datos():
+    # 100 valores: p05 y p95 dejarían 5 observaciones afuera y quedarían pegados a los extremos
+    chica = perfilar_columna("Importe", pd.Series(np.arange(100)))["numerico"]
+    assert chica["p05"] is None and chica["p95"] is None
+    assert chica["p25"] is not None and chica["p50"] is not None
+    # 400 valores: todas las colas tienen al menos MINIMO_GRUPO observaciones
+    grande = perfilar_columna("Importe", pd.Series(np.arange(400)))["numerico"]
+    assert all(grande[k] is not None for k in ["p05", "p25", "p50", "p75", "p95"])
+    assert grande["p95"] != 399 and grande["p05"] != 0
+
+
+def test_aprobar_archivo_registra_revisor_y_mueve(tmp_path, perfil):
+    pendiente = tmp_path / "pendientes" / "perfil_x.json"
+    pendiente.parent.mkdir()
+    pendiente.write_text(json.dumps(perfil), encoding="utf-8")
+    destino = aprobar_archivo(pendiente, tmp_path / "aprobados", "Revisora", "sin observaciones")
+    assert not pendiente.exists() and destino == tmp_path / "aprobados" / "perfil_x.json"
+    revision = json.loads(destino.read_text(encoding="utf-8"))["revision"]
+    assert revision["revisado"] and revision["responsable"] == "Revisora"
+    assert revision["notas"] == "sin observaciones"
+
+
 def test_tabla_chica_sin_estadisticas():
     c = perfilar_columna("Importe", pd.Series(range(MINIMO_GRUPO - 1)))
     assert c["tipo"] == "desconocido" and "numerico" not in c
@@ -167,6 +190,20 @@ def test_pagina_local_habilita_la_carga(monkeypatch):
     assert not at.exception
     assert not any("deshabilitado" in w.value for w in at.warning)
     assert any("en memoria" in i.value for i in at.info)
+
+
+def test_pagina_muestra_resumen_y_permite_aprobar(monkeypatch, perfil):
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setenv("PERFILADOR_PERMITIR_ARCHIVOS", "1")
+    at = AppTest.from_file(str(RAIZ / "streamlit_app" / "pages" / "04_perfil_de_fuentes.py"), default_timeout=60)
+    at.session_state["perfil_generado"] = perfil
+    at.run()
+    assert not at.exception
+    assert any(m.label == "Faltantes promedio por columna" for m in at.metric)
+    assert at.button(key="aprobar_generado").disabled
+    at.text_input(key="revisor_generado").input("Revisora").run()
+    assert not at.button(key="aprobar_generado").disabled
 
 
 def test_pagina_compara_un_perfil(monkeypatch, perfil):
