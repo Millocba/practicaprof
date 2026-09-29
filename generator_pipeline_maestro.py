@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 Pipeline Maestro - Ejecuta todos los generadores de datos
-Genera: Flota, Telemetría, Consumo, Facturación, Solicitudes
+Genera, en los dos escenarios: flota, telemetría, consumo, solicitudes y facturación. El
+escenario realista suma estaciones, telemetría diaria, detalle de facturación, contratos,
+transferencias, excepciones de odómetro y casos legítimos (ver TABLAS).
 
 Además registra en `ground_truth.csv` cada anomalía inyectada. Ese archivo es la
 verdad de referencia para evaluar la detección y no debe usarse como entrada de
@@ -40,7 +42,7 @@ DIRECTORIOS_ESCENARIO = {
 SEED = 42
 # Versión de los datos que produce el generador: cambiarla cuando cambie lo que genera, así la
 # aplicación regenera los datos que tenga en disco de una versión anterior
-VERSION_GENERADOR = "2.3"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md); 2.1: horas del día en el orden del odómetro; 2.2: forma de cargar calibrada; 2.3: excepciones de odómetro
+VERSION_GENERADOR = "2.4"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md); 2.1: horas del día en el orden del odómetro; 2.2: forma de cargar calibrada; 2.3: excepciones de odómetro; 2.4: textos del diccionario
 
 # Ventana temporal de los datos: consumos y solicitudes entre FECHA_INICIO y
 # FECHA_INICIO + DIAS_VENTANA. FECHA_REFERENCIA hace de "ahora" para la telemetría.
@@ -273,14 +275,13 @@ EVENTOS_REALISTA = {
     "FACTURADA_A_PRECIO_DE_SURTIDOR": 6,  # líneas al precio del surtidor en lugar del de empresa
     "DIFERENCIA_DEUDA_PDF": 2,      # facturas cuyo PDF no coincide con la deuda
     "PRODUCTO_NO_COMBUSTIBLE": 2,   # facturas con renglones de lubricante
-    "CARGA_CON_CUPO_AGOTADO": 1,
+    "CARGA_CON_CUPO_AGOTADO": 1,    # contratos-mes en los que una transferencia llega tarde y se carga sin saldo
     "DISPOSITIVO_ACTIVO_EN_BAJA": 2,  # móviles de baja con el dispositivo fuera del depósito y transmitiendo
-    "DISPOSITIVO_EN_DEPOSITO": 3,   # legítimos, como mínimo: ~4% de las bajas tiene dispositivo (fuente)    # contratos-mes en los que una transferencia llega tarde y se carga sin saldo
+    "DISPOSITIVO_EN_DEPOSITO": 3,   # legítimos, como mínimo: ~4% de las bajas tiene dispositivo (fuente)
     "TRANSFERENCIA_SIN_NECESIDAD": 2,  # transferencias que la proyección no justifica
     "AJUSTE_DOCUMENTADO": 4,        # legítimos: facturas con un ajuste
 }
 PROB_DESFASE_DE_CORTE = 0.5         # cargas del último día del mes facturadas al mes siguiente
-TASA_SOLICITUDES_SIN_CARGA = 0.08   # solicitudes rechazadas o pendientes que no terminan en carga
 TASAS_CALIDAD_REALISTA = {"DOMINIO_INVALIDO": 0.003, "VALOR_NULO": 0.005, "DUPLICADO": 0.003}
 
 # Formatos de origen (realista): cómo llegan los datos de cada fuente, sin ser anomalías.
@@ -288,7 +289,6 @@ TASAS_CALIDAD_REALISTA = {"DOMINIO_INVALIDO": 0.003, "VALOR_NULO": 0.005, "DUPLI
 TASA_DOMINIO_CON_FORMATO = 0.005    # cargas con el dominio escrito de otra forma (H1): la fuente gana
                                     # alrededor de medio punto de vinculación al normalizar
 # Registro interno (escenario realista), calibrado con el perfil de la fuente
-TOLERANCIA_REGISTRO_LITROS = 0.5    # diferencia de litros entre el registro y la carga que no es desacuerdo
 NIVELES_TANQUE = {"TANQUE LLENO": 0.74, "1/2 TANQUE": 0.09, "3/4 TANQUE": 0.085, "1/4 TANQUE": 0.075, "RESERVA": 0.01}
 BANDERAS_RENDICION = {"Amarillo": 0.64, "Verde": 0.359, "Rojo": 0.001}
 RELACIONES_CONSUMO = {"J": 0.62, "I": 0.13, "D": 0.08, "Q": 0.06, "E": 0.06, "K": 0.05}
@@ -336,7 +336,9 @@ TABLAS = {
         "grano": "un vehículo", "clave": "Matricula", "escenarios": AMBOS,
         "columnas": {
             "Matricula": ("texto", "Clave del vehículo, VEH-NNNNNN"),
-            "Dominio": ("texto", "Dominio sintético ABNNNNCD, único; no proviene de un padrón"),
+            "Dominio": ("texto", "Dominio sintético, único; no proviene de un padrón. Didáctico: ABNNNNCD. "
+                                 "Realista: formatos públicos que empiezan con Z (Z999AAA motos, ZA999AA autos "
+                                 "desde 2016, ZZA999 anteriores)"),
             "Estado": ("categoría", "EN SERVICIO, FUERA DE SERVICIO o de baja: BAJA y EN REPARACION en el "
                                     "escenario didáctico, TRAMITE EN BAJA en el realista"),
             "DireccionGral": ("categoría", "Dirección ficticia a la que pertenece el vehículo"),
@@ -456,8 +458,8 @@ TABLAS = {
             "solicitante": ("texto", "Quien pide: el conductor, o la persona de la tarjeta personal", REALISTA),
             "tarjeta_personal": ("booleano", "La carga se hace con una tarjeta personal y no con la del vehículo",
                                  REALISTA),
-            "litros_autorizados": ("decimal (L)", "Litros autorizados (didáctico: 0 si fue rechazada o está "
-                                                  "pendiente)"),
+            "litros_autorizados": ("decimal (L)", "Litros autorizados. Didáctico: de 20 a 100, generados por "
+                                                  "separado. Realista: los del pedido, antes de cargar"),
             "litros_cargados": ("decimal (L)", "Litros que el registro declara cargados", REALISTA),
             "nivel_tanque": ("categoría", "Nivel del tanque antes de cargar: TANQUE LLENO, 3/4, 1/2, 1/4, RESERVA",
                              REALISTA),
@@ -577,10 +579,10 @@ RELACIONES = [
      "la suma de las líneas es el total (salvo TOTAL_INFLADO)"),
     ("facturacion_detalle", "referencia_consumo", "consumo", "id", "N:1", REALISTA,
      "se rompe en LINEA_SIN_CONSUMO; dos líneas en LINEA_DUPLICADA"),
-    ("ground_truth", "id_registro", "consumo / facturacion / facturacion_detalle", "id", "N:1", AMBOS,
-     "según la columna tabla; en tabla contrato_mes, el id es CTO-N|AAAA-MM"),
-    ("casos_legitimos", "id_registro", "consumo / facturacion / facturacion_detalle", "id", "N:1", REALISTA,
-     "según la columna tabla; en tabla contrato_mes, el id es CTO-N|AAAA-MM"),
+    ("ground_truth", "id_registro", "consumo / facturacion / facturacion_detalle / solicitudes / telemetria", "id",
+     "N:1", AMBOS, "según la columna tabla (en telemetria, el Alias); en tabla contrato_mes, el id es CTO-N|AAAA-MM"),
+    ("casos_legitimos", "id_registro", "consumo / facturacion / facturacion_detalle / solicitudes / telemetria", "id",
+     "N:1", REALISTA, "según la columna tabla (en telemetria, el Alias); en tabla contrato_mes, el id es CTO-N|AAAA-MM"),
 ]
 
 
@@ -694,7 +696,7 @@ class GeneradorMaestro:
         })
 
     def generar_flota(self):
-        """Genera tabla FLOTA (200 vehículos)"""
+        """Genera la tabla FLOTA con `n_flota` vehículos (escenario didáctico)."""
         logger.info("Generando FLOTA...")
         rng = self.rng
 
@@ -1396,9 +1398,6 @@ class GeneradorMaestro:
                 self._registrar_legitimo(c["id"], c["vehiculo_id"], c["_legitimo"],
                                          c.get("_detalle") or CATALOGO_LEGITIMOS[c["_legitimo"]])
 
-        # Estación de cada carga antes de los defectos de calidad: el proveedor factura
-        # con la estación real aunque en nuestro registro quede vacía
-        self._estacion_real = {c["id"]: c["estacion"] for c in cargas}
         cargas += self._defectos_de_calidad(cargas, siguiente_id=len(cargas) + 1)
 
         columnas = ["id", "vehiculo_id", "dominio", "fecha", "estacion", "producto", "litros",
@@ -1471,7 +1470,8 @@ class GeneradorMaestro:
         Anomalías: carga sin registro, registro anulado con carga, registro rendido sin carga,
         desacuerdo de litros y carga que supera lo autorizado. Casos legítimos: rendición
         pendiente, estación de otro proveedor (solo en el registro), tarjeta personal (el
-        reporte trae la persona y no el dominio) y exceso dentro de la tolerancia del surtidor.
+        reporte trae la persona y no el dominio), exceso dentro de la tolerancia del surtidor y
+        pedido rehecho (se anula y se vuelve a hacer antes de cargar).
         """
         rng = self.rng
         consumo = self.datasets["consumo"]

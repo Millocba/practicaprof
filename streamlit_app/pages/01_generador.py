@@ -330,7 +330,7 @@ try:
 
         if not flota.empty:
             total_flota = len(flota)
-            validations.append(("🚗 Flota (Maestro)", total_flota, total_flota, "100%"))
+            validations.append(("🚗 Flota (referencia)", total_flota, total_flota, "—"))
 
         if not telemetria.empty and not flota.empty:
             tele_count = len(telemetria)
@@ -371,14 +371,16 @@ st.markdown("""
 
 - **Parámetro n_flota**: Controla el tamaño total del dataset. 200 es tamaño estándar.
 - **Parámetro seed**: Usar el mismo seed siempre genera los mismos datos (reproducibilidad).
-- **Validaciones**: Verifica que todas las relaciones cross-entity sean válidas al 100%.
+- **Validaciones**: Muestra qué parte de la telemetría, las cargas y las solicitudes se vincula con un vehículo
+  de la flota. En el escenario realista no llega al 100% a propósito: hay dominios inválidos y con otro formato.
 - **Tiempo de ejecución**: ~5-10 segundos para 200 vehículos (depende de tu computadora).
 
 ### 📚 Archivos Generados
 
 Los datos se generan en `datasets/synthetics_maestro/` (didáctico) o `datasets/synthetics_realista/`
-(realista). Ambos incluyen las cinco entidades, `ground_truth.csv` y `metadata.json`; el realista suma
-`estaciones.csv`, `telemetria_diaria.csv` y `casos_legitimos.csv`. El detalle está en el diccionario
+(realista). Ambos incluyen las cinco entidades, `ground_truth.csv`, `diccionario.json` y `metadata.json`;
+el realista suma `estaciones.csv`, `telemetria_diaria.csv`, `facturacion_detalle.csv`, `contratos.csv`,
+`transferencias.csv`, `excepciones_odometro.csv` y `casos_legitimos.csv`. El detalle está en el diccionario
 de datos (`docs/DICCIONARIO_DATOS.md`).
 
 Puedes explorar estos datos en la página **"📋 Exploración de Datasets"**

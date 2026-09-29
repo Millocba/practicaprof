@@ -52,9 +52,13 @@ flowchart LR
   ground_truth -->|"id_registro (N:1)"| consumo
   ground_truth -->|"id_registro (N:1)"| facturacion
   ground_truth -->|"id_registro (N:1)"| facturacion_detalle
+  ground_truth -->|"id_registro (N:1)"| solicitudes
+  ground_truth -->|"id_registro (N:1)"| telemetria
   casos_legitimos -->|"id_registro (N:1)"| consumo
   casos_legitimos -->|"id_registro (N:1)"| facturacion
   casos_legitimos -->|"id_registro (N:1)"| facturacion_detalle
+  casos_legitimos -->|"id_registro (N:1)"| solicitudes
+  casos_legitimos -->|"id_registro (N:1)"| telemetria
   classDef evaluacion fill:#fdf1dc,stroke:#c9a15a
   class ground_truth,casos_legitimos evaluacion
 ```
@@ -78,8 +82,8 @@ flowchart LR
 | `facturacion` | `proveedor` | `estaciones` (`marca`) | N:1 | realista | — |
 | `facturacion_detalle` | `numero_factura` | `facturacion` (`numero_factura`) | N:1 | realista | la suma de las líneas es el total (salvo TOTAL_INFLADO) |
 | `facturacion_detalle` | `referencia_consumo` | `consumo` (`id`) | N:1 | realista | se rompe en LINEA_SIN_CONSUMO; dos líneas en LINEA_DUPLICADA |
-| `ground_truth` | `id_registro` | `consumo` / `facturacion` / `facturacion_detalle` (`id`) | N:1 | ambos | según la columna tabla; en tabla contrato_mes, el id es CTO-N|AAAA-MM |
-| `casos_legitimos` | `id_registro` | `consumo` / `facturacion` / `facturacion_detalle` (`id`) | N:1 | realista | según la columna tabla; en tabla contrato_mes, el id es CTO-N|AAAA-MM |
+| `ground_truth` | `id_registro` | `consumo` / `facturacion` / `facturacion_detalle` / `solicitudes` / `telemetria` (`id`) | N:1 | ambos | según la columna tabla (en telemetria, el Alias); en tabla contrato_mes, el id es CTO-N|AAAA-MM |
+| `casos_legitimos` | `id_registro` | `consumo` / `facturacion` / `facturacion_detalle` / `solicitudes` / `telemetria` (`id`) | N:1 | realista | según la columna tabla (en telemetria, el Alias); en tabla contrato_mes, el id es CTO-N|AAAA-MM |
 
 En el escenario didáctico, `ground_truth` solo referencia cargas (`consumo`).
 
@@ -97,7 +101,7 @@ Hay datos que podrían calcularse desde otra tabla y se guardan igual, porque su
 | Columna | Tipo | Descripción |
 |---|---|---|
 | `Matricula` | texto | Clave del vehículo, `VEH-NNNNNN` |
-| `Dominio` | texto | Dominio sintético `ABNNNNCD`, único; no proviene de un padrón |
+| `Dominio` | texto | Dominio sintético, único; no proviene de un padrón. Didáctico: `ABNNNNCD`; realista: formatos públicos que empiezan con Z (ver *Escenario realista*) |
 | `Estado` | categoría | EN SERVICIO, EN REPARACION, FUERA DE SERVICIO o BAJA |
 | `DireccionGral` | categoría | Dirección ficticia a la que pertenece el vehículo (5 valores) |
 | `Dependencia` | categoría | Dependencia ficticia dentro de la dirección, `DEP A` a `DEP J` |

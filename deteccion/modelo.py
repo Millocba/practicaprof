@@ -1,10 +1,10 @@
 """Detección no supervisada con Isolation Forest, comparada con la línea base de reglas.
 
 El modelo trabaja con variables derivadas de las entidades (nunca del ground truth)
-y se evalúa sobre las anomalías de comportamiento: exceso volumétrico (H3a) y
-retrocesos o saltos de odómetro (H2). Los defectos de calidad (duplicados, nulos,
-dominios sin vínculo) no son un problema de detección de outliers y los cubren
-las reglas.
+y se evalúa sobre las anomalías de comportamiento (HIPOTESIS_COMPORTAMIENTO). El
+desglose por tipo usa TIPOS_COMPORTAMIENTO: exceso volumétrico y retrocesos o saltos
+de odómetro. Los defectos de calidad (duplicados, nulos, dominios sin vínculo) no son
+un problema de detección de outliers y los cubren las reglas.
 
 El umbral no se ajusta con la tasa real de anomalías (eso filtraría el ground
 truth): se usa `contamination="auto"` y además se informa la precisión promedio,
@@ -30,8 +30,9 @@ from deteccion.reglas import (
 TIPOS_COMPORTAMIENTO = ["EXCESO_VOLUMETRICO", "ODOMETRO_REGRESIVO", "ODOMETRO_SALTO"]
 REGLAS_COMPORTAMIENTO = ["litros_mayor_a_tanque", "odometro_disminuye", "salto_historial_vehiculo"]
 
-# Hipótesis de comportamiento (las de calidad de datos y vinculación, CALIDAD y H1,
-# no son problemas de detección de outliers)
+# Hipótesis de comportamiento: las anomalías de una carga. Quedan fuera la calidad de datos y
+# la vinculación (CALIDAD y H1), que no son un problema de detección de outliers, y las que no
+# son anomalías de una carga: facturación (H9), cupo de los contratos (H10) y dispositivos (H11)
 HIPOTESIS_COMPORTAMIENTO = {"H2", "H3a", "H4", "H5", "H6", "H7", "H8", "H12"}
 
 VARIABLES = {
