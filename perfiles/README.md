@@ -11,10 +11,10 @@ Perfiles **agregados** de fuentes de datos externas: estructura y calidad, sin f
 
 - **Por tabla:** filas en bandas (por ejemplo, "1.000–9.999"), cantidad de columnas, porcentaje de filas duplicadas y columnas candidatas a clave.
 - **Por columna:** tipo, porcentaje de faltantes, cardinalidad en bandas, formatos (`ABC123` → `AAA999`) con su frecuencia y defectos de calidad (espacios extra, vacíos escritos como texto, números guardados como texto…).
-- **Numéricas:** cuantiles con dos cifras significativas, sin mínimos ni máximos.
+- **Numéricas:** cuantiles con dos cifras significativas, sin mínimos ni máximos. Un cuantil se publica solo si deja al menos 20 casos de cada lado (con menos de 400 valores, p05 y p95 quedan vacíos).
 - **Fechas:** formatos y cantidad por mes.
 - **Categorías:** solo las que tienen 20 casos o más; el resto se agrupa como `OTRA_CATEGORIA_SINTETIZABLE`.
-- **Columnas sensibles** (identificadores, personas, patentes, ubicaciones, texto libre): se detectan por el nombre o el formato y se describen **solo por su formato**, sin valores, cuantiles ni categorías.
+- **Columnas sensibles** (identificadores, personas, patentes, ubicaciones, organizaciones, texto libre): se detectan por el nombre o el formato y se describen **solo por su formato**, sin valores, cuantiles ni categorías. Sus formatos de más de 20 caracteres se resumen por su largo (`TEXTO_21-40`, `TEXTO_MAS_DE_40`), y los textos que son mayormente dígitos (remitos, extractos) se tratan como identificadores.
 - **Tablas chicas** (menos de 20 filas, como un catálogo de contratos): sin estadísticas; de las columnas numéricas se informa cómo se reparte el total, en porcentajes ordenados sin asociarlos a ninguna fila, y el total redondeado. Una tabla vacía figura con `0` filas.
 - **Controles que cruzan tablas** (`controles`): conteos por categoría calculados junto a los datos, con los conteos de 1 a 19 informados como `1–19`. Hoy: `telemetria_vs_estado`, móviles por estado según tengan dispositivo, si está en el grupo de depósito (baja / reemplazos) y si transmitió en la última semana; la alerta cuenta los móviles en baja con el dispositivo fuera del depósito y transmitiendo.
 - **Relaciones:** qué porcentaje de los valores de una columna existe en la clave de otra tabla, exacto y después de normalizar (mayúsculas, sin espacios ni guiones).
