@@ -26,6 +26,19 @@ from perfilador.perfil import MINIMO_GRUPO, VERSION, dos_cifras
 
 SEMILLAS_ENTRENAMIENTO = (1001, 1002, 1003)
 REVISION = 100          # tamaño de la cola con que se comparan los métodos
+COBERTURA_MES_COMPLETO = 0.9   # un mes está completo si el reporte trae cargas en el 90% de sus días...
+ULTIMOS_DIAS_DEL_MES = 3       # ...y en alguno de sus últimos 3 días (un mes en curso no está completo)
+
+
+def meses_completos(fechas):
+    """Meses que el reporte cubre de principio a fin, según los días con cargas."""
+    dias = pd.Series(pd.to_datetime(fechas).dt.normalize().unique())
+    mes = dias.dt.to_period("M")
+    cubiertos = dias.groupby(mes).nunique()
+    ultimo = dias.groupby(mes).max().dt.day
+    largo = pd.Series([p.days_in_month for p in cubiertos.index], index=cubiertos.index)
+    completos = (cubiertos >= COBERTURA_MES_COMPLETO * largo) & (ultimo > largo - ULTIMOS_DIAS_DEL_MES)
+    return {str(p) for p in completos[completos].index}
 
 
 def _pct(n, total):
@@ -130,7 +143,10 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
         fechas = leer_fecha(registro["fecha"]).dt.normalize()
         dias = pd.to_datetime(consumo["fecha"]).dt.normalize()
         registro_del_periodo = registro[fechas.between(dias.min(), dias.max())]
-        registro = registro[fechas.isin(set(dias))]
+        # Las cargas de otra red no están en el reporte en ningún día: se conservan todas las del
+        # período, porque cierran los tramos del odómetro entre cargas del reporte
+        otra_red = registro["estacion_servicio"] == ESTACION_AJENA
+        registro = registro[fechas.between(dias.min(), dias.max()) & (fechas.isin(set(dias)) | otra_red)]
         datos["solicitudes"] = registro
         diagnostico["registro"] |= {
             "pedidos_en_el_periodo_del_reporte": acotar(len(registro_del_periodo)),
@@ -141,16 +157,18 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
 
     facturas = datos.get("facturacion")
     if facturas is not None:
-        # Solo las facturas de los meses que cubre el reporte: si no, sus líneas quedarían "sin carga"
-        meses = set(pd.to_datetime(consumo["fecha"]).dt.strftime("%Y-%m"))
+        # Solo las facturas de los meses que el reporte cubre completos: en un mes parcial, las
+        # líneas de los días que falta descargar quedarían "sin carga" y el total no conciliaría
+        meses = meses_completos(consumo["fecha"])
         antes = len(facturas)
         facturas = facturas[facturas["periodo"].isin(meses)]
         datos["facturacion"] = facturas
         datos["facturacion_detalle"] = datos["facturacion_detalle"][
             datos["facturacion_detalle"]["numero_factura"].isin(facturas["numero_factura"])]
-        diagnostico["facturacion"]["facturas_en_el_periodo_del_reporte"] = acotar(len(facturas))
-        diagnostico["facturacion"]["facturas_fuera_del_periodo"] = acotar(antes - len(facturas))
-        diagnostico["facturacion"]["lineas_con_carga_del_reporte_en_el_periodo_pct"] = _pct(
+        diagnostico["facturacion"]["meses_completos_del_reporte"] = sorted(meses)
+        diagnostico["facturacion"]["facturas_en_meses_completos"] = acotar(len(facturas))
+        diagnostico["facturacion"]["facturas_fuera_de_meses_completos"] = acotar(antes - len(facturas))
+        diagnostico["facturacion"]["lineas_con_carga_del_reporte_en_meses_completos_pct"] = _pct(
             int(datos["facturacion_detalle"]["referencia_consumo"].isin(consumo["id"]).sum()),
             len(datos["facturacion_detalle"])) if len(datos["facturacion_detalle"]) else None
 

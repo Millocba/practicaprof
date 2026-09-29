@@ -154,3 +154,11 @@ def test_los_meses_sin_reporte_se_informan_y_no_inflan_los_pedidos_sin_carga(sin
     assert abril["cargas_del_reporte"] == 0 and abril["pedidos_del_proveedor"] not in (0, "1–19")
     rendidas = resultado["reglas"].get("rendida_sin_carga", {"pct": 0})["pct"] or 0
     assert rendidas < 5
+
+
+def test_solo_los_meses_completos_del_reporte_se_concilian():
+    from perfilador.auditoria import meses_completos
+
+    dias = pd.concat([pd.Series(pd.date_range("2026-07-16", "2026-09-27")),
+                      pd.Series(pd.date_range("2026-02-20", "2026-02-22"))])
+    assert meses_completos(dias) == {"2026-08"}      # julio empieza a mitad de mes y septiembre sigue en curso
