@@ -1,11 +1,15 @@
 """Línea base de detección por reglas.
 
-Cada regla recibe solo las entidades generadas (flota y consumo) y devuelve alertas.
-Ninguna regla lee el ground truth: la evaluación contra la verdad de referencia se
-hace aparte, en `deteccion.evaluacion`.
+Cada regla recibe las fuentes que necesita (flota y consumo siempre; según la hipótesis,
+también estaciones, GPS diario, registro interno, facturación, contratos, transferencias,
+telemetría o excepciones de odómetro) y devuelve alertas. `ejecutar_reglas` aplica las
+que tienen sus fuentes disponibles. Ninguna regla lee el ground truth: la evaluación
+contra la verdad de referencia se hace aparte, en `deteccion.evaluacion`.
 
 Una alerta es una fila con:
-- id_registro: id de la transacción de consumo alertada
+- id_registro: identificador de la entidad alertada. Su unidad depende de la regla: una
+  carga de consumo, un pedido del registro interno (rendida_sin_carga), una factura, una
+  línea de factura, un contrato-mes (CTO-N|AAAA-MM) o un dispositivo (Alias)
 - tipo_anomalia: tipo que la regla atribuye (mismo vocabulario que el ground truth)
 - regla: nombre de la regla que la produjo
 - detalle: explicación legible del motivo
@@ -24,7 +28,8 @@ SALTO_FIJO_DIAS = 7            # ...en esta cantidad de días o menos
 SALTO_HISTORIAL_EXCESO_KM = 1000  # km por encima de lo esperado según el propio vehículo
 RETROCESO_LEVE_KM = 1000       # un retroceso menor se clasifica como leve
 REINICIO_ODOMETRO_KM = 10000   # una lectura menor tras un retroceso sugiere un odómetro nuevo
-DESVIO_TIPEO_KM = 500          # desvío mínimo de una lectura aislada para suponer un error de tipeo
+DESVIO_TIPEO_KM = 500          # desvío mínimo de una lectura que queda por debajo (hueco, o rebote tras un pico)
+                               # para suponer un error de tipeo; un pico no lo necesita: la siguiente vuelve a bajar
 FRACCION_INICIAL = 0.25        # primeras cargas del vehículo que definen su comportamiento habitual
 FRACCIONAMIENTO_TANQUES = 1.05  # litros del día, en tanques, a partir de los que se sospecha
 RENDIMIENTO_MINIMO = 0.4       # km/L del día por debajo de esta fracción de lo habitual
@@ -38,7 +43,7 @@ TOLERANCIA_PRECIO = 0.02        # diferencia de precio por litro entre la factur
 MARGEN_PRECIO_SURTIDOR = 0.005  # a menos de esto del precio del surtidor, la línea no tiene el descuento de empresa
 DIFERENCIA_PDF = 0.001          # diferencia relativa entre el total del PDF y la deuda
 MARGEN_PROYECCION = 1.05        # una transferencia se justifica si la proyección supera el saldo con este margen
-HOLGURA_TRANSFERENCIA = 0.9     # es injustificada si la proyección no llega a este tanto del saldo
+HOLGURA_TRANSFERENCIA = 0.9     # es injustificada si la proyección con margen no llega a este tanto de lo disponible
 DIAS_PESO_HISTORICO = 7         # la proyección combina el mes con 7 días del promedio histórico del contrato
 
 
@@ -820,10 +825,13 @@ def detectar_ejecucion_supera_tope(consumo, contratos):
 def detectar_irregularidades_de_cupo(consumo, contratos, transferencias):
     """H10: cargas con el saldo agotado y transferencias que la proyección no justifica.
 
-    Sigue el saldo diario de cada contrato: tope del mes, transferencias y cargas. Un día que
-    empieza con el saldo en cero o menos y tiene cargas es una carga que el corte debió impedir.
-    Una transferencia se justifica si la proyección del consumo a fin de mes (promedio del mes
-    combinado con el histórico) supera el saldo; es injustificada si no llega ni al 90% del saldo.
+    Sigue el saldo diario de cada contrato: tope del mes, transferencias y cargas. Un día con
+    cargas cuyo saldo para cargar (el del inicio del día más las transferencias recibidas y
+    menos las cedidas ese día) es cero o menos es una carga que el corte debió impedir.
+    Una transferencia recibida es injustificada si la proyección del consumo a fin de mes
+    (promedio del mes combinado con el histórico), con el margen de MARGEN_PROYECCION, no llega
+    ni a HOLGURA_TRANSFERENCIA (90%) de lo disponible sin ella (saldo del inicio del día menos lo
+    cedido) y ese día no se cargó más que eso.
     """
     agotadas, injustificadas = [], []
     for c, m, filas in _saldos_por_contrato_mes(consumo, contratos, transferencias):

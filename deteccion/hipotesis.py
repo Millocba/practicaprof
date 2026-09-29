@@ -1,7 +1,8 @@
 """Hipótesis del escenario realista y su contraste con las reglas.
 
 Cada hipótesis compara reglas de menor a mayor contexto sobre los mismos tipos de
-anomalía. La primera es la versión ingenua; la última, la que usa el contexto que
+anomalía. La primera es la versión ingenua (en H6 no hay regla posible sin el estado de la
+flota: se evalúa como una regla que no marca nada); la última, la que usa el contexto que
 la hipótesis propone (historial del vehículo, estado de la flota, GPS, etc.).
 
 El veredicto se calcula con los datos: la hipótesis se sostiene cuando la regla
@@ -13,7 +14,8 @@ MEJORA_MINIMA_F1 = 0.10
 
 # regla None = no hay regla posible sin la fuente que aporta la hipótesis; una lista de
 # reglas se evalúa como la unión de sus alertas. "nivel": "factura" evalúa por factura:
-# una línea irregular cuenta como una factura con problemas.
+# una línea irregular cuenta como una factura con problemas. "nivel": "contrato_mes" indica
+# que las alertas y el ground truth ya vienen por contrato y mes: no hace falta agrupar.
 HIPOTESIS = [
     {
         "codigo": "H1",
@@ -219,8 +221,8 @@ def factura_de_cada_linea(facturacion_detalle):
 def contrastar_hipotesis(alertas, ground_truth, casos_legitimos, facturacion_detalle=None):
     """Una fila por hipótesis y regla, más el veredicto de cada hipótesis.
 
-    Las hipótesis cuyas reglas no emitieron ninguna alerta ni tienen casos en el ground
-    truth (por ejemplo, H9 sin detalle de facturación) se omiten.
+    Se omiten las hipótesis sin casos en el ground truth (por ejemplo, H9 sin detalle de
+    facturación). Una hipótesis con casos y sin alertas se evalúa igual.
     """
     agrupaciones = {"factura": factura_de_cada_linea(facturacion_detalle)}
     filas, veredictos = [], []

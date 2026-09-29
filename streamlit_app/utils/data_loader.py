@@ -19,12 +19,15 @@ DIRECTORIOS = {
 NOMBRES_ESCENARIO = {"realista": "Realista", "didactico": "Didáctico"}
 ESCENARIO_POR_DEFECTO = "realista"
 
-# Archivos que debe tener cada escenario; si falta alguno, los datos son de una versión anterior
+# Archivos que escribe cada escenario; si falta alguno, los datos están incompletos o son de una
+# versión anterior y se regeneran
+_COMUNES = ["flota.csv", "telemetria.csv", "consumo.csv", "solicitudes.csv", "facturacion.csv",
+            "ground_truth.csv", "diccionario.json", "metadata.json"]
 ARCHIVOS_REQUERIDOS = {
-    "didactico": ["flota.csv", "consumo.csv", "ground_truth.csv", "diccionario.json"],
-    "realista": ["flota.csv", "consumo.csv", "ground_truth.csv", "casos_legitimos.csv", "estaciones.csv",
-                 "telemetria_diaria.csv", "facturacion_detalle.csv", "contratos.csv", "transferencias.csv",
-                 "excepciones_odometro.csv", "diccionario.json"],
+    "didactico": _COMUNES,
+    "realista": _COMUNES + ["casos_legitimos.csv", "estaciones.csv", "telemetria_diaria.csv",
+                            "facturacion_detalle.csv", "contratos.csv", "transferencias.csv",
+                            "excepciones_odometro.csv"],
 }
 
 # Parámetros del dataset que se genera automáticamente si no hay datos
@@ -213,7 +216,8 @@ def load_dataset_deteccion(escenario):
         "casos_legitimos": o_none(load_casos_legitimos(escenario)),
         "estaciones": o_none(load_estaciones(escenario)),
         "telemetria_diaria": o_none(load_telemetria_diaria(escenario)),
-        # Solo en el escenario realista las solicitudes y la facturación son coherentes con el consumo
+        # Solo en el escenario realista estas fuentes son coherentes con el consumo (el didáctico
+        # genera solicitudes y facturación por separado y no tiene contratos ni excepciones)
         "solicitudes": o_none(load_solicitudes(escenario)) if realista else None,
         "facturacion": o_none(load_facturacion(escenario)) if realista else None,
         "facturacion_detalle": o_none(load_facturacion_detalle(escenario)),
