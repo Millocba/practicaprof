@@ -99,7 +99,10 @@ def datos_de_entrenamiento(semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200):
 
     partes_x, partes_y = [], []
     for semilla in semillas:
-        with tempfile.TemporaryDirectory() as directorio:
+        # En Windows, el antivirus puede tener abierto un archivo recién escrito justo cuando se
+        # borra la carpeta: sin ignore_cleanup_errors eso cortaba el entrenamiento. Los datos ya se
+        # leyeron a memoria, así que si la carpeta no se puede borrar se deja y se sigue.
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as directorio:
             resultado = GeneradorMaestro(n_flota=n_flota, seed=semilla, output_dir=directorio,
                                          escenario="realista").ejecutar()
             if not resultado["exito"]:
