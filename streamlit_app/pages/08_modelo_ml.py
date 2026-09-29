@@ -45,6 +45,7 @@ import streamlit as st
 # para poder importar `data_loader` (carga de datos) y el paquete `deteccion` (modelos y priorización).
 APP_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(APP_DIR / "utils"))
+from tarjetas import tarjeta  # noqa: E402
 sys.path.insert(0, str(APP_DIR.parent))
 
 from data_loader import (  # noqa: E402
@@ -62,6 +63,8 @@ from deteccion.modelo import (  # noqa: E402
 from deteccion import priorizacion  # noqa: E402
 
 st.set_page_config(page_title="Modelo de ML", page_icon="🤖", layout="wide")
+# Tarjeta de marco rosa que explica esta página en palabras simples (textos en utils/tarjetas.py)
+tarjeta("modelo")
 
 # Recordatorio de Streamlit: el archivo entero se vuelve a ejecutar de arriba a abajo cada vez que la
 # persona toca un control (por ejemplo, el deslizador del presupuesto). Por eso los cálculos lentos,

@@ -43,6 +43,7 @@ import streamlit as st
 # para poder importar `data_loader` (carga de datos) y el paquete `deteccion` (reglas e hipótesis).
 APP_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(APP_DIR / "utils"))
+from tarjetas import tarjeta  # noqa: E402
 sys.path.insert(0, str(APP_DIR.parent))
 
 from data_loader import (  # noqa: E402
@@ -60,6 +61,8 @@ from deteccion.reglas import CAMPOS_OBLIGATORIOS, ejecutar_reglas  # noqa: E402
 st.set_page_config(page_title="Análisis por hipótesis", page_icon="🔍", layout="wide")
 
 st.markdown("# 🔍 Análisis por hipótesis")
+# Tarjeta de marco rosa que explica esta página en palabras simples (textos en utils/tarjetas.py)
+tarjeta("analisis")
 st.markdown(
     "Qué encuentran las reglas en los datos, hipótesis por hipótesis. Para cada una se muestra cuánto "
     "marca la **regla ingenua** y cuánto queda con la **regla con contexto**, con los casos concretos. "

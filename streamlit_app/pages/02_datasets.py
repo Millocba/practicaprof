@@ -23,6 +23,7 @@ import sys
 # Permite importar los módulos de streamlit_app/utils/ (por ejemplo data_loader).
 utils_path = Path(__file__).parent.parent / "utils"
 sys.path.insert(0, str(utils_path))
+from tarjetas import tarjeta  # noqa: E402
 
 from data_loader import (
     selector_escenario,
@@ -44,6 +45,8 @@ from data_loader import (
 st.set_page_config(page_title="Datasets", page_icon="📋", layout="wide")
 
 st.markdown("# 📋 Exploración de Datasets")
+# Tarjeta de marco rosa que explica esta página en palabras simples (textos en utils/tarjetas.py)
+tarjeta("datasets")
 st.markdown("Visualiza, filtra y analiza todos los datasets del proyecto")
 
 # Escenario elegido en la barra lateral (se recuerda en st.session_state entre

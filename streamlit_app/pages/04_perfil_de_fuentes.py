@@ -41,6 +41,7 @@ import streamlit as st
 APP_DIR = Path(__file__).parent.parent
 RAIZ = APP_DIR.parent
 sys.path.insert(0, str(APP_DIR / "utils"))
+from tarjetas import tarjeta  # noqa: E402
 sys.path.insert(0, str(RAIZ))
 
 from data_loader import NOMBRES_ESCENARIO, asegurar_datos_maestro, directorio, selector_escenario  # noqa: E402
@@ -64,6 +65,8 @@ NO_MODELADA = "— no modelada —"
 st.set_page_config(page_title="Perfil de fuentes", page_icon="🔬", layout="wide")
 
 st.markdown("# 🔬 Perfil de fuentes")
+# Tarjeta de marco rosa que explica esta página en palabras simples (textos en utils/tarjetas.py)
+tarjeta("perfil")
 st.markdown(
     "Describe la **estructura y la calidad** de una fuente de datos (tablas, columnas, tipos, formatos, faltantes, "
     "relaciones) **sin guardar sus datos**, y la compara con lo que produce el generador para saber qué le falta. "

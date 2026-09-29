@@ -40,6 +40,7 @@ import sys
 # para poder hacer `from data_loader import ...` aunque no sea un paquete instalado.
 utils_path = Path(__file__).parent / "utils"
 sys.path.insert(0, str(utils_path))
+from tarjetas import recorrido_completo, tarjeta  # noqa: E402
 
 from data_loader import (
     NOMBRES_ESCENARIO,
@@ -90,6 +91,9 @@ st.markdown("""
 # Title and introduction
 st.markdown("# 📊 Pipeline Maestro de Datos Sintéticos")
 st.markdown("**Sistema integral para gestión, visualización y análisis del dataset integrado**")
+# Tarjeta de marco rosa que explica esta página en palabras simples (textos en utils/tarjetas.py)
+tarjeta("inicio")
+recorrido_completo()
 
 # Load data (same source as the Generador and Análisis pages)
 # El "escenario" elige qué juego de datos sintéticos se usa: el realista (anomalías

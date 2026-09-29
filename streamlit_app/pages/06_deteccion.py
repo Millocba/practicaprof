@@ -36,6 +36,7 @@ import streamlit as st
 # para poder importar `data_loader` (carga de datos) y el paquete `deteccion` (reglas y evaluación).
 APP_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(APP_DIR / "utils"))
+from tarjetas import tarjeta  # noqa: E402
 sys.path.insert(0, str(APP_DIR.parent))
 
 from data_loader import (  # noqa: E402
@@ -50,6 +51,8 @@ from deteccion.reglas import ejecutar_reglas  # noqa: E402
 st.set_page_config(page_title="Detección y evaluación", page_icon="🎯", layout="wide")
 
 st.markdown("# 🎯 Detección por reglas y evaluación")
+# Tarjeta de marco rosa que explica esta página en palabras simples (textos en utils/tarjetas.py)
+tarjeta("deteccion")
 st.markdown(
     "Las reglas analizan solo las entidades generadas; después sus alertas se comparan "
     "con el **ground truth** (las anomalías que inyectó el generador)."

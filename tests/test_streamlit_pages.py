@@ -70,6 +70,8 @@ def test_pagina_abre_sin_excepciones(pagina, escenario):
     """
     at = abrir(pagina, escenario)
     assert not at.exception, [e.value for e in at.exception]
+    # Cada página muestra arriba su tarjeta rosa para principiantes (utils/tarjetas.py)
+    assert any("🧸" in m.value for m in at.markdown), "falta la tarjeta explicativa"
 
 
 @pytest.mark.parametrize("escenario", ESCENARIOS)

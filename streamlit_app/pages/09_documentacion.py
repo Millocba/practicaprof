@@ -36,6 +36,7 @@ import streamlit as st
 # para poder importar `documentacion`, `data_loader` y el paquete `deteccion`.
 APP_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(APP_DIR / "utils"))
+from tarjetas import tarjeta  # noqa: E402
 sys.path.insert(0, str(APP_DIR.parent))
 
 import documentacion  # noqa: E402
@@ -53,6 +54,8 @@ from deteccion.reglas import ejecutar_reglas  # noqa: E402
 st.set_page_config(page_title="Documentación", page_icon="📚", layout="wide")
 
 st.markdown("# 📚 Documentación")
+# Tarjeta de marco rosa que explica esta página en palabras simples (textos en utils/tarjetas.py)
+tarjeta("documentacion")
 st.markdown(
     "La documentación del proyecto con los **valores actuales**: las variables de cada documento "
     "(`{{ nombre }}`) se completan con los datos en uso. Incluye la **bitácora** de cambios y se puede "

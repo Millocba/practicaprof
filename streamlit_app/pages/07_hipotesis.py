@@ -38,6 +38,7 @@ import streamlit as st
 # para poder importar `data_loader` (carga de datos) y el paquete `deteccion` (reglas e hipótesis).
 APP_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(APP_DIR / "utils"))
+from tarjetas import tarjeta  # noqa: E402
 sys.path.insert(0, str(APP_DIR.parent))
 
 from data_loader import (  # noqa: E402
@@ -51,6 +52,8 @@ from deteccion.reglas import ejecutar_reglas  # noqa: E402
 st.set_page_config(page_title="Hipótesis", page_icon="🧪", layout="wide")
 
 st.markdown("# 🧪 Hipótesis: ¿cuánto aporta el contexto?")
+# Tarjeta de marco rosa que explica esta página en palabras simples (textos en utils/tarjetas.py)
+tarjeta("hipotesis")
 st.markdown(
     "Cada hipótesis compara una **regla ingenua** (la primera que se le ocurriría a cualquiera) "
     "con una **regla con contexto** (historial del vehículo, estado de la flota, GPS, solicitudes, detalle "

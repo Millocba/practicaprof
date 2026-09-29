@@ -29,6 +29,7 @@ from datetime import datetime
 # Permite importar los módulos de streamlit_app/utils/ (por ejemplo data_loader).
 utils_path = Path(__file__).parent.parent / "utils"
 sys.path.insert(0, str(utils_path))
+from tarjetas import tarjeta  # noqa: E402
 
 from data_loader import (
     NOMBRES_ESCENARIO,
@@ -46,6 +47,8 @@ from data_loader import (
 st.set_page_config(page_title="Generador", page_icon="⚙️", layout="wide")
 
 st.markdown("# ⚙️ Generador de Datos - Pipeline Maestro")
+# Tarjeta de marco rosa que explica esta página en palabras simples (textos en utils/tarjetas.py)
+tarjeta("generador")
 st.markdown("Configura y ejecuta el generador de entidades sintéticas")
 
 # Recordatorio: Streamlit vuelve a ejecutar este archivo completo, de arriba a

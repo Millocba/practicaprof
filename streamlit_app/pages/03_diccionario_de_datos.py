@@ -27,6 +27,7 @@ import streamlit as st
 # módulos, para poder importar data_loader y el propio generador.
 APP_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(APP_DIR / "utils"))
+from tarjetas import tarjeta  # noqa: E402
 sys.path.insert(0, str(APP_DIR.parent))
 
 from data_loader import (  # noqa: E402
@@ -48,6 +49,8 @@ from generator_pipeline_maestro import (  # noqa: E402
 st.set_page_config(page_title="Diccionario de datos", page_icon="📖", layout="wide")
 
 st.markdown("# 📖 Diccionario de datos")
+# Tarjeta de marco rosa que explica esta página en palabras simples (textos en utils/tarjetas.py)
+tarjeta("diccionario")
 st.markdown(
     "Qué contiene cada tabla, cómo se relacionan y qué anomalías y casos legítimos se inyectan. "
     "Lo escribe el generador en cada corrida (`diccionario.json`), así que describe exactamente los "
