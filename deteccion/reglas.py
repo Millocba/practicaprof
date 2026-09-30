@@ -716,6 +716,8 @@ REGLAS_CON_CAUSA = [
     "odometro_sin_avance", "sin_avance_sin_excepcion",                                                  # H12
     # H4: el pedido registrado como de otra red suma sus litros a los del día
     "fraccionamiento_diario", "fraccionamiento_sin_recorrido",
+    # H3: con la tarjeta de otro vehículo, la carga se compara con el tanque del dueño de la tarjeta
+    "litros_mayor_a_tanque", "exceso_sin_antecedente",
 ]
 
 
@@ -734,7 +736,8 @@ def causas_probables(consumo, registro, flota=None):
       (de 3 horas antes a media hora después) y con los mismos litros.
     - tarjeta_equivocada: hay un pedido sin carga de otro vehículo, en ese horario y con los mismos
       litros, y el odómetro de la carga encaja con ese vehículo y no con el de la tarjeta. La carga
-      siguiente del vehículo de la tarjeta, que cierra el tramo, lleva la misma causa.
+      siguiente del vehículo de la tarjeta, que cierra el tramo, lleva la misma causa (en el generador
+      no se etiqueta: es una carga normal cuya alerta explica el error anterior).
     - dominio_equivocado: el mismo pedido de otro vehículo, pero el odómetro encaja con el propio.
     El pedido de cada firma lleva la misma causa que su carga.
     """

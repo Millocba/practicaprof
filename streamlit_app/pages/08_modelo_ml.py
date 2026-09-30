@@ -199,7 +199,8 @@ def pagina_realista():
     presupuesto = st.slider("Presupuesto de revisión (cargas)", 10, 300, 50, step=10, key="presupuesto",
                             help="Cuántas cargas alcanza a revisar el equipo en este período. "
                                  "Es la restricción que define si un método sirve o no.")
-    curva = priorizacion.curva_de_esfuerzo(puntajes, ground_truth, legitimos, maximo=300)
+    curva = priorizacion.curva_de_esfuerzo(puntajes, ground_truth, legitimos, maximo=300,
+                                          explicadas=priorizacion.cargas_explicadas(alertas))
     en_presupuesto = curva[curva["revisadas"] == presupuesto].set_index("metodo").loc[priorizacion.METODOS]
 
     mejor = en_presupuesto["encontradas"].idxmax()
@@ -239,7 +240,8 @@ def pagina_realista():
         ayuda="El mismo desglose por tipo de anomalía, ahora con el presupuesto ya fijado. Sirve "
               "para ver si a un método se le escapa una categoría concreta: puede ganar en total y "
               "no detectar nada de un tipo.")
-    por_tipo = priorizacion.recall_por_tipo(puntajes, ground_truth, presupuesto)
+    por_tipo = priorizacion.recall_por_tipo(puntajes, ground_truth, presupuesto,
+                                           explicadas=priorizacion.cargas_explicadas(alertas))
     fig = px.bar(por_tipo, x="tipo_anomalia", y="recall", color="metodo", barmode="group", range_y=[0, 1.05],
                  labels={"tipo_anomalia": "", "recall": f"Encontradas revisando {presupuesto}", "metodo": "Método"})
     fig.update_layout(yaxis_tickformat=".0%", height=380)
@@ -282,7 +284,8 @@ def pagina_realista():
               "vehículo aparece muchas veces, el problema no es un evento aislado sino un patrón "
               "que conviene tratar a nivel del vehículo, con su conductor o su estado.")
     st.caption(f"Vehículos con más cargas entre las {presupuesto} más sospechosas según {metodo}.")
-    vehiculos = priorizacion.vehiculos_prioritarios(puntajes, metodo, consumo, cantidad_cargas=presupuesto)
+    vehiculos = priorizacion.vehiculos_prioritarios(puntajes, metodo, consumo, cantidad_cargas=presupuesto,
+                                                     explicadas=priorizacion.cargas_explicadas(alertas))
     info = flota.set_index("Matricula")[["Dominio", "TipoVehiculo", "Estado", "DireccionGral"]]
     st.dataframe(vehiculos.join(info, on="vehiculo_id").head(20), use_container_width=True, hide_index=True)
 

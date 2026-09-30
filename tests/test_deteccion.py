@@ -198,3 +198,22 @@ def test_a_igual_puntaje_va_primero_lo_que_no_tiene_explicacion():
     puntaje = pd.Series([1.0, 1.0, 0.5], index=["A", "B", "C"])
     assert list(_orden(puntaje)) == ["A", "B", "C"]
     assert list(_orden(puntaje, explicadas={"A"})) == ["B", "A", "C"]
+
+
+def test_la_curva_de_esfuerzo_usa_el_mismo_desempate_que_la_cola():
+    """Una carga explicada no le quita lugar, a igual puntaje, a una anomalía sin explicación."""
+    from deteccion.priorizacion import curva_de_esfuerzo
+
+    puntajes = pd.DataFrame({"Reglas con contexto": [1.0, 1.0, 0.0]}, index=["E", "F", "N"])
+    ground_truth = pd.DataFrame({"id_registro": ["F"], "tipo_anomalia": ["FRACCIONAMIENTO"], "hipotesis": ["H4"]})
+    sin = curva_de_esfuerzo(puntajes, ground_truth, maximo=1)
+    con = curva_de_esfuerzo(puntajes, ground_truth, maximo=1, explicadas={"E"})
+    assert sin["encontradas"].iloc[0] == 0 and con["encontradas"].iloc[0] == 1
+
+
+def test_h8_cuenta_los_errores_de_carga_como_aciertos():
+    """Decisión del dueño (PR #31): las alertas de los errores de carga son correctas, se citan."""
+    from deteccion.hipotesis import HIPOTESIS
+
+    h8 = next(h for h in HIPOTESIS if h["codigo"] == "H8")
+    assert {"ERROR_PROVEEDOR", "ERROR_DOMINIO", "ERROR_TARJETA"} <= set(h8["tipos"])

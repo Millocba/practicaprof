@@ -218,8 +218,10 @@ else:
         if legitimos is not None:
             caso = legitimos.drop_duplicates("id_registro").set_index("id_registro")["tipo_caso"]
             anomalia = ground_truth.groupby("id_registro")["tipo_anomalia"].first()
+            # Los errores de carga (#24) no son irregularidades: se citan y se corrigen
+            prefijo = anomalia.str.startswith("ERROR_").map({True: "error de carga: ", False: "otra anomalía: "})
             tabla.insert(0, "origen", tabla["id_registro"].map(caso).fillna(
-                tabla["id_registro"].map(anomalia).radd("otra anomalía: ")).fillna("normal"))
+                tabla["id_registro"].map(prefijo + anomalia)).fillna("normal"))
         st.dataframe(tabla, use_container_width=True, hide_index=True)
     if not fn.empty:
         st.markdown("**Falsos negativos** (anomalías inyectadas que la regla no detectó)")

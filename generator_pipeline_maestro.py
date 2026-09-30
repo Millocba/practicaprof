@@ -1640,7 +1640,8 @@ class GeneradorMaestro:
           odómetro del vehículo que cargó, al dueño de la tarjeta. El pedido queda del que cargó.
         Se registran en el ground truth como calidad de datos, sobre la carga y sobre su pedido.
         """
-        rng = random.Random(self.seed + 5_000_003)
+        # Desplazamiento propio: 5_000_003 es el de las contingencias de H13 (PR #25)
+        rng = random.Random(self.seed + 6_000_003)
         consumo, solicitudes, flota = self.datasets["consumo"], self.datasets["solicitudes"], self.datasets["flota"]
         etiquetados = {a["id_registro"] for a in self.anomalias} | {c["id_registro"] for c in self.casos_legitimos}
         en_servicio = flota[flota["Estado"] == "EN SERVICIO"].set_index("Matricula")

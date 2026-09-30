@@ -114,7 +114,9 @@ def _orden(puntaje, explicadas=()):
     """Índice ordenado de mayor a menor puntaje; los empates se resuelven por id.
 
     Con `explicadas`, a igual puntaje van después las cargas cuyas alertas tienen una causa probable
-    de error de carga (#24): primero se revisa lo que no tiene explicación.
+    de error de carga (#24): primero se revisa lo que no tiene explicación. La cola, la curva de
+    esfuerzo, el recall por tipo y los vehículos prioritarios usan el mismo orden
+    (`cargas_explicadas(alertas)`), para que midan lo mismo que ve quien revisa.
     """
     orden = puntaje.sort_index().sort_values(ascending=False, kind="mergesort")
     if len(explicadas):
@@ -140,7 +142,7 @@ def causa_de_cada_carga(alertas):
     return explicadas.drop_duplicates("id_registro").set_index("id_registro")["causa_probable"]
 
 
-def curva_de_esfuerzo(puntajes, ground_truth, casos_legitimos=None, maximo=None):
+def curva_de_esfuerzo(puntajes, ground_truth, casos_legitimos=None, maximo=None, explicadas=()):
     """Para cada método y cada cantidad k de cargas revisadas: anomalías encontradas y
     casos legítimos revisados en vano."""
     anomalas = ids_con_anomalia_de_comportamiento(ground_truth)
@@ -149,7 +151,7 @@ def curva_de_esfuerzo(puntajes, ground_truth, casos_legitimos=None, maximo=None)
     total = len(anomalas)
     filas = []
     for metodo in puntajes.columns:
-        orden = _orden(puntajes[metodo])[:maximo]
+        orden = _orden(puntajes[metodo], explicadas)[:maximo]
         es_anomala = np.fromiter((i in anomalas for i in orden), dtype=int)
         es_legitima = np.fromiter((i in legitimos for i in orden), dtype=int)
         k = np.arange(1, maximo + 1)
@@ -223,9 +225,9 @@ def cola_de_revision(puntajes, metodo, consumo, variables, alertas, cantidad=50)
             .reset_index().rename(columns={"index": "id"}))
 
 
-def vehiculos_prioritarios(puntajes, metodo, consumo, cantidad_cargas=100):
+def vehiculos_prioritarios(puntajes, metodo, consumo, cantidad_cargas=100, explicadas=()):
     """Vehículos ordenados por cuántas de sus cargas quedan entre las `cantidad_cargas` más sospechosas."""
-    orden = _orden(puntajes[metodo])[:cantidad_cargas]
+    orden = _orden(puntajes[metodo], explicadas)[:cantidad_cargas]
     vehiculo = consumo.set_index("id")["vehiculo_id"]
     top = pd.DataFrame({"vehiculo_id": vehiculo.loc[orden].values, "puntaje": puntajes.loc[orden, metodo].values})
     return (top.groupby("vehiculo_id")
@@ -234,12 +236,12 @@ def vehiculos_prioritarios(puntajes, metodo, consumo, cantidad_cargas=100):
             .reset_index())
 
 
-def recall_por_tipo(puntajes, ground_truth, presupuesto):
+def recall_por_tipo(puntajes, ground_truth, presupuesto, explicadas=()):
     """Qué fracción de cada tipo de anomalía encuentra cada método revisando `presupuesto` cargas."""
     comportamiento = ground_truth[ground_truth["id_registro"].isin(ids_con_anomalia_de_comportamiento(ground_truth))]
     filas = []
     for metodo in puntajes.columns:
-        revisadas = set(_orden(puntajes[metodo])[:presupuesto])
+        revisadas = set(_orden(puntajes[metodo], explicadas)[:presupuesto])
         for tipo, grupo in comportamiento.groupby("tipo_anomalia"):
             ids = set(grupo["id_registro"])
             filas.append({"metodo": metodo, "tipo_anomalia": tipo, "reales": len(ids),
