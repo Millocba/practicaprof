@@ -23,7 +23,7 @@ from deteccion.reglas import (ESTACION_AJENA, cargas_exceptuadas, cargas_fuera_d
                               leer_fecha, reglas_del_dataset)
 from perfilador.adaptador import adaptar
 from perfilador.controles import acotar
-from perfilador.perfil import MINIMO_GRUPO, VERSION, dos_cifras
+from perfilador.perfil import MINIMO_GRUPO, VERSION, cuantil_publicable, dos_cifras
 
 SEMILLAS_ENTRENAMIENTO = (1001, 1002, 1003)
 REVISION = 100          # tamaño de la cola con que se comparan los métodos
@@ -47,11 +47,13 @@ def _pct(n, total):
     return round(100 * n / total, 1) if total and n >= MINIMO_GRUPO else None
 
 
-def _cuantiles(serie):
+def _cuantiles(serie, cuantiles=(0.05, 0.5, 0.95)):
+    """Cuantiles redondeados; los que dejarían menos de MINIMO_GRUPO casos de un lado quedan en None."""
     serie = pd.to_numeric(serie, errors="coerce").dropna()
     if len(serie) < MINIMO_GRUPO:
         return None
-    return {f"p{int(q * 100):02d}": dos_cifras(float(serie.quantile(q))) for q in (0.05, 0.5, 0.95)}
+    return {f"p{int(q * 100):02d}": dos_cifras(float(serie.quantile(q))) if cuantil_publicable(q, len(serie)) else None
+            for q in cuantiles}
 
 
 def _variables(datos):
@@ -66,7 +68,10 @@ def _modelo_sintetico(semillas, n_flota):
 
     partes_x, partes_y, referencia = [], [], None
     for semilla in semillas:
-        with tempfile.TemporaryDirectory() as carpeta:
+        # En Windows, el antivirus puede tener abierto un archivo recién escrito justo cuando se
+        # borra la carpeta: sin ignore_cleanup_errors eso cortaba la auditoría. Los datos ya se
+        # leyeron a memoria, así que si la carpeta no se puede borrar se deja y se sigue.
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as carpeta:
             resultado = GeneradorMaestro(n_flota=n_flota, seed=semilla, output_dir=carpeta, escenario="realista").ejecutar()
             if not resultado["exito"]:
                 raise RuntimeError(resultado["error"])
@@ -246,7 +251,7 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
            "isolation_forest": set(rareza.nlargest(REVISION).index)}
     modelos = {
         "cargas_puntuadas": acotar(len(variables)),
-        "supervisado_probabilidad": _cuantiles(probabilidad) | {"p99": dos_cifras(float(probabilidad.quantile(0.99)))},
+        "supervisado_probabilidad": _cuantiles(probabilidad, (0.05, 0.5, 0.95, 0.99)),
         "supervisado_mayor_a_0_5_pct": _pct(int((probabilidad > 0.5).sum()), len(probabilidad)),
         "isolation_forest_anomalas_pct": _pct(int(anomala.sum()), len(anomala)),
         f"coincidencia_top_{REVISION}": {
