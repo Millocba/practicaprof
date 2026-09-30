@@ -167,3 +167,22 @@ def test_criterio_de_la_fuente_h4_mas_de_una_carga_en_menos_de_6_horas():
     assert sorted(alertas["id_registro"]) == ["C1", "C2", "C3", "C4"]
     assert set(alertas["tipo_anomalia"]) == {"FRACCIONAMIENTO"}
     assert list(detectar_cargas_multiples(consumo, excluir_ids=["C2"])["id_registro"]) == ["C3", "C4"]
+
+
+def test_criterios_de_la_fuente_en_el_borde_exacto():
+    """5 km y 6:00 h justas no alertan: los criterios son "menos de"."""
+    from deteccion.reglas import cargas_exceptuadas, detectar_avance_menor_fuente, detectar_cargas_multiples
+
+    flota = pd.DataFrame({"Matricula": ["V1"], "Dominio": ["ZA001AA"], "ExcepcionOdometro": ["NO"],
+                          "FechaHastaExcepcionOdometro": [None]})
+    consumo = pd.DataFrame({"id": ["A1", "A2", "A3"], "vehiculo_id": "V1",
+                            "fecha": ["2024-03-01", "2024-03-02", "2024-03-03"], "odometro": [1000, 1005, 1100],
+                            "hora": ["08:00:00", "08:00:00", "08:00:00"]})
+    assert detectar_avance_menor_fuente(secuencia_odometro(consumo), cargas_exceptuadas(consumo, flota)).empty
+    seis_horas = pd.DataFrame({"id": ["C1", "C2"], "vehiculo_id": "V1", "fecha": "2024-03-01",
+                               "hora": ["08:00:00", "14:00:00"]})
+    assert detectar_cargas_multiples(seis_horas).empty
+    # Sin hora, la carga se toma a las 00:00 de su día
+    sin_hora = pd.DataFrame({"id": ["C1", "C2"], "vehiculo_id": "V1", "fecha": ["2024-03-01", "2024-03-01"],
+                             "hora": [None, "05:00:00"]})
+    assert sorted(detectar_cargas_multiples(sin_hora)["id_registro"]) == ["C1", "C2"]

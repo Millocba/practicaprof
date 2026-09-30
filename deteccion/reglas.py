@@ -505,7 +505,8 @@ def detectar_cargas_multiples(consumo, excluir_ids=()):
     """H4 (criterio de la fuente): más de una carga del mismo vehículo en menos de HORAS_CARGAS_MULTIPLES.
 
     Marca cada carga que tiene otra del mismo vehículo a menos de ese tiempo, antes o después,
-    sin mirar los litros ni el recorrido. Solo usa el reporte, como la fuente.
+    sin mirar los litros ni el recorrido. Solo usa el reporte, como la fuente. Una carga sin hora
+    se toma a las 00:00 de su día.
     """
     datos = consumo[~consumo["id"].isin(set(excluir_ids))]
     instante = pd.to_datetime(datos["fecha"]) + pd.to_timedelta(datos["hora"].astype("string").fillna("00:00:00"))
