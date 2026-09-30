@@ -34,7 +34,9 @@ MINUTOS_VINCULO_RECLAMO = 15     # un reclamo sin ticket se vincula con la carga
 
 # Tipos y estados de los reclamos, por palabras clave: cualquier otro valor queda como "otro", para
 # que ningún texto de la fuente llegue a la salida
-TIPOS_RECLAMO = {"doble_cobro": ("doble",), "cargas_multiples": ("multiple",), "odometro_estancado": ("odometro",)}
+# En la fuente, el doble cobro se llama duplicidad_metodo (el medio habitual y la contingencia)
+TIPOS_RECLAMO = {"doble_cobro": ("doble", "duplicidad"), "cargas_multiples": ("multiple",),
+                 "odometro_estancado": ("odometro",)}
 ESTADOS_RECLAMO = {"pendiente": ("pend",), "en_disputa": ("disput",), "nota_de_credito": ("nota", "credito"),
                    "rechazado": ("rechaz",)}
 
@@ -55,12 +57,24 @@ def _reclamos(fuente, consumo, por_dominio):
     Se vincula por el ticket, que es el REMITO del reporte; si falta, por el vehículo (patente o
     matrícula) y la carga más cercana a la fecha y hora del reclamo, a menos de MINUTOS_VINCULO_RECLAMO.
     Las cargas con tarjeta personal no tienen vehículo en el reporte: esas se buscan por la tarjeta.
+    El ticket puede traer el remito entero (9999-99999999) o solo su segunda parte, y llegar como
+    número decimal (1234.0) cuando la columna tiene muchos vacíos.
     """
     base = consumo["id"].str.split("#").str[0]
-    por_ticket = pd.Series(consumo["id"].values, index=_digitos(base).values)
-    por_ticket = por_ticket[~por_ticket.index.duplicated()]
-    ticket = _digitos(fuente["nro_ticket"])
-    carga = ticket.map(por_ticket)
+
+    def sin_ceros(digitos):
+        # Un ticket que llegó como número perdió los ceros de adelante: se comparan sin ellos
+        return digitos.str.lstrip("0").replace({"": pd.NA})
+
+    def mapa(claves, repetidas):
+        m = pd.Series(consumo["id"].values, index=sin_ceros(claves).values)
+        return m[~m.index.isna() & ~m.index.duplicated(keep=repetidas)]
+
+    ticket = sin_ceros(_digitos(_texto(fuente["nro_ticket"])))
+    # Un remito repetido en el reporte va con su primera carga; una segunda parte que comparten dos
+    # remitos distintos es ambigua y no se usa
+    carga = ticket.map(mapa(_digitos(base), "first")).fillna(
+        ticket.map(mapa(_digitos(base.str.split("-").str[-1]), False)))
     vinculo = pd.Series(pd.NA, index=fuente.index, dtype="string").mask(carga.notna(), "ticket")
 
     matricula = fuente["patente"].astype("string").map(
@@ -87,6 +101,8 @@ def _reclamos(fuente, consumo, por_dominio):
         "tipo": _categoria(fuente["tipo_alerta"], TIPOS_RECLAMO),
         "estado": _categoria(fuente["estado_reclamo"], ESTADOS_RECLAMO),
         "monto": _numero(fuente["monto_reclamable"]), "carga_id": carga, "vinculo": vinculo,
+        # Solo para acotar el período que cubren los reclamos; no sale en la auditoría
+        "fecha": (leer_fecha_texto(fuente["dia"]) if "dia" in fuente.columns else instante).fillna(instante).dt.normalize(),
     })
 
 

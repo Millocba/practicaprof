@@ -23,7 +23,7 @@ from deteccion.reglas import (ESTACION_AJENA, cargas_exceptuadas, cargas_fuera_d
                               leer_fecha, reglas_del_dataset)
 from perfilador.adaptador import adaptar
 from perfilador.controles import acotar
-from perfilador.perfil import MINIMO_GRUPO, VERSION, banda, cuantil_publicable, dos_cifras
+from perfilador.perfil import MINIMO_GRUPO, VERSION, cuantil_publicable, dos_cifras
 
 SEMILLAS_ENTRENAMIENTO = (1001, 1002, 1003)
 REVISION = 100          # tamaño de la cola con que se comparan los métodos
@@ -117,16 +117,28 @@ HIPOTESIS_DEL_RECLAMO = {"doble_cobro": "H13", "cargas_multiples": "H4", "odomet
 RESUELTOS = {"nota_de_credito", "rechazado"}
 
 
+def _monto(reclamos):
+    """Suma de los montos positivos, con dos cifras significativas, si son al menos MINIMO_GRUPO reclamos."""
+    positivos = reclamos.loc[reclamos["monto"] > 0, "monto"]
+    return dos_cifras(float(positivos.sum())) if len(positivos) >= MINIMO_GRUPO else None
+
+
 def _reclamos(datos, alertas, corrieron):
     """Reclamos al proveedor frente a nuestras reglas, solo en agregado.
 
     Sin etiquetas reales, los reclamos son la mejor referencia: qué parte de los reclamos de cada
     tipo anticipa cada regla de su hipótesis (una estimación de lo que se escapa), qué parte de las
     alertas de cada regla terminó en un reclamo y, entre los resueltos, qué parte terminó en nota de
-    crédito (la mejor estimación de precisión disponible). Los montos, en bandas.
+    crédito (la mejor estimación de precisión disponible).
+
+    Las alertas se cuentan solo en el período que cubren los reclamos: fuera de él no pudieron
+    terminar en un reclamo. Los montos, redondeados a dos cifras y solo los positivos.
     """
     reclamos = datos["reclamos"]
     vinculados = reclamos.dropna(subset=["carga_id"])
+    fecha_de = pd.to_datetime(datos["consumo"].set_index("id")["fecha"]).dt.normalize()
+    desde, hasta = reclamos["fecha"].min(), reclamos["fecha"].max()
+    en_periodo = set(fecha_de.index[fecha_de.between(desde, hasta)]) if pd.notna(desde) else set(fecha_de.index)
     salida = {
         "reclamos": acotar(len(reclamos)),
         "por_tipo": {t: acotar(n) for t, n in reclamos["tipo"].value_counts().items()},
@@ -135,6 +147,8 @@ def _reclamos(datos, alertas, corrieron):
         "vinculados_por_ticket": acotar(int((reclamos["vinculo"] == "ticket").sum())),
         "vinculados_por_patente_y_hora": acotar(int((reclamos["vinculo"] == "patente_y_hora").sum())),
         "vinculados_por_tarjeta_y_hora": acotar(int((reclamos["vinculo"] == "tarjeta_y_hora").sum())),
+        "montos_no_positivos": acotar(int((reclamos["monto"] <= 0).sum())),
+        "dias_del_periodo_de_reclamos": acotar((hasta - desde).days + 1) if pd.notna(desde) else 0,
         "por_tipo_de_alerta": {},
     }
     catalogo = {h["codigo"]: h for h in hipotesis_del_escenario("realista")}
@@ -144,7 +158,7 @@ def _reclamos(datos, alertas, corrieron):
         detalle = {"hipotesis": codigo, "reclamos_vinculados": acotar(len(del_tipo)),
                    "resueltos": acotar(len(resueltos)),
                    "nota_de_credito_pct": _pct(int((resueltos["estado"] == "nota_de_credito").sum()), len(resueltos)),
-                   "monto_reclamable": banda(round(del_tipo["monto"].sum())) if len(del_tipo) >= MINIMO_GRUPO else None}
+                   "monto_reclamable": _monto(del_tipo)}
         reglas = [r for regla, _ in catalogo[codigo]["reglas"] for r in reglas_de(regla) if r in corrieron] \
             if codigo in catalogo else []
         if not reglas:
@@ -153,7 +167,7 @@ def _reclamos(datos, alertas, corrieron):
             detalle["reglas"] = {}
             con_reclamo = set(del_tipo["carga_id"])
             for regla in dict.fromkeys(reglas):
-                marcadas = set(alertas.loc[alertas["regla"] == regla, "id_registro"])
+                marcadas = set(alertas.loc[alertas["regla"] == regla, "id_registro"]) & en_periodo
                 anticipados = del_tipo[del_tipo["carga_id"].isin(marcadas)]
                 resueltos_regla = anticipados[anticipados["estado"].isin(RESUELTOS)]
                 detalle["reglas"][regla] = {
@@ -162,8 +176,7 @@ def _reclamos(datos, alertas, corrieron):
                     "alertas_con_reclamo_pct": _pct(len(marcadas & con_reclamo), len(marcadas)),
                     "nota_de_credito_pct": _pct(int((resueltos_regla["estado"] == "nota_de_credito").sum()),
                                                 len(resueltos_regla)),
-                    "monto_reclamable_cubierto": banda(round(anticipados["monto"].sum()))
-                    if len(anticipados) >= MINIMO_GRUPO else None,
+                    "monto_reclamable_cubierto": _monto(anticipados),
                 }
         salida["por_tipo_de_alerta"][tipo] = detalle
     return salida
