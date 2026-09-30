@@ -27,8 +27,67 @@ FIRMAS = {
     "contratos": {"numero", "limite"},
     "periodos": {"id", "fecha_inicio", "fecha_fin"},
     "excepciones_odometro": {"patente", "motivo", "activo", "fecha_hasta"},
+    "reclamos": {"tipo_alerta", "estado_reclamo", "monto_reclamable", "nro_ticket"},
 }
 HASTA_SIN_FECHA = "2100-01-01"   # una excepción activa sin fecha hasta rige indefinidamente
+MINUTOS_VINCULO_RECLAMO = 15     # un reclamo sin ticket se vincula con la carga del vehículo más cercana en el tiempo
+
+# Tipos y estados de los reclamos, por palabras clave: cualquier otro valor queda como "otro", para
+# que ningún texto de la fuente llegue a la salida
+TIPOS_RECLAMO = {"doble_cobro": ("doble",), "cargas_multiples": ("multiple",), "odometro_estancado": ("odometro",)}
+ESTADOS_RECLAMO = {"pendiente": ("pend",), "en_disputa": ("disput",), "nota_de_credito": ("nota", "credito"),
+                   "rechazado": ("rechaz",)}
+
+
+def _categoria(serie, categorias):
+    """Cada valor en la primera categoría cuyas palabras clave contiene (sin acentos ni mayúsculas), o "otro"."""
+    texto = (serie.astype("string").str.normalize("NFKD").str.encode("ascii", "ignore").str.decode("ascii")
+             .str.lower().fillna(""))
+    resultado = pd.Series("otro", index=serie.index, dtype="string")
+    for nombre, claves in reversed(list(categorias.items())):
+        resultado = resultado.mask(texto.apply(lambda t: any(c in t for c in claves)), nombre)
+    return resultado
+
+
+def _reclamos(fuente, consumo, por_dominio):
+    """Tipo, estado, monto y la carga de cada reclamo; ni el mensaje ni los números de reclamo se copian.
+
+    Se vincula por el ticket, que es el REMITO del reporte; si falta, por el vehículo (patente o
+    matrícula) y la carga más cercana a la fecha y hora del reclamo, a menos de MINUTOS_VINCULO_RECLAMO.
+    Las cargas con tarjeta personal no tienen vehículo en el reporte: esas se buscan por la tarjeta.
+    """
+    base = consumo["id"].str.split("#").str[0]
+    por_ticket = pd.Series(consumo["id"].values, index=_digitos(base).values)
+    por_ticket = por_ticket[~por_ticket.index.duplicated()]
+    ticket = _digitos(fuente["nro_ticket"])
+    carga = ticket.map(por_ticket)
+    vinculo = pd.Series(pd.NA, index=fuente.index, dtype="string").mask(carga.notna(), "ticket")
+
+    matricula = fuente["patente"].astype("string").map(
+        lambda d: _normalizar_valor(d) if pd.notna(d) else None).map(por_dominio["Matricula"])
+    if "matricula" in fuente.columns:
+        matricula = matricula.fillna(_texto(fuente["matricula"]))
+    instante = leer_fecha_texto(fuente["fecha_hora"]) if "fecha_hora" in fuente.columns else pd.Series(pd.NaT, index=fuente.index)
+    tarjeta = _texto(fuente["numero_tarjeta"]) if "numero_tarjeta" in fuente.columns else pd.Series(pd.NA, index=fuente.index)
+    cargas = consumo.assign(instante=pd.to_datetime(consumo["fecha"]) + pd.to_timedelta(consumo["hora"]))
+    for clave, valores, nombre in [("vehiculo_id", matricula, "patente_y_hora"),
+                                   ("numero_tarjeta", tarjeta, "tarjeta_y_hora")]:
+        pendientes = pd.DataFrame({"fila": fuente.index, clave: valores.astype("string").values,
+                                   "instante": instante.values})
+        pendientes = pendientes[carga.isna().values].dropna(subset=[clave, "instante"])
+        if not len(pendientes) or clave not in cargas.columns:
+            continue
+        destino = cargas[["id", clave, "instante"]].dropna().astype({clave: "string"}).sort_values("instante")
+        cercana = pd.merge_asof(pendientes.sort_values("instante"), destino, on="instante", by=clave,
+                                direction="nearest", tolerance=pd.Timedelta(minutes=MINUTOS_VINCULO_RECLAMO))
+        encontradas = cercana.set_index("fila")["id"].dropna()
+        carga.loc[encontradas.index] = encontradas
+        vinculo.loc[encontradas.index] = nombre
+    return pd.DataFrame({
+        "tipo": _categoria(fuente["tipo_alerta"], TIPOS_RECLAMO),
+        "estado": _categoria(fuente["estado_reclamo"], ESTADOS_RECLAMO),
+        "monto": _numero(fuente["monto_reclamable"]), "carga_id": carga, "vinculo": vinculo,
+    })
 
 
 def _texto(serie):
@@ -190,6 +249,10 @@ def adaptar(tablas, proveedor=None):
             "con_vehiculo_del_padron_pct": round(100 * datos["excepciones_odometro"]["patente"].map(
                 lambda d: _normalizar_valor(d) if pd.notna(d) else None).isin(por_dominio.index).mean(), 1),
         }
+
+    reclamos = buscar(tablas, "reclamos")
+    if reclamos is not None:
+        datos["reclamos"] = _reclamos(reclamos, datos["consumo"], por_dominio)
 
     dispositivos = buscar(tablas, "dispositivos")
     if dispositivos is not None:
