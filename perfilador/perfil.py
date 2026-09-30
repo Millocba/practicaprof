@@ -115,9 +115,16 @@ def sensibilidad_por_nombre(nombre):
     return None
 
 
+def _es_hora(formato_valor):
+    return bool(re.fullmatch(r"9{1,2}:9{2}(:9{2})?(\.9+)?", formato_valor))
+
+
 def _es_codigo(formato_valor):
-    """Formatos como 9999-99999999: mayormente dígitos y largos, típicos de remitos o extractos."""
-    return len(formato_valor) >= 6 and formato_valor.count("9") / len(formato_valor) >= 0.6
+    """Formatos como 9999-99999999: mayormente dígitos y largos, típicos de remitos o extractos.
+
+    Una hora (99:99:99) también es mayormente dígitos, pero no es un código."""
+    return (len(formato_valor) >= 6 and formato_valor.count("9") / len(formato_valor) >= 0.6
+            and not _es_hora(formato_valor))
 
 
 def resumir_formatos_largos(formatos):

@@ -474,3 +474,13 @@ def test_control_telemetria_vs_estado():
 def test_columnas_cero_uno_son_booleanas():
     c = perfilar_columna("es_contingencia", pd.Series([0] * 97 + [1] * 3))
     assert c["tipo"] == "booleano" and c["verdaderos_pct"] == 3.0 and "numerico" not in c
+
+
+def test_una_hora_no_se_confunde_con_un_codigo():
+    """Las horas en texto son mayormente dígitos, pero no identifican nada."""
+    n = 300
+    horas = pd.Series([f"{i % 24:02d}:{i % 60:02d}:{(i * 7) % 60:02d}" for i in range(n)])
+    assert perfilar_columna("Hora", horas)["sensible"] is None
+    assert perfilar_columna("HoraCorta", horas.str[:5])["sensible"] is None
+    codigos = pd.Series([f"{1000 + i % 4}-{20000000 + i % 4}" for i in range(n)])
+    assert perfilar_columna("Lote", codigos)["sensible"] == "identificador"
