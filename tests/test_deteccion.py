@@ -137,3 +137,98 @@ def test_odometro_sin_avance_solo_alerta_sin_excepcion_ese_dia():
     assert exceptuadas == {"C2"}
     alertas = detectar_sin_avance_sin_excepcion(secuencia_odometro(consumo), exceptuadas)
     assert list(alertas["id_registro"]) == ["C3"]      # C4 es del mismo día que C3: no se vuelve a leer el tablero
+
+
+# --- H5: umbral de rendimiento y descarte de lo que ya explican otras reglas -------
+
+def dias_de_prueba(*relativos, litros=40.0, capacidad=50.0, ids=None):
+    """Arma el resumen por día que consume `detectar_rendimiento_bajo`, sin pasar por el generador."""
+    dias = pd.DataFrame({
+        "litros": [litros] * len(relativos),
+        "capacidad": [capacidad] * len(relativos),
+        "rendimiento_odometro_relativo": list(relativos),
+        "rendimiento_gps_relativo": [float("nan")] * len(relativos),
+        "ids": ids or [[f"C{i}"] for i in range(len(relativos))],
+    })
+    return dias
+
+
+@pytest.mark.parametrize("relativo,marca", [
+    (0.50, False),   # rinde normal
+    (0.30, False),   # borde exacto del umbral: no se marca
+    (0.2999, True),
+    (0.10, True),
+])
+def test_umbral_de_rendimiento_marca_por_debajo_de_la_fraccion(relativo, marca):
+    """El umbral es 0,3 de lo habitual del vehículo; en el borde exacto no marca."""
+    from deteccion.reglas import detectar_rendimiento_bajo
+
+    alertas = detectar_rendimiento_bajo(dias_de_prueba(relativo), "odometro")
+    assert list(alertas["id_registro"]) == (["C0"] if marca else [])
+
+
+def test_el_minimo_de_litros_sigue_dejando_marcar_la_carga_chica():
+    """Con menos del 30% del tanque la carga no se evalúa; el resto de las del día sí."""
+    from deteccion.reglas import detectar_rendimiento_bajo
+
+    dias = dias_de_prueba(0.1, 0.1, ids=[["C1"], ["C2"]], litros=10.0, capacidad=50.0)
+    assert list(detectar_rendimiento_bajo(dias, "odometro")["id_registro"]) == []
+
+
+def test_el_parametro_minimo_permite_medir_la_curva_de_umbrales():
+    """El umbral llega como parámetro para poder trazar la curva sin tocar el código que corre."""
+    from deteccion.reglas import detectar_rendimiento_bajo
+
+    dias = dias_de_prueba(0.45)
+    assert list(detectar_rendimiento_bajo(dias, "odometro")["id_registro"]) == []
+    assert list(detectar_rendimiento_bajo(dias, "odometro", minimo=0.5)["id_registro"]) == ["C0"]
+    assert list(detectar_rendimiento_bajo(dias, "odometro", minimo=0.2)["id_registro"]) == []
+
+
+def test_h5_no_repite_lo_que_ya_explica_otra_regla():
+    """Una carga ya marcada por H2, H4, H6 o H9 saca el día de H5: su bajo rendimiento es consecuencia."""
+    from deteccion.reglas import detectar_rendimiento_bajo
+
+    dias = dias_de_prueba(0.1, 0.1, ids=[["C1", "C2"], ["C3"]])
+    sin_explicar = detectar_rendimiento_bajo(dias, "odometro")
+    assert sorted(sin_explicar["id_registro"]) == ["C1", "C2", "C3"]
+
+    # El descarte es por día, no por carga: C1 ya la explicó otra regla y con ella sale el
+    # día entero, porque el rendimiento es una propiedad del día. Solo C3 queda.
+    explicado = detectar_rendimiento_bajo(dias, "odometro", explicadas={"C1"})
+    assert sorted(explicado["id_registro"]) == ["C3"]
+
+
+def test_el_descarte_de_explicadas_sacade_un_dia_completo():
+    """El día entero sale, aunque solo una de sus cargas esté explicada."""
+    from deteccion.reglas import detectar_rendimiento_bajo
+
+    dias = dias_de_prueba(0.1, ids=[["C1", "C2"]])
+    assert list(detectar_rendimiento_bajo(dias, "odometro", explicadas={"C2"})["id_registro"]) == []
+
+
+def test_explicadas_y_sin_odometro_son_descartes_independientes():
+    """Cada descarte saca lo suyo: uno por otra regla, otro por odómetro sin dato."""
+    from deteccion.reglas import detectar_rendimiento_bajo
+
+    dias = dias_de_prueba(0.1, 0.1, ids=[["C1"], ["C2"]])
+    alertas = detectar_rendimiento_bajo(dias, "odometro", sin_odometro={"C2"}, explicadas={"C1"})
+    assert list(alertas["id_registro"]) == []
+
+
+def test_sin_explicadas_la_regla_no_cambia():
+    """El parámetro vacío es el comportamiento anterior: no descarta nada."""
+    from deteccion.reglas import detectar_rendimiento_bajo
+
+    dias = dias_de_prueba(0.1, 0.5)
+    assert sorted(detectar_rendimiento_bajo(dias, "odometro", explicadas=set())["id_registro"]) == ["C0"]
+
+
+def test_el_gps_toma_el_odometro_cuando_no_reporto_el_intervalo_completo():
+    """Sin GPS completo en el intervalo se usa el odómetro, como antes."""
+    from deteccion.reglas import detectar_rendimiento_bajo
+
+    dias = dias_de_prueba(0.1, 0.1)
+    dias["rendimiento_gps_relativo"] = [0.05, float("nan")]   # solo el primer día Odds tiene GPS
+    alertas = detectar_rendimiento_bajo(dias, "gps")
+    assert sorted(alertas["id_registro"]) == ["C0", "C1"]
