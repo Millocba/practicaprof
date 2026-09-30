@@ -23,7 +23,7 @@ from deteccion.reglas import (ESTACION_AJENA, cargas_exceptuadas, cargas_fuera_d
                               leer_fecha, reglas_del_dataset)
 from perfilador.adaptador import adaptar
 from perfilador.controles import acotar
-from perfilador.perfil import MINIMO_GRUPO, VERSION, dos_cifras
+from perfilador.perfil import MINIMO_GRUPO, VERSION, cuantil_publicable, dos_cifras
 
 SEMILLAS_ENTRENAMIENTO = (1001, 1002, 1003)
 REVISION = 100          # tamaño de la cola con que se comparan los métodos
@@ -47,11 +47,13 @@ def _pct(n, total):
     return round(100 * n / total, 1) if total and n >= MINIMO_GRUPO else None
 
 
-def _cuantiles(serie):
+def _cuantiles(serie, cuantiles=(0.05, 0.5, 0.95)):
+    """Cuantiles redondeados; los que dejarían menos de MINIMO_GRUPO casos de un lado quedan en None."""
     serie = pd.to_numeric(serie, errors="coerce").dropna()
     if len(serie) < MINIMO_GRUPO:
         return None
-    return {f"p{int(q * 100):02d}": dos_cifras(float(serie.quantile(q))) for q in (0.05, 0.5, 0.95)}
+    return {f"p{int(q * 100):02d}": dos_cifras(float(serie.quantile(q))) if cuantil_publicable(q, len(serie)) else None
+            for q in cuantiles}
 
 
 def _variables(datos):
@@ -66,7 +68,10 @@ def _modelo_sintetico(semillas, n_flota):
 
     partes_x, partes_y, referencia = [], [], None
     for semilla in semillas:
-        with tempfile.TemporaryDirectory() as carpeta:
+        # En Windows, el antivirus puede tener abierto un archivo recién escrito justo cuando se
+        # borra la carpeta: sin ignore_cleanup_errors eso cortaba la auditoría. Los datos ya se
+        # leyeron a memoria, así que si la carpeta no se puede borrar se deja y se sigue.
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as carpeta:
             resultado = GeneradorMaestro(n_flota=n_flota, seed=semilla, output_dir=carpeta, escenario="realista").ejecutar()
             if not resultado["exito"]:
                 raise RuntimeError(resultado["error"])
@@ -105,6 +110,76 @@ def _odometro(datos, alertas):
         "sin_avance_el_mismo_dia_o_con_excepcion": acotar(len(sin_avance - sin_excepcion)),
         "sin_avance_sin_excepcion": acotar(len(sin_excepcion)),
     }
+
+
+# Qué hipótesis anticipa cada tipo de reclamo de la fuente
+HIPOTESIS_DEL_RECLAMO = {"doble_cobro": "H13", "cargas_multiples": "H4", "odometro_estancado": "H12"}
+RESUELTOS = {"nota_de_credito", "rechazado"}
+
+
+def _monto(reclamos):
+    """Suma de los montos positivos, con dos cifras significativas, si son al menos MINIMO_GRUPO reclamos."""
+    positivos = reclamos.loc[reclamos["monto"] > 0, "monto"]
+    return dos_cifras(float(positivos.sum())) if len(positivos) >= MINIMO_GRUPO else None
+
+
+def _reclamos(datos, alertas, corrieron):
+    """Reclamos al proveedor frente a nuestras reglas, solo en agregado.
+
+    Sin etiquetas reales, los reclamos son la mejor referencia: qué parte de los reclamos de cada
+    tipo anticipa cada regla de su hipótesis (una estimación de lo que se escapa), qué parte de las
+    alertas de cada regla terminó en un reclamo y, entre los resueltos, qué parte terminó en nota de
+    crédito (la mejor estimación de precisión disponible).
+
+    Las alertas se cuentan solo en el período que cubren los reclamos: fuera de él no pudieron
+    terminar en un reclamo. Los montos, redondeados a dos cifras y solo los positivos.
+    """
+    reclamos = datos["reclamos"]
+    vinculados = reclamos.dropna(subset=["carga_id"])
+    fecha_de = pd.to_datetime(datos["consumo"].set_index("id")["fecha"]).dt.normalize()
+    desde, hasta = reclamos["fecha"].min(), reclamos["fecha"].max()
+    en_periodo = set(fecha_de.index[fecha_de.between(desde, hasta)]) if pd.notna(desde) else set(fecha_de.index)
+    salida = {
+        "reclamos": acotar(len(reclamos)),
+        "por_tipo": {t: acotar(n) for t, n in reclamos["tipo"].value_counts().items()},
+        "por_estado": {e: acotar(n) for e, n in reclamos["estado"].value_counts().items()},
+        "vinculados_con_una_carga_pct": _pct(len(vinculados), len(reclamos)),
+        "vinculados_por_ticket": acotar(int((reclamos["vinculo"] == "ticket").sum())),
+        "vinculados_por_patente_y_hora": acotar(int((reclamos["vinculo"] == "patente_y_hora").sum())),
+        "vinculados_por_tarjeta_y_hora": acotar(int((reclamos["vinculo"] == "tarjeta_y_hora").sum())),
+        "montos_no_positivos": acotar(int((reclamos["monto"] <= 0).sum())),
+        "dias_del_periodo_de_reclamos": acotar((hasta - desde).days + 1) if pd.notna(desde) else 0,
+        "por_tipo_de_alerta": {},
+    }
+    catalogo = {h["codigo"]: h for h in hipotesis_del_escenario("realista")}
+    for tipo, codigo in HIPOTESIS_DEL_RECLAMO.items():
+        del_tipo = vinculados[vinculados["tipo"] == tipo]
+        resueltos = del_tipo[del_tipo["estado"].isin(RESUELTOS)]
+        detalle = {"hipotesis": codigo, "reclamos_vinculados": acotar(len(del_tipo)),
+                   "resueltos": acotar(len(resueltos)),
+                   "nota_de_credito_pct": _pct(int((resueltos["estado"] == "nota_de_credito").sum()), len(resueltos)),
+                   "monto_reclamable": _monto(del_tipo)}
+        reglas = [r for regla, _ in catalogo[codigo]["reglas"] for r in reglas_de(regla) if r in corrieron] \
+            if codigo in catalogo else []
+        if not reglas:
+            detalle["reglas"] = "no corre"
+        else:
+            detalle["reglas"] = {}
+            con_reclamo = set(del_tipo["carga_id"])
+            for regla in dict.fromkeys(reglas):
+                marcadas = set(alertas.loc[alertas["regla"] == regla, "id_registro"]) & en_periodo
+                anticipados = del_tipo[del_tipo["carga_id"].isin(marcadas)]
+                resueltos_regla = anticipados[anticipados["estado"].isin(RESUELTOS)]
+                detalle["reglas"][regla] = {
+                    "anticipa_pct": _pct(len(anticipados), len(del_tipo)),
+                    "alertas": acotar(len(marcadas)),
+                    "alertas_con_reclamo_pct": _pct(len(marcadas & con_reclamo), len(marcadas)),
+                    "nota_de_credito_pct": _pct(int((resueltos_regla["estado"] == "nota_de_credito").sum()),
+                                                len(resueltos_regla)),
+                    "monto_reclamable_cubierto": _monto(anticipados),
+                }
+        salida["por_tipo_de_alerta"][tipo] = detalle
+    return salida
 
 
 def _cobertura(datos, alertas, registro_del_periodo=None):
@@ -201,6 +276,9 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
         tabla, total = _unidad(ids, datos)
         por_regla[regla] = {"alertas": acotar(len(ids)), "pct": _pct(len(ids), total), "sobre": tabla}
 
+    if datos.get("reclamos") is not None:
+        diagnostico["reclamos"] = _reclamos(datos, alertas, set(alertas["regla"]))
+
     factura_de = dict(zip(datos["facturacion_detalle"]["numero_linea"], datos["facturacion_detalle"]["numero_factura"])) \
         if datos.get("facturacion_detalle") is not None else {}
     hipotesis = {}
@@ -246,7 +324,7 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
            "isolation_forest": set(rareza.nlargest(REVISION).index)}
     modelos = {
         "cargas_puntuadas": acotar(len(variables)),
-        "supervisado_probabilidad": _cuantiles(probabilidad) | {"p99": dos_cifras(float(probabilidad.quantile(0.99)))},
+        "supervisado_probabilidad": _cuantiles(probabilidad, (0.05, 0.5, 0.95, 0.99)),
         "supervisado_mayor_a_0_5_pct": _pct(int((probabilidad > 0.5).sum()), len(probabilidad)),
         "isolation_forest_anomalas_pct": _pct(int(anomala.sum()), len(anomala)),
         f"coincidencia_top_{REVISION}": {

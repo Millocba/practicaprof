@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from deteccion.reglas import normalizar_dominio  # noqa: E402
 from ayudas import seccion, tarjeta  # noqa: E402
+from explicaciones import camino_completo  # noqa: E402
 from data_loader import (
     NOMBRES_ESCENARIO,
     selector_escenario,
@@ -66,6 +67,7 @@ seccion(
           "está escrito a mano: si cambia el generador, esta pantalla cambia sola. Es el lugar "
           "para empezar si llegaste hace un rato y querés saber por dónde seguir.")
 st.markdown("**Sistema integral para gestión, visualización y análisis del dataset integrado**")
+camino_completo()
 
 # Load data (same source as the Generador and Análisis pages)
 escenario = selector_escenario()

@@ -12,6 +12,7 @@ sys.path.insert(0, str(APP_DIR.parent))
 
 import documentacion  # noqa: E402
 from ayudas import seccion  # noqa: E402
+from explicaciones import explicar  # noqa: E402
 from data_loader import (  # noqa: E402
     NOMBRES_ESCENARIO,
     asegurar_datos_maestro,
@@ -31,6 +32,7 @@ seccion(
           "**números del escenario que está cargado ahora**. No es una copia estática: si "
           "generaste los datos con otra semilla, los valores que aparecen en el texto cambian "
           "solos. Sirve para leer el estado del proyecto y la bitácora sin salir de la app.")
+explicar("documentacion")
 st.markdown(
     "La documentación del proyecto con los **valores actuales**: las variables de cada documento "
     "(`{{ nombre }}`) se completan con los datos en uso. Incluye la **bitácora** de cambios y se puede "

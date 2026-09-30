@@ -35,6 +35,43 @@ Un commit debe contener una sola intención verificable. No trabajar directament
 
 Cada PR debe explicar problema, alcance, decisiones, persistencias afectadas, verificaciones, privacidad, riesgos, supuestos y limitaciones. Los agentes de IA no aprueban ni fusionan sus propios PRs. La aprobación final siempre es humana.
 
+## Revisión y aprobación
+
+### Reglas de `main`
+
+GitHub las aplica solas; no hace falta recordarlas:
+
+- No se puede subir directo a `main` ni forzar su historia: todo entra por un PR.
+- Los tests (`pytest`) tienen que pasar para poder fusionar.
+- Cada PR necesita la aprobación del dueño del código (ver `.github/CODEOWNERS`).
+- Si entran commits nuevos después de una aprobación, la aprobación se descarta y hay que volver a aprobar.
+- Los comentarios de revisión tienen que estar resueltos antes de fusionar.
+- La rama se borra sola al fusionar.
+
+Los administradores del repositorio pueden fusionar sin aprobación. Los PR que abre la IA salen con la cuenta del dueño, así que su revisión es la de la persona que los fusiona.
+
+### Procedimiento
+
+1. **El autor** abre el PR desde una rama creada sobre `main` actualizada, completa la plantilla y escribe `Closes #N` para cerrar el issue que resuelve.
+2. **La IA hace una prerrevisión** y deja sus observaciones como comentarios del PR:
+   - verifica las cifras y afirmaciones contra el código y la documentación;
+   - corre los tests en una copia aparte de la rama;
+   - busca datos reales, identificadores o nombres de organizaciones;
+   - si el PR toca la app, la levanta en local para verla.
+3. **El autor corrige** en la misma rama y resuelve los comentarios. Las correcciones de un PR van en ese PR; un issue aparte es solo para trabajo que queda fuera de su alcance.
+4. **El dueño del código aprueba y fusiona.** Si el cambio toca `deteccion/`, `perfilador/`, `base_datos/` o el generador, después se actualiza `dev-hector` con `main` y se reinicia la app publicada, que despliega desde esa rama.
+
+### Qué revisar en cada PR
+
+- [ ] Resuelve lo que pide su issue y nada más.
+- [ ] Parte de `main` actualizada y no tiene conflictos.
+- [ ] Los tests pasan; si cambia comportamiento, hay un test que lo cubre.
+- [ ] Las cifras que cita (F1, porcentajes, cantidades) coinciden con lo que produce el código hoy.
+- [ ] Si toca el generador: las hipótesis se siguen sosteniendo con 5 semillas y el escenario didáctico genera CSV idénticos.
+- [ ] No tiene datos reales, identificadores, nombres de personas u organizaciones, ni referencias a sistemas externos.
+- [ ] La documentación afectada (README, diccionario, bitácora) está actualizada.
+- [ ] La plantilla está completa y marca una sola opción de persistencia.
+
 ## Bases de datos
 
 Los cambios de esquema requieren migración versionada, revisión, estrategia de recuperación y prueba aislada. Las operaciones destructivas o cargas masivas sobre persistencias compartidas requieren aprobación humana explícita.

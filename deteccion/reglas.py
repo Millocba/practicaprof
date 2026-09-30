@@ -32,6 +32,8 @@ DESVIO_TIPEO_KM = 500          # desvío mínimo de una lectura que queda por de
                                # para suponer un error de tipeo; un pico no lo necesita: la siguiente vuelve a bajar
 FRACCION_INICIAL = 0.25        # primeras cargas del vehículo que definen su comportamiento habitual
 FRACCIONAMIENTO_TANQUES = 1.05  # litros del día, en tanques, a partir de los que se sospecha
+HORAS_CARGAS_MULTIPLES = 6     # criterio de la fuente (H4): más de una carga del mismo vehículo en menos de 6 h
+KM_SIN_AVANCE_FUENTE = 5       # criterio de la fuente (H12): el odómetro avanza menos de 5 km
 RENDIMIENTO_MINIMO = 0.4       # km/L del día por debajo de esta fracción de lo habitual
 RENDIMIENTO_MINIMO_FRACCIONAMIENTO = 0.75
 LITROS_MINIMOS_RENDIMIENTO = 0.3  # solo se evalúan días con al menos esta fracción del tanque
@@ -298,6 +300,19 @@ def detectar_odometro_sin_avance(secuencia):
     return _alertas(s, "ODOMETRO_SIN_AVANCE", "odometro_sin_avance", "el odómetro no avanzó desde la carga anterior")
 
 
+def detectar_avance_menor_fuente(secuencia, exceptuadas_hoy):
+    """H12 (criterio de la fuente): el odómetro avanza menos de KM_SIN_AVANCE_FUENTE desde la carga
+    anterior, aunque sea del mismo día, salvo que el vehículo tenga hoy una excepción vigente.
+
+    Los retrocesos (avance negativo) quedan fuera: los ve H2b. La fuente mira la excepción con la
+    vigencia de hoy (`exceptuadas_hoy`, del padrón), no con la del día de cada carga.
+    """
+    s = secuencia[secuencia["km"].between(0, KM_SIN_AVANCE_FUENTE, inclusive="left")
+                  & ~secuencia["id"].isin(set(exceptuadas_hoy)) & ~_es_de_otra_red(secuencia)]
+    return _alertas(s, "ODOMETRO_SIN_AVANCE", "avance_menor_a_5_km",
+                    lambda d: "avanzó " + d["km"].astype(int).astype(str) + " km desde la carga anterior")
+
+
 def detectar_sin_avance_sin_excepcion(secuencia, exceptuadas):
     """H12: el odómetro no avanza y el vehículo no está exceptuado ese día.
 
@@ -517,6 +532,23 @@ def detectar_fraccionamiento(dias, con_rendimiento=False):
     return _explotar_dias(marcados, "FRACCIONAMIENTO", regla,
                           lambda d: d["cargas"].astype(str) + " cargas, "
                           + (d["litros"] / d["capacidad"]).round(2).astype(str) + " tanques en el día")
+
+
+def detectar_cargas_multiples(consumo, excluir_ids=()):
+    """H4 (criterio de la fuente): más de una carga del mismo vehículo en menos de HORAS_CARGAS_MULTIPLES.
+
+    Marca cada carga que tiene otra del mismo vehículo a menos de ese tiempo, antes o después,
+    sin mirar los litros ni el recorrido. Solo usa el reporte, como la fuente. Una carga sin hora
+    se toma a las 00:00 de su día.
+    """
+    datos = consumo[~consumo["id"].isin(set(excluir_ids))]
+    instante = pd.to_datetime(datos["fecha"]) + pd.to_timedelta(datos["hora"].astype("string").fillna("00:00:00"))
+    datos = datos.assign(_instante=instante).sort_values(["vehiculo_id", "_instante"])
+    grupo = datos.groupby("vehiculo_id")["_instante"]
+    limite = pd.Timedelta(hours=HORAS_CARGAS_MULTIPLES)
+    cerca = ((datos["_instante"] - grupo.shift(1)) < limite) | ((grupo.shift(-1) - datos["_instante"]) < limite)
+    return _alertas(datos[cerca], "FRACCIONAMIENTO", "cargas_menos_de_6_horas",
+                    f"otra carga del mismo vehículo a menos de {HORAS_CARGAS_MULTIPLES} horas")
 
 
 def detectar_rendimiento_bajo(dias, fuente, sin_odometro=()):
@@ -983,8 +1015,11 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
             detectar_fraccionamiento(dias, con_rendimiento=True),
             detectar_rendimiento_bajo(dias, "odometro", exceptuadas | set(sin_avance["id_registro"])),
             detectar_odometro_sin_avance(secuencia),
+            detectar_avance_menor_fuente(secuencia, cargas_exceptuadas(consumo, flota)),
             sin_avance,
         ]
+        if "hora" in consumo.columns:
+            partes.append(detectar_cargas_multiples(consumo, excluir_ids=duplicados["id_registro"]))
         if telemetria_diaria is not None:
             partes.append(detectar_rendimiento_bajo(dias, "gps", exceptuadas | set(sin_avance["id_registro"])))
         if estaciones is not None:

@@ -15,6 +15,7 @@ sys.path.insert(0, str(APP_DIR / "utils"))
 sys.path.insert(0, str(APP_DIR.parent))
 
 from ayudas import seccion  # noqa: E402
+from explicaciones import explicar  # noqa: E402
 from data_loader import (  # noqa: E402
     NOMBRES_ESCENARIO,
     asegurar_datos_maestro,
@@ -40,6 +41,7 @@ seccion(
           "corrida, así que describe exactamente los archivos que están en disco, no una "
           "documentación que puede quedar vieja. Si no encontrás una tabla o una columna, no "
           "existe en estos datos.")
+explicar("diccionario")
 st.markdown(
     "Qué contiene cada tabla, cómo se relacionan y qué anomalías y casos legítimos se inyectan. "
     "Lo escribe el generador en cada corrida (`diccionario.json`), así que describe exactamente los "

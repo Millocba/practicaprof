@@ -26,6 +26,7 @@ from perfilador.perfil import (  # noqa: E402
     leer_tablas,
     perfilar,
     perfilar_columna,
+    resumir_formatos_largos,
 )
 
 
@@ -104,6 +105,64 @@ def test_cuantiles_redondeados():
     assert dos_cifras(0.0347) == 0.035
     c = perfilar_columna("Importe", pd.Series(np.arange(1000, 1100)))
     assert all(v == dos_cifras(v) for v in c["numerico"].values() if isinstance(v, float) and v > 100)
+
+
+def test_cuantiles_de_las_colas_se_suprimen_con_pocos_datos():
+    # 100 valores: p05 y p95 dejarían 5 observaciones afuera y quedarían pegados a los extremos
+    chica = perfilar_columna("Importe", pd.Series(np.arange(100)))["numerico"]
+    assert chica["p05"] is None and chica["p95"] is None
+    assert chica["p25"] is not None and chica["p50"] is not None
+    # 400 valores: todas las colas tienen al menos MINIMO_GRUPO observaciones
+    grande = perfilar_columna("Importe", pd.Series(np.arange(400)))["numerico"]
+    assert all(grande[k] is not None for k in ["p05", "p25", "p50", "p75", "p95"])
+
+
+def test_auditoria_no_publica_colas_con_pocos_casos():
+    from perfilador.auditoria import _cuantiles
+
+    assert _cuantiles(pd.Series(range(MINIMO_GRUPO - 1))) is None
+    pocos = _cuantiles(pd.Series(range(100)), (0.05, 0.5, 0.95, 0.99))
+    assert pocos["p50"] is not None and pocos["p05"] is None and pocos["p95"] is None and pocos["p99"] is None
+    muchos = _cuantiles(pd.Series(range(2000)), (0.05, 0.5, 0.95, 0.99))
+    assert all(v is not None for v in muchos.values())
+
+
+def test_organizacion_geografia_y_codigos_son_sensibles():
+    n = 200
+    df = pd.DataFrame({
+        "Dependencia": [f"U.O.S. {i % 3} - AREA SINTETICA NUMERO {i % 3}" for i in range(n)],
+        "DependeciaMovil": [f"UNIDAD {i % 4}" for i in range(n)],
+        "CONTRATO": [f"CTR SINTETICO {i % 2}" for i in range(n)],
+        "PROVINCIA": ["PROVINCIA_SINTETICA"] * n,
+        "LOCALIDAD": [f"LOCALIDAD_{i % 5}" for i in range(n)],
+        "Lote": [f"{1000000000 + i % 4}-{2000000000 + i % 4}-{i % 4:08d}" for i in range(n)],
+        "Rodado": [f"A{i % 7}{i % 7}{i % 7}QQQ" for i in range(n)],
+    })
+    columnas = {c["nombre"]: c for c in perfilar({"t": df})["tablas"]["t"]["perfil_columnas"]}
+    assert columnas["Dependencia"]["sensible"] == "organizacion"
+    assert columnas["DependeciaMovil"]["sensible"] == "organizacion"
+    assert columnas["CONTRATO"]["sensible"] == "organizacion"
+    assert columnas["PROVINCIA"]["sensible"] == "ubicacion"
+    assert columnas["LOCALIDAD"]["sensible"] == "ubicacion"
+    assert columnas["Lote"]["sensible"] == "identificador"  # detectado por el formato, no por el nombre
+    assert columnas["Rodado"]["sensible"] == "vehiculo"  # patente de moto A999AAA, por el formato
+    assert all("categorias" not in c for c in columnas.values())
+    texto = json.dumps(columnas, ensure_ascii=False)
+    for valor in ["AREA SINTETICA", "CTR SINTETICO", "PROVINCIA_SINTETICA", "LOCALIDAD_0", "1000000000"]:
+        assert valor not in texto
+    # el formato largo de Dependencia se resume por su largo
+    assert [f["formato"] for f in columnas["Dependencia"]["formatos"]] == ["TEXTO_21-40"]
+    # un monto "del establecimiento" no es el nombre de una organización: conserva sus cuantiles
+    precio = perfilar_columna("PRECIO ESTABLECIMIENTO", pd.Series(np.arange(1000, 1100)))
+    assert precio["sensible"] is None and precio["numerico"]["p50"] is not None
+
+
+def test_resumir_formatos_largos_suma_por_banda():
+    formatos = [{"formato": "A" * 25, "pct": 30.0}, {"formato": "A" * 30, "pct": 20.0},
+                {"formato": "A" * 45, "pct": 10.0}, {"formato": "AA999AA", "pct": 35.0}, {"formato": OTRA, "pct": 5.0}]
+    assert resumir_formatos_largos(formatos) == [
+        {"formato": "TEXTO_21-40", "pct": 50.0}, {"formato": "AA999AA", "pct": 35.0},
+        {"formato": "TEXTO_MAS_DE_40", "pct": 10.0}, {"formato": OTRA, "pct": 5.0}]
 
 
 def test_tabla_chica_sin_estadisticas_pero_con_reparto():
@@ -415,3 +474,13 @@ def test_control_telemetria_vs_estado():
 def test_columnas_cero_uno_son_booleanas():
     c = perfilar_columna("es_contingencia", pd.Series([0] * 97 + [1] * 3))
     assert c["tipo"] == "booleano" and c["verdaderos_pct"] == 3.0 and "numerico" not in c
+
+
+def test_una_hora_no_se_confunde_con_un_codigo():
+    """Las horas en texto son mayormente dígitos, pero no identifican nada."""
+    n = 300
+    horas = pd.Series([f"{i % 24:02d}:{i % 60:02d}:{(i * 7) % 60:02d}" for i in range(n)])
+    assert perfilar_columna("Hora", horas)["sensible"] is None
+    assert perfilar_columna("HoraCorta", horas.str[:5])["sensible"] is None
+    codigos = pd.Series([f"{1000 + i % 4}-{20000000 + i % 4}" for i in range(n)])
+    assert perfilar_columna("Lote", codigos)["sensible"] == "identificador"
