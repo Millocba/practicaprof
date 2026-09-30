@@ -169,6 +169,17 @@ HIPOTESIS = [
                    ("sin_avance_sin_excepcion", "además: sin excepción vigente ese día y la carga anterior es de otro día")],
         "contexto": "excepciones de odómetro del padrón y su historial",
     },
+    {
+        "codigo": "H13",
+        "titulo": "Doble cobro por contingencia",
+        "enunciado": "Marcar toda transacción de contingencia confunde las contingencias legítimas con los cobros "
+                     "duplicados; buscar, para cada contingencia, una carga por el medio habitual del mismo vehículo "
+                     "cercana en el tiempo y con los mismos litros deja solo los posibles dobles cobros.",
+        "tipos": ["DOBLE_COBRO"],
+        "reglas": [("contingencia", "toda transacción de contingencia"),
+                   ("doble_cobro", "además: carga habitual del mismo vehículo a menos de 12 horas y ±2% de litros")],
+        "contexto": "cargas del mismo vehículo por el medio habitual",
+    },
 ]
 
 

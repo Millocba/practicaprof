@@ -181,12 +181,12 @@ for h in HIPOTESIS:
 
 seccion(
     "Relación con las hipótesis del proyecto",
-    ayuda="Cierra el círculo: estas trece hipótesis son la evidencia de las ideas que el README "
+    ayuda="Cierra el círculo: estas catorce hipótesis son la evidencia de las ideas que el README "
           "plantea al principio, y cada una está sostenida o no con números de acá. Leé el "
           "**límite** del final antes de citar cualquier resultado: todo se midió contra un "
           "generador que también produjo los casos legítimos.")
 st.markdown(
-    "- *Integrar fuentes permite detectar situaciones invisibles en análisis aislados*: H6 a H12 "
+    "- *Integrar fuentes permite detectar situaciones invisibles en análisis aislados*: H6 a H13 "
     "(estado de la flota, GPS, registro interno, facturación, contratos y telemetría).\n"
     "- *Los umbrales adecuados varían según el tipo de vehículo y su contexto* y *el historial "
     "individual puede ser más informativo que un umbral general*: H2c, H3b y H5.\n"

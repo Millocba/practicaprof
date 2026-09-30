@@ -137,3 +137,40 @@ def test_odometro_sin_avance_solo_alerta_sin_excepcion_ese_dia():
     assert exceptuadas == {"C2"}
     alertas = detectar_sin_avance_sin_excepcion(secuencia_odometro(consumo), exceptuadas)
     assert list(alertas["id_registro"]) == ["C3"]      # C4 es del mismo día que C3: no se vuelve a leer el tablero
+
+
+def _cargas_con_origen(*filas):
+    """(id, vehículo, fecha, hora, litros, origen)"""
+    return pd.DataFrame(filas, columns=["id", "vehiculo_id", "fecha", "hora", "litros", "origen_transaccion"])
+
+
+def test_doble_cobro_requiere_el_mismo_vehiculo_menos_de_12_horas_y_litros_dentro_de_2_por_ciento():
+    """H13: la ingenua marca toda contingencia; el contexto, solo la que repite una carga habitual."""
+    from deteccion.reglas import detectar_contingencia, detectar_doble_cobro
+
+    consumo = _cargas_con_origen(
+        ("H1", "V1", "2024-03-01", "10:00:00", 40.0, "POSNET"),
+        ("C1", "V1", "2024-03-01", "10:20:00", 40.5, "CONTINGENCIA"),   # 20 min y 1,25%: doble cobro
+        ("C2", "V1", "2024-03-01", "21:59:00", 40.0, "CONTINGENCIA"),   # 11 h 59 min: doble cobro
+        ("C3", "V1", "2024-03-01", "22:00:00", 40.0, "CONTINGENCIA"),   # 12 h justas: no
+        ("C4", "V1", "2024-03-01", "10:20:00", 41.0, "CONTINGENCIA"),   # 2,5%: litros distintos
+        ("C5", "V2", "2024-03-01", "10:20:00", 40.0, "CONTINGENCIA"),   # otro vehículo
+        ("H2", "V3", "2024-03-05", "08:00:00", 30.0, "POSNET"),
+        ("C6", "V3", "2024-03-05", "09:00:00", 30.6, "CONTINGENCIA"),   # 2% justo: doble cobro
+        ("C7", "V4", "2024-03-05", "09:00:00", 30.0, "CONTINGENCIA"),   # contingencia sola
+        ("C8", "V1", "2024-03-01", "10:10:00", 40.0, "contingencia"),   # el origen no distingue mayúsculas
+    )
+    assert set(detectar_contingencia(consumo)["id_registro"]) == {f"C{i}" for i in range(1, 9)}
+    dobles = detectar_doble_cobro(consumo)
+    assert set(dobles["id_registro"]) == {"C1", "C2", "C6", "C8"}
+    assert set(dobles["tipo_anomalia"]) == {"DOBLE_COBRO"} and set(dobles["regla"]) == {"doble_cobro"}
+
+
+def test_una_carga_habitual_no_es_doble_cobro_ni_cuenta_como_contingencia():
+    from deteccion.reglas import detectar_contingencia, detectar_doble_cobro
+
+    consumo = _cargas_con_origen(("H1", "V1", "2024-03-01", "10:00:00", 40.0, "POSNET"),
+                                 ("H2", "V1", "2024-03-01", "10:05:00", 40.0, "POSNET"))
+    assert detectar_contingencia(consumo).empty and detectar_doble_cobro(consumo).empty
+    sin_origen = consumo.drop(columns="origen_transaccion")      # escenario didáctico o fuente sin la columna
+    assert detectar_contingencia(sin_origen).empty and detectar_doble_cobro(sin_origen).empty
