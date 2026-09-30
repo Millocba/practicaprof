@@ -119,6 +119,41 @@ def test_gps_solo_de_vehiculos_con_dispositivo(dataset):
     assert (dataset["telemetria_diaria"]["km_gps"] >= 0).all()
 
 
+def test_origen_de_la_transaccion_calibrado_con_la_fuente(dataset):
+    consumo = dataset["consumo"]
+    assert set(consumo["origen_transaccion"]) == {"POSNET", "CONTINGENCIA"}
+    assert 0.008 < (consumo["origen_transaccion"] == "CONTINGENCIA").mean() < 0.016   # fuente: 1,2%
+
+
+def test_doble_cobro_repite_una_carga_habitual_y_se_factura(dataset, alertas):
+    consumo, gt = dataset["consumo"].set_index("id"), dataset["ground_truth"]
+    dobles = gt[gt["tipo_anomalia"] == "DOBLE_COBRO"]
+    assert len(dobles) >= 5 and (dobles["hipotesis"] == "H13").all()
+    assert set(consumo.loc[dobles["id_registro"], "origen_transaccion"]) == {"CONTINGENCIA"}
+    # La regla con contexto encuentra exactamente esas transacciones, y las contingencias legítimas no se alertan
+    assert set(alertas.loc[alertas["regla"] == "doble_cobro", "id_registro"]) == set(dobles["id_registro"])
+    contingencias = set(consumo.index[consumo["origen_transaccion"] == "CONTINGENCIA"])
+    legitimas = set(dataset["casos_legitimos"].query("tipo_caso == 'CONTINGENCIA'")["id_registro"])
+    assert contingencias == set(dobles["id_registro"]) | legitimas
+    # Se factura: cada transacción duplicada tiene su línea, y H9 no la cuenta como línea duplicada
+    lineas = dataset["facturacion_detalle"]
+    de_los_dobles = set(lineas.loc[lineas["referencia_consumo"].isin(dobles["id_registro"]), "numero_linea"])
+    assert len(de_los_dobles) == len(dobles)
+    assert not de_los_dobles & set(alertas.loc[alertas["regla"] == "linea_duplicada", "id_registro"])
+
+
+def test_las_contingencias_legitimas_incluyen_casos_con_una_carga_cercana_de_otros_litros(dataset):
+    consumo = dataset["consumo"].copy()
+    consumo["instante"] = pd.to_datetime(consumo["fecha"]) + pd.to_timedelta(consumo["hora"])
+    legitimas = set(dataset["casos_legitimos"].query("tipo_caso == 'CONTINGENCIA'")["id_registro"])
+    cercanas = 0
+    for _, c in consumo[consumo["id"].isin(legitimas)].iterrows():
+        otras = consumo[(consumo["vehiculo_id"] == c["vehiculo_id"]) & (consumo["id"] != c["id"])]
+        horas = (otras["instante"] - c["instante"]).abs() / pd.Timedelta(hours=1)
+        cercanas += bool((horas < 12).any())
+    assert cercanas >= 0.2 * len(legitimas)
+
+
 # --- Circuito registro interno -> carga -> factura -------------------------
 
 def test_cada_carga_limpia_tiene_su_pedido_rendido_previo(dataset):

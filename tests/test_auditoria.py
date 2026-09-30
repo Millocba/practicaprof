@@ -52,7 +52,8 @@ def con_forma_real(s):
         "IDENTIFICACION TARJETA": consumo["dominio"].where(~personal, documento(consumo["conductor"])),
         "ODOMETRO": consumo["odometro"], "REMITO": consumo["id"], "PRODUCTO": consumo["producto"],
         "LITROS UNIDADES": consumo["litros"], "PRECIO PVP ESTABLECIMIENTO": consumo["precio_unitario"],
-        "IMP TOT PVP ESTABLECIMIENTO": consumo["importe_total"]})
+        "IMP TOT PVP ESTABLECIMIENTO": consumo["importe_total"],
+        "ORIGEN DE TRANSACCION": consumo["origen_transaccion"]})
     interno = pd.DataFrame({
         "Id": registro["id"], "Fecha": registro["fecha"], "Hora": registro["hora"], "Matricula": registro["vehiculo_id"],
         "Dominio": registro["dominio"], "OdometroRegistrado": registro["odometro"],
@@ -86,7 +87,38 @@ def con_forma_real(s):
         + ultima.dt.strftime("%H:%M:%S")})
     return {"padron": padron, "reporte": reporte, "interno": interno, "fact_contratos": contratos.rename(
         columns={"limite_mensual": "limite"})[["numero", "limite"]], "fact_periodos": periodos, "fact_facturas": fact,
-        "fact_transacciones": lineas, "dispositivos": dispositivos, "moviles_exceptuados": exceptuados}
+        "fact_transacciones": lineas, "dispositivos": dispositivos, "moviles_exceptuados": exceptuados,
+        "base.reclamos_combustible": reclamos_con_forma_real(consumo, reporte, flota)}
+
+
+def reclamos_con_forma_real(consumo, reporte, flota):
+    """Reclamos al proveedor como los de la fuente: cargas del mismo día y lecturas que se repiten.
+
+    El ticket falta en dos de cada tres (en la fuente falta en casi todos): se vinculan por patente
+    y hora. Tipos y estados como en la fuente, unos pocos de doble cobro (duplicidad_metodo), un tipo
+    desconocido y el texto libre del mensaje.
+    """
+    orden = consumo.sort_values(["vehiculo_id", "fecha", "hora"])
+    mismo_dia = orden.duplicated(["vehiculo_id", "fecha"], keep=False)
+    repetida = orden["odometro"].eq(orden.groupby("vehiculo_id")["odometro"].shift(1))
+    elegidas = pd.concat([orden[mismo_dia].assign(tipo_alerta="cargas_multiples"),
+                          orden[repetida & ~mismo_dia].assign(tipo_alerta="odometro_estancado"),
+                          orden[~mismo_dia & ~repetida].head(3).assign(tipo_alerta="duplicidad_metodo"),
+                          orden[~mismo_dia & ~repetida].iloc[3:5].assign(tipo_alerta="TIPO RARO DE LA FUENTE")])
+    n = len(elegidas)
+    fecha = reporte.set_index(consumo["id"])["FECHA"]
+    estados = ["pendiente", "en_disputa", "nota_credito_recibida", "rechazado"]    # los de la fuente
+    return pd.DataFrame({
+        "id": range(1, n + 1), "dia": elegidas["fecha"].values,
+        "patente": elegidas["dominio"].values, "matricula": elegidas["vehiculo_id"].values,
+        "fecha_hora": fecha.reindex(elegidas["id"]).values, "tipo_alerta": elegidas["tipo_alerta"].values,
+        "mensaje": "MENSAJE SINTETICO DE TEXTO LIBRE 4321", "litros": elegidas["litros"].values,
+        "monto_reclamable": (elegidas["litros"] * 10).values, "establecimiento": "00001 - ESTACION FICTICIA",
+        "nro_ticket": [t if i % 3 == 0 else None for i, t in enumerate(elegidas["id"])],
+        "estado_reclamo": [estados[i % 4] for i in range(n)],
+        "nro_reclamo_proveedor": [f"RPZ-{i:06d}" for i in range(n)], "fecha_reclamo": None,
+        "created_at": "2024-06-01 10:00:00", "updated_at": "2024-06-01 10:00:00",
+        "numero_tarjeta": elegidas["numero_tarjeta"].values})
 
 
 @pytest.fixture(scope="module")
@@ -106,6 +138,8 @@ def test_el_adaptador_traduce_y_vincula(sintetico):
     assert set(diagnostico["fuentes_encontradas"]) >= {"padron", "consumo", "registro", "facturas", "dispositivos"}
     assert diagnostico["consumo"]["fechas_legibles_pct"] == 100.0
     assert diagnostico["consumo"]["con_vehiculo_del_padron_pct"] > 95
+    assert diagnostico["consumo"]["contingencias_pct"] > 0
+    assert set(datos["consumo"]["origen_transaccion"]) == {"POSNET", "CONTINGENCIA"}
     assert diagnostico["registro"]["estaciones_de_otra_red_pct"] > 3
     assert len(datos["consumo"]) == len(sintetico["consumo"])
     assert leer_fecha(datos["solicitudes"]["fecha"]).notna().all()
@@ -113,7 +147,7 @@ def test_el_adaptador_traduce_y_vincula(sintetico):
 
 
 def test_la_auditoria_corre_las_hipotesis_con_datos(resultado):
-    assert {"H1", "H8", "H9", "H11", "H12"} <= set(resultado["hipotesis"])
+    assert {"H1", "H8", "H9", "H11", "H12", "H13"} <= set(resultado["hipotesis"])
     odometro = resultado["diagnostico"]["odometro"]
     assert odometro["sin_avance_con_excepcion"] not in (0, "1–19")      # el historial cubre las repetidas
     assert not {"H6", "H7", "H10"} & set(resultado["hipotesis"])   # faltan las fuentes que necesitan
@@ -139,6 +173,78 @@ def test_la_salida_no_tiene_identificadores(resultado, sintetico):
         assert str(valor) not in texto
     for regla in resultado["reglas"].values():
         assert isinstance(regla["alertas"], str) or regla["alertas"] == 0 or regla["alertas"] >= 20
+
+
+def test_los_reclamos_se_vinculan_y_se_comparan_con_las_reglas(resultado):
+    """Cada reclamo se vincula con su carga (por ticket o por patente y hora) y se compara con las reglas de su tipo."""
+    r = resultado["diagnostico"]["reclamos"]
+    assert r["vinculados_con_una_carga_pct"] == 100.0
+    assert r["vinculados_por_ticket"] != 0 and r["vinculados_por_patente_y_hora"] != 0
+    assert set(r["por_tipo"]) == {"cargas_multiples", "odometro_estancado", "doble_cobro", "otro"}
+    assert set(r["por_estado"]) == {"pendiente", "en_disputa", "nota_de_credito", "rechazado"}
+    multiples = r["por_tipo_de_alerta"]["cargas_multiples"]
+    assert multiples["hipotesis"] == "H4" and "fraccionamiento_diario" in multiples["reglas"]
+    assert "sin_avance_sin_excepcion" in r["por_tipo_de_alerta"]["odometro_estancado"]["reglas"]
+    # Los reclamos de lecturas repetidas son justamente las que marca la regla ingenua de H12
+    assert r["por_tipo_de_alerta"]["odometro_estancado"]["reglas"]["odometro_sin_avance"]["anticipa_pct"] > 90
+    for tipo in r["por_tipo_de_alerta"].values():
+        for regla in (tipo["reglas"].values() if isinstance(tipo["reglas"], dict) else []):
+            assert all(v is None or isinstance(v, (int, float, str)) for v in regla.values())
+
+
+def test_la_salida_no_tiene_datos_de_los_reclamos(resultado, sintetico):
+    """Ni tickets, ni patentes, ni números de reclamo, ni el texto libre del mensaje o de un tipo desconocido."""
+    texto = json.dumps(resultado, ensure_ascii=False)
+    reclamos = con_forma_real(sintetico)["base.reclamos_combustible"]
+    for valor in ["MENSAJE SINTETICO", "4321", "RPZ-", "TIPO RARO", "ESTACION FICTICIA",
+                  reclamos["nro_ticket"].dropna().iloc[0], reclamos["patente"].iloc[0],
+                  reclamos["numero_tarjeta"].iloc[0]]:
+        assert str(valor) not in texto
+
+
+def test_un_reclamo_sin_ticket_se_vincula_por_patente_y_hora():
+    """Sin ticket, el reclamo va con la carga del mismo vehículo más cercana, a menos de 15 minutos."""
+    from perfilador.adaptador import _reclamos
+
+    consumo = pd.DataFrame({"id": ["R1", "R2", "R2#2", "0001-00001234", "0002-00005678"],
+                            "vehiculo_id": ["M1", "M1", "M2", "M2", "M2"],
+                            "fecha": ["2024-03-01", "2024-03-01", "2024-03-02", "2024-03-03", "2024-03-04"],
+                            "hora": ["08:00:00", "14:00:00", "09:00:00", "09:00:00", "09:00:00"]})
+    por_dominio = pd.DataFrame({"Matricula": ["M1", "M2"]}, index=["ZA001AA", "ZA002AA"])
+    fuente = pd.DataFrame({"patente": ["za 001 aa", "ZA001AA", "ZA002AA", "ZA001AA", None, None],
+                           "fecha_hora": ["01/03/2024 8:05:00", "01/03/2024 11:00:00", None, None, None, None],
+                           "tipo_alerta": ["cargas_multiples", "Odómetro estancado", "duplicidad_metodo", "otra cosa",
+                                           "cargas_multiples", "cargas_multiples"],
+                           "estado_reclamo": ["pendiente", "NC recibida", "en_disputa", "nota_credito_recibida",
+                                              "rechazado", "pendiente"],
+                           "monto_reclamable": [100, 200, 300, 400, 0, -5],
+                           # un ticket que llegó como decimal y otro con solo la segunda parte del remito
+                           "nro_ticket": [None, None, None, "R2", 1234.0, "00005678"]})
+    r = _reclamos(fuente, consumo, por_dominio)
+    assert list(r["carga_id"].fillna("—")) == ["R1", "—", "—", "R2", "0001-00001234", "0002-00005678"]
+    assert list(r["vinculo"].fillna("—")) == ["patente_y_hora", "—", "—", "ticket", "ticket", "ticket"]
+    assert list(r["tipo"]) == ["cargas_multiples", "odometro_estancado", "doble_cobro", "otro",
+                               "cargas_multiples", "cargas_multiples"]
+    assert list(r["estado"]) == ["pendiente", "otro", "en_disputa", "nota_de_credito", "rechazado", "pendiente"]
+
+
+def test_montos_y_periodo_de_los_reclamos():
+    """El monto suma solo los positivos, con dos cifras; las alertas fuera del período de los reclamos no cuentan."""
+    from perfilador.auditoria import _monto, _reclamos as agregados
+
+    reclamos = pd.DataFrame({"tipo": "cargas_multiples", "estado": "pendiente",
+                             "monto": [123_456.0] * 25 + [0.0, -10.0], "carga_id": [f"C{i}" for i in range(27)],
+                             "vinculo": "ticket", "fecha": pd.Timestamp("2024-03-10")})
+    assert _monto(reclamos) == 3_100_000       # 25 × 123.456 = 3.086.400
+    assert _monto(reclamos.head(5)) is None     # menos de 20 reclamos
+    consumo = pd.DataFrame({"id": [f"C{i}" for i in range(27)] + [f"F{i}" for i in range(30)],
+                            "fecha": ["2024-03-10"] * 27 + ["2024-06-01"] * 30})
+    alertas = pd.DataFrame({"id_registro": consumo["id"], "regla": "fraccionamiento_diario"})
+    r = agregados({"reclamos": reclamos, "consumo": consumo}, alertas, {"fraccionamiento_diario"})
+    assert r["montos_no_positivos"] == "1–19"
+    regla = r["por_tipo_de_alerta"]["cargas_multiples"]["reglas"]["fraccionamiento_diario"]
+    # Las 30 alertas de junio quedan fuera del período de los reclamos: 27 de 27 terminaron en reclamo
+    assert regla["alertas"] == 27 and regla["alertas_con_reclamo_pct"] == 100.0
 
 
 def test_el_adaptador_tolera_tipos_y_tarjetas_repetidas_de_la_fuente(sintetico):

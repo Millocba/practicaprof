@@ -67,6 +67,7 @@ HIPOTESIS = [
                      "transacción; agregar por día lo detecta y el recorrido del día separa los viajes largos.",
         "tipos": ["FRACCIONAMIENTO"],
         "reglas": [("litros_mayor_a_tanque", "control por transacción"),
+                   ("cargas_menos_de_6_horas", "criterio de la fuente: más de una carga en menos de 6 horas"),
                    ("fraccionamiento_diario", "suma del día > tanque"),
                    ("fraccionamiento_sin_recorrido", "además: el recorrido no lo justifica")],
         "contexto": "cargas agregadas por día y recorrido",
@@ -169,8 +170,20 @@ HIPOTESIS = [
                      "carga (puede durar un solo día) deja solo las lecturas repetidas sin justificación.",
         "tipos": ["ODOMETRO_SIN_AVANCE"],
         "reglas": [("odometro_sin_avance", "la lectura es igual a la de la carga anterior"),
+                   ("avance_menor_a_5_km", "criterio de la fuente: avanza menos de 5 km, con la excepción vigente hoy"),
                    ("sin_avance_sin_excepcion", "además: sin excepción vigente ese día y la carga anterior es de otro día")],
         "contexto": "excepciones de odómetro del padrón y su historial",
+    },
+    {
+        "codigo": "H13",
+        "titulo": "Doble cobro por contingencia",
+        "enunciado": "Marcar toda transacción de contingencia confunde las contingencias legítimas con los cobros "
+                     "duplicados; buscar, para cada contingencia, una carga por el medio habitual del mismo vehículo "
+                     "cercana en el tiempo y con los mismos litros deja solo los posibles dobles cobros.",
+        "tipos": ["DOBLE_COBRO"],
+        "reglas": [("contingencia", "toda transacción de contingencia"),
+                   ("doble_cobro", "además: carga habitual del mismo vehículo a menos de 12 horas y ±2% de litros")],
+        "contexto": "cargas del mismo vehículo por el medio habitual",
     },
 ]
 
