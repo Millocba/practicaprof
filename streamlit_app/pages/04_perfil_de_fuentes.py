@@ -22,6 +22,7 @@ sys.path.insert(0, str(APP_DIR / "utils"))
 sys.path.insert(0, str(RAIZ))
 
 from data_loader import NOMBRES_ESCENARIO, asegurar_datos_maestro, directorio, selector_escenario  # noqa: E402
+from explicaciones import explicar  # noqa: E402
 from perfilador.comparar import (  # noqa: E402
     comparar,
     informe_markdown,
@@ -43,6 +44,7 @@ st.markdown(
     f"Sigue `docs/REAL_DATA_BOUNDARY.md`: sin filas, sin valores sueltos, sin grupos de menos de {MINIMO_GRUPO} casos, "
     "y las columnas sensibles (identificadores, personas, patentes, ubicaciones, texto libre) solo por su formato."
 )
+explicar("perfil")
 escenario = selector_escenario()
 
 

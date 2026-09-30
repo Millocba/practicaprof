@@ -13,6 +13,7 @@ utils_path = Path(__file__).parent.parent / "utils"
 sys.path.insert(0, str(utils_path))
 
 from ayudas import seccion
+from explicaciones import explicar  # noqa: E402
 from data_loader import (
     NOMBRES_ESCENARIO,
     directorio,
@@ -34,6 +35,7 @@ seccion(
           "el generador produce tablas sintéticas desde cero, con anomalías inyectadas a propósito "
           "y su lista de verdad de referencia. Todo lo que se ve después en las otras páginas sale "
           "de acá, así que cambiás un parámetro y cambiás el escenario de análisis completo.")
+explicar("generador")
 st.markdown("Configura y ejecuta el generador de entidades sintéticas")
 
 escenario = selector_escenario()

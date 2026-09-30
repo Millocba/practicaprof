@@ -16,6 +16,7 @@ sys.path.insert(0, str(APP_DIR / "utils"))
 sys.path.insert(0, str(APP_DIR.parent))
 
 from ayudas import seccion  # noqa: E402
+from explicaciones import explicar  # noqa: E402
 from data_loader import (  # noqa: E402
     NOMBRES_ESCENARIO,
     asegurar_datos_maestro,
@@ -37,6 +38,7 @@ seccion(
           "página **no mira la verdad de referencia**, muestra lo que vería un auditor sin saber "
           "qué se inyectó. Si un caso listado acá fuera un falso positivo, esta página no lo "
           "puede saber; eso se verifica en la página Hipótesis.")
+explicar("analisis")
 st.markdown(
     "Qué encuentran las reglas en los datos, hipótesis por hipótesis. Para cada una se muestra cuánto "
     "marca la **regla ingenua** y cuánto queda con la **regla con contexto**, con los casos concretos. "

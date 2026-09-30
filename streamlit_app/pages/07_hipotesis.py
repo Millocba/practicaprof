@@ -11,6 +11,7 @@ sys.path.insert(0, str(APP_DIR / "utils"))
 sys.path.insert(0, str(APP_DIR.parent))
 
 from ayudas import seccion  # noqa: E402
+from explicaciones import explicar  # noqa: E402
 from data_loader import (  # noqa: E402
     asegurar_datos_maestro,
     load_dataset_deteccion,
@@ -29,6 +30,7 @@ seccion(
           "en al menos 0,10. El veredicto se calcula con los datos, no está escrito a mano. Esta "
           "es la página donde la detección se valida de verdad: es la única que compara contra "
           "las anomalías inyectadas y además mide las falsas alarmas sobre casos legítimos.")
+explicar("hipotesis")
 st.markdown(
     "Cada hipótesis compara una **regla ingenua** (la primera que se le ocurriría a cualquiera) "
     "con una **regla con contexto** (historial del vehículo, estado de la flota, GPS, registro interno, "
