@@ -28,7 +28,7 @@ from deteccion.modelo import (
     entrenar_isolation_forest,
     ids_con_anomalia_de_comportamiento,
 )
-from deteccion.reglas import reglas_del_dataset
+from deteccion.reglas import SIN_EXPLICACION, reglas_del_dataset
 
 REGLAS_INGENUAS = ["litros_mayor_a_tanque", "odometro_disminuye", "salto_historial_vehiculo",
                    "fraccionamiento_diario", "rendimiento_bajo_odometro", "carga_lejos_de_base",
@@ -110,9 +110,34 @@ def puntuar(dataset, modelo_supervisado, seed=42):
     return puntajes, variables, alertas
 
 
-def _orden(puntaje):
-    """Índice ordenado de mayor a menor puntaje; los empates se resuelven por id."""
-    return puntaje.sort_index().sort_values(ascending=False, kind="mergesort").index
+def _orden(puntaje, explicadas=()):
+    """Índice ordenado de mayor a menor puntaje; los empates se resuelven por id.
+
+    Con `explicadas`, a igual puntaje van después las cargas cuyas alertas tienen una causa probable
+    de error de carga (#24): primero se revisa lo que no tiene explicación.
+    """
+    orden = puntaje.sort_index().sort_values(ascending=False, kind="mergesort")
+    if len(explicadas):
+        clave = pd.DataFrame({"puntaje": -orden, "explicada": orden.index.isin(list(explicadas))}, index=orden.index)
+        orden = orden.loc[clave.sort_values(["puntaje", "explicada"], kind="mergesort").index]
+    return orden.index
+
+
+def cargas_explicadas(alertas):
+    """Cargas cuyas alertas con causa tienen todas una causa probable de error de carga."""
+    if "causa_probable" not in alertas.columns:
+        return set()
+    con_causa = alertas.dropna(subset=["causa_probable"])
+    sin = set(con_causa.loc[con_causa["causa_probable"] == SIN_EXPLICACION, "id_registro"])
+    return set(con_causa["id_registro"]) - sin
+
+
+def causa_de_cada_carga(alertas):
+    """La causa probable de cada carga (la primera distinta de sin explicación), o vacío."""
+    if "causa_probable" not in alertas.columns:
+        return pd.Series(dtype=object)
+    explicadas = alertas[alertas["causa_probable"].notna() & (alertas["causa_probable"] != SIN_EXPLICACION)]
+    return explicadas.drop_duplicates("id_registro").set_index("id_registro")["causa_probable"]
 
 
 def curva_de_esfuerzo(puntajes, ground_truth, casos_legitimos=None, maximo=None):
@@ -184,11 +209,17 @@ def motivos(variables, alertas):
 
 
 def cola_de_revision(puntajes, metodo, consumo, variables, alertas, cantidad=50):
-    """Las `cantidad` cargas a revisar primero según `metodo`, con sus motivos."""
-    orden = _orden(puntajes[metodo])[:cantidad]
+    """Las `cantidad` cargas a revisar primero según `metodo`, con sus motivos y su causa probable.
+
+    A igual puntaje, las cargas sin explicación van antes que las que tienen una causa probable de
+    error de carga (ver `_orden`).
+    """
+    orden = _orden(puntajes[metodo], cargas_explicadas(alertas))[:cantidad]
     datos = consumo.set_index("id").loc[orden, ["vehiculo_id", "fecha", "estacion", "litros", "odometro"]]
+    causa = causa_de_cada_carga(alertas).reindex(orden).str.replace("_", " ").fillna("")
     return (datos.join(motivos(variables.loc[orden], alertas))
-            .assign(prioridad=range(1, len(orden) + 1), puntaje=puntajes.loc[orden, metodo].round(3))
+            .assign(causa_probable=causa.values, prioridad=range(1, len(orden) + 1),
+                    puntaje=puntajes.loc[orden, metodo].round(3))
             .reset_index().rename(columns={"index": "id"}))
 
 

@@ -250,7 +250,10 @@ def pagina_realista():
         ayuda="El resultado accionable: la lista ordenada de cargas a revisar, con la "
               "**prioridad** y el **motivo** por el que se marcaron. El motivo es lo que la "
               "distingue de un número: es lo que permite que otra persona repita el criterio o "
-              "lo discuta. Cambiá el método de ordenamiento arriba y la cola se recalcula.")
+              "lo discuta. La **causa probable** indica si la alerta tiene la firma de un error de carga "
+              "(proveedor, dominio o tarjeta equivocados) para preparar la citación; a igual puntaje, "
+              "las cargas sin explicación van primero. Cambiá el método de ordenamiento arriba y la "
+              "cola se recalcula.")
     col1, col2 = st.columns([2, 1])
     with col1:
         metodo = st.selectbox("Ordenar según", priorizacion.METODOS, index=priorizacion.METODOS.index("Combinado"),
@@ -263,9 +266,12 @@ def pagina_realista():
     if verificar:
         caso = legitimos.drop_duplicates("id_registro").set_index("id_registro")["tipo_caso"]
         tipo = ground_truth[ground_truth["id_registro"].isin(anomalas)].groupby("id_registro")["tipo_anomalia"].first()
+        error = ground_truth[ground_truth["tipo_anomalia"].str.startswith("ERROR_")].groupby("id_registro")[
+            "tipo_anomalia"].first()
         cola["resultado"] = cola["id"].map(tipo).radd("⚠️ ").fillna(
-            cola["id"].map(caso).radd("✅ legítimo: ")).fillna("normal")
-    columnas = ["prioridad", "id", "vehiculo_id", "fecha", "estacion", "litros", "odometro", "motivos", "reglas"]
+            cola["id"].map(caso).radd("✅ legítimo: ")).fillna(
+            cola["id"].map(error).radd("🔧 error de carga: ")).fillna("normal")
+    columnas = ["prioridad", "id", "vehiculo_id", "fecha", "estacion", "litros", "odometro", "motivos", "reglas", "causa_probable"]
     st.dataframe(cola[columnas + (["resultado"] if verificar else [])], use_container_width=True, hide_index=True)
     st.download_button("⬇️ Descargar la cola (CSV)", cola.to_csv(index=False), file_name="cola_de_revision.csv",
                        mime="text/csv")

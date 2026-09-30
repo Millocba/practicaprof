@@ -137,3 +137,64 @@ def test_odometro_sin_avance_solo_alerta_sin_excepcion_ese_dia():
     assert exceptuadas == {"C2"}
     alertas = detectar_sin_avance_sin_excepcion(secuencia_odometro(consumo), exceptuadas)
     assert list(alertas["id_registro"]) == ["C3"]      # C4 es del mismo día que C3: no se vuelve a leer el tablero
+
+
+def test_causa_probable_de_cada_error_de_carga():
+    """#24: cada firma de error de carga se reconoce; una carga con su pedido no tiene causa."""
+    from deteccion.reglas import ESTACION_AJENA, causas_probables
+
+    flota = pd.DataFrame({"Matricula": ["V1", "V2", "V3"], "Dominio": ["ZA001AA", "ZA002AA", "ZA003AA"],
+                          "NumeroTarjeta": ["T1", "T2", "T3"]})
+    dominio = dict(zip(flota["Matricula"], flota["Dominio"]))
+    tarjeta = dict(zip(flota["Matricula"], flota["NumeroTarjeta"]))
+    # (id, vehículo del reporte, fecha, hora, litros, odómetro)
+    cargas = [("A1", "V1", "2024-03-01", "10:00:00", 30, 1000), ("A2", "V1", "2024-03-05", "10:00:00", 40, 1300),
+              ("A3", "V1", "2024-03-10", "10:00:00", 30, 1800),
+              ("B0", "V2", "2024-03-01", "10:00:00", 30, 4900), ("B1", "V2", "2024-03-02", "11:00:00", 25, 5000),
+              ("B2", "V2", "2024-03-06", "10:00:00", 30, 5200),
+              ("C1", "V3", "2024-03-01", "10:00:00", 30, 9000), ("X", "V3", "2024-03-08", "12:00:00", 20, 1500),
+              ("C3", "V3", "2024-03-12", "10:00:00", 30, 9300)]
+    consumo = pd.DataFrame(cargas, columns=["id", "vehiculo_id", "fecha", "hora", "litros", "odometro"]).assign(
+        tipo_identificacion="PATENTE", conductor="C", estacion="EST-001")
+    consumo["dominio"] = consumo["vehiculo_id"].map(dominio)
+    consumo["numero_tarjeta"] = consumo["vehiculo_id"].map(tarjeta)
+
+    def pedido(id_, vehiculo, carga, minutos_antes=30, estacion="EST-001"):
+        c = consumo.set_index("id").loc[carga]
+        instante = pd.Timestamp(f"{c['fecha']} {c['hora']}") - pd.Timedelta(minutes=minutos_antes)
+        return {"id": id_, "vehiculo_id": vehiculo, "dominio": dominio[vehiculo], "fecha": instante.strftime("%d/%m/%Y"),
+                "hora": instante.strftime("%H:%M:%S"), "litros_cargados": c["litros"], "litros_autorizados": c["litros"] + 5,
+                "rendido": "SI", "anulado": "NO", "estacion_servicio": estacion, "tarjeta_personal": False,
+                "solicitante": "C"}
+
+    registro = pd.DataFrame([pedido(f"P-{c}", consumo.set_index("id").at[c, "vehiculo_id"], c)
+                             for c in ["A1", "A3", "B0", "B2", "C1", "C3"]]
+                            + [pedido("P2", "V1", "A2", 40, ESTACION_AJENA),   # proveedor equivocado
+                               pedido("P3", "V3", "B1"),                        # dominio de otro vehículo
+                               pedido("P4", "V1", "X", 20)])                    # tarjeta de V3, la cargó V1
+    causas = causas_probables(consumo, registro, flota)
+    assert causas == {"A2": "proveedor_equivocado", "P2": "proveedor_equivocado",
+                      "B1": "dominio_equivocado", "P3": "dominio_equivocado",
+                      "X": "tarjeta_equivocada", "P4": "tarjeta_equivocada",
+                      "C3": "tarjeta_equivocada"}     # C3 cierra el tramo que abrió X en V3
+
+
+def test_la_causa_va_en_el_detalle_y_la_alerta_se_mantiene():
+    from deteccion.reglas import SIN_EXPLICACION, asignar_causa_probable
+
+    alertas = pd.DataFrame({"id_registro": ["A2", "Z9", "F1"], "tipo_anomalia": "X",
+                            "regla": ["carga_sin_registro", "carga_sin_registro", "linea_duplicada"],
+                            "detalle": ["sin pedido", "sin pedido", "línea repetida"]})
+    con_causa = asignar_causa_probable(alertas, {"A2": "proveedor_equivocado"})
+    assert len(con_causa) == 3
+    assert list(con_causa["causa_probable"].fillna("—")) == ["proveedor_equivocado", SIN_EXPLICACION, "—"]
+    assert con_causa["detalle"].iloc[0] == "sin pedido · causa probable: proveedor equivocado"
+    assert con_causa["detalle"].iloc[1] == "sin pedido"
+
+
+def test_a_igual_puntaje_va_primero_lo_que_no_tiene_explicacion():
+    from deteccion.priorizacion import _orden
+
+    puntaje = pd.Series([1.0, 1.0, 0.5], index=["A", "B", "C"])
+    assert list(_orden(puntaje)) == ["A", "B", "C"]
+    assert list(_orden(puntaje, explicadas={"A"})) == ["B", "A", "C"]
