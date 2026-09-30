@@ -160,6 +160,9 @@ def adaptar(tablas, proveedor=None):
         matricula = tarjeta.map(por_tarjeta["Matricula"]).fillna(
             dominio.map(lambda d: _normalizar_valor(d) if pd.notna(d) else None).map(por_dominio["Matricula"]))
         remito = _texto(fuente["REMITO"])
+        # POSNET (medio de pago habitual) o CONTINGENCIA; vacío si el reporte no trae el origen
+        origen = fuente["ORIGEN DE TRANSACCION"].astype("string").str.strip().str.upper() \
+            if "ORIGEN DE TRANSACCION" in fuente.columns else pd.Series(pd.NA, index=fuente.index, dtype="string")
         repeticion = remito.groupby(remito).cumcount()
         consumo = pd.DataFrame({
             "id": remito.where(repeticion == 0, remito + "#" + (repeticion + 1).astype(str)),
@@ -175,6 +178,7 @@ def adaptar(tablas, proveedor=None):
                 "NRO IDENTIFICACION CONDUCTOR", pd.Series(pd.NA, index=fuente.index))))),
             "odometro": _numero(fuente["ODOMETRO"]).round().astype("Int64"),
             "tipo_identificacion": personal.map({True: "DNI", False: "PATENTE"}),
+            "origen_transaccion": origen,
             "contrato": matricula.map(flota.set_index("Matricula")["NumeroContrato"]).astype("Int64"),
         }).dropna(subset=["fecha", "litros"])
         datos["consumo"] = consumo[consumo["litros"] > 0]
@@ -183,6 +187,7 @@ def adaptar(tablas, proveedor=None):
             "con_vehiculo_del_padron_pct": round(100 * consumo["vehiculo_id"].notna().mean(), 1),
             "con_contrato_pct": round(100 * consumo["contrato"].notna().mean(), 1),
             "tarjetas_personales_pct": round(100 * personal.mean(), 1),
+            "contingencias_pct": round(100 * (origen == "CONTINGENCIA").mean(), 1) if origen.notna().any() else None,
         }
     else:
         raise ValueError("no se encontró el reporte de consumo del proveedor")

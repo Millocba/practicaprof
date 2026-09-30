@@ -47,6 +47,9 @@ DIFERENCIA_PDF = 0.001          # diferencia relativa entre el total del PDF y l
 MARGEN_PROYECCION = 1.05        # una transferencia se justifica si la proyección supera el saldo con este margen
 HOLGURA_TRANSFERENCIA = 0.9     # es injustificada si la proyección con margen no llega a este tanto de lo disponible
 DIAS_PESO_HISTORICO = 7         # la proyección combina el mes con 7 días del promedio histórico del contrato
+ORIGEN_CONTINGENCIA = "CONTINGENCIA"  # origen de la transacción cargada por la vía alternativa
+HORAS_DOBLE_COBRO = 12          # una contingencia es un doble cobro si hay una carga habitual a menos de estas horas...
+TOLERANCIA_LITROS_DOBLE_COBRO = 0.02  # ...con una diferencia de litros de hasta este porcentaje
 
 
 def _alertas(df, tipo, regla, detalle):
@@ -319,6 +322,36 @@ def detectar_sin_avance_sin_excepcion(secuencia, exceptuadas):
                   & ~_es_de_otra_red(secuencia)]
     return _alertas(s, "ODOMETRO_SIN_AVANCE", "sin_avance_sin_excepcion",
                     "el odómetro no avanzó desde la carga anterior y no hay excepción vigente")
+
+
+def detectar_contingencia(consumo):
+    """H13 (ingenua): toda transacción cuyo origen es una contingencia."""
+    if "origen_transaccion" not in consumo.columns:
+        return pd.DataFrame(columns=COLUMNAS_ALERTA)
+    contingencias = consumo[consumo["origen_transaccion"].astype("string").str.upper() == ORIGEN_CONTINGENCIA]
+    return _alertas(contingencias, "DOBLE_COBRO", "contingencia", "transacción de contingencia")
+
+
+def detectar_doble_cobro(consumo):
+    """H13: una contingencia con una carga del mismo vehículo por el medio habitual cercana y con los mismos litros.
+
+    La misma carga cobrada por las dos vías: a menos de HORAS_DOBLE_COBRO horas y con hasta
+    TOLERANCIA_LITROS_DOBLE_COBRO de diferencia de litros (respecto de la carga habitual).
+    """
+    if not {"origen_transaccion", "hora"} <= set(consumo.columns):
+        return pd.DataFrame(columns=COLUMNAS_ALERTA)
+    c = consumo.assign(instante=_instantes(consumo["fecha"], consumo["hora"]),
+                       contingencia=consumo["origen_transaccion"].astype("string").str.upper() == ORIGEN_CONTINGENCIA)
+    c = c.dropna(subset=["vehiculo_id", "instante", "litros"])
+    habituales = c.loc[~c["contingencia"], ["vehiculo_id", "instante", "litros"]]
+    pares = c.loc[c["contingencia"], ["id", "vehiculo_id", "instante", "litros"]].merge(
+        habituales, on="vehiculo_id", suffixes=("", "_habitual"))
+    horas = (pares["instante"] - pares["instante_habitual"]).abs() / pd.Timedelta(hours=1)
+    diferencia = (pares["litros"] - pares["litros_habitual"]).abs().round(6)
+    cerca = diferencia <= (TOLERANCIA_LITROS_DOBLE_COBRO * pares["litros_habitual"]).round(6)
+    dobles = pares[(horas < HORAS_DOBLE_COBRO) & cerca].drop_duplicates("id")
+    return _alertas(dobles, "DOBLE_COBRO", "doble_cobro",
+                    "contingencia con una carga del mismo vehículo por el medio habitual cercana y con los mismos litros")
 
 
 def _exceptuadas_y_siguientes(s, exceptuadas):
@@ -945,7 +978,11 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
     escenario realista, donde esas fuentes son coherentes con el consumo.
     """
     duplicados = detectar_duplicados(consumo)
-    secuencia = secuencia_odometro(consumo, excluir_ids=duplicados["id_registro"])
+    # Un doble cobro no es una carga más del vehículo: las reglas de odómetro, de cargas del día y del
+    # cruce con el registro no la cuentan (como los duplicados de nuestro registro)
+    dobles = detectar_doble_cobro(consumo)
+    excluidas = pd.concat([duplicados["id_registro"], dobles["id_registro"]], ignore_index=True)
+    secuencia = secuencia_odometro(consumo, excluir_ids=excluidas)
     partes = [
         duplicados,
         detectar_nulos(consumo),
@@ -954,17 +991,17 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
         detectar_odometro_regresivo(secuencia),
         detectar_odometro_salto_umbral_fijo(secuencia),
         detectar_odometro_salto_historial(secuencia),
+        detectar_contingencia(consumo),
+        dobles,
     ]
 
     if "FechaEstado" in flota.columns:
         # Las reglas con contexto ven también las cargas de otra red que anota el registro interno
         fuera = cargas_fuera_del_reporte(solicitudes)
-        completa = secuencia_odometro(consumo, excluir_ids=duplicados["id_registro"], fuera=fuera, sin_repetidas=True)
-        con_repetidas = secuencia_odometro(consumo, excluir_ids=duplicados["id_registro"], fuera=fuera)
-        dias_del_reporte = cargas_por_dia(consumo, flota, excluir_ids=duplicados["id_registro"],
-                                          gps_diario=telemetria_diaria)
-        dias = cargas_por_dia(consumo, flota, excluir_ids=duplicados["id_registro"],
-                              gps_diario=telemetria_diaria, fuera=fuera)
+        completa = secuencia_odometro(consumo, excluir_ids=excluidas, fuera=fuera, sin_repetidas=True)
+        con_repetidas = secuencia_odometro(consumo, excluir_ids=excluidas, fuera=fuera)
+        dias_del_reporte = cargas_por_dia(consumo, flota, excluir_ids=excluidas, gps_diario=telemetria_diaria)
+        dias = cargas_por_dia(consumo, flota, excluir_ids=excluidas, gps_diario=telemetria_diaria, fuera=fuera)
         intervalos = gps_por_intervalo(dias) if telemetria_diaria is not None else None
         exceptuadas = cargas_exceptuadas(consumo, flota, excepciones)
         sin_avance = detectar_sin_avance_sin_excepcion(con_repetidas, exceptuadas)
@@ -989,7 +1026,7 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
             partes.append(detectar_carga_lejos_de_base(consumo, estaciones))
             if telemetria_diaria is not None:
                 partes.append(detectar_carga_lejos_del_gps(consumo, flota, estaciones, telemetria_diaria))
-        excluir = duplicados["id_registro"]
+        excluir = excluidas
         if solicitudes is not None and "hora" in consumo.columns and "rendido" in solicitudes.columns:
             partes += [
                 detectar_cruce_ingenuo(consumo, solicitudes, excluir),
@@ -1001,7 +1038,8 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
                 detectar_irregularidades_de_linea(consumo, facturacion_detalle),
             ]
             if "contrato" in facturacion.columns and "contrato" in consumo.columns:
-                partes += [detectar_conciliacion_mensual(consumo, facturacion, excluir),
+                # Un doble cobro se factura: la conciliación del mes la cuenta
+                partes += [detectar_conciliacion_mensual(consumo, facturacion, duplicados["id_registro"]),
                            detectar_pdf_no_concilia(facturacion)]
         if telemetria is not None and "Grupo" in telemetria.columns:
             partes += [detectar_baja_con_dispositivo(flota, telemetria),

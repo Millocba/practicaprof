@@ -17,6 +17,7 @@ from sklearn.metrics import average_precision_score
 from deteccion.evaluacion import evaluar_binario
 from deteccion.reglas import (
     cargas_por_dia,
+    detectar_doble_cobro,
     detectar_duplicados,
     distancia_a_zona_habitual,
     distancia_al_recorrido_gps,
@@ -68,7 +69,9 @@ def construir_variables(flota, consumo, estaciones=None, telemetria_diaria=None,
     las variables de contexto; las de estaciones y GPS, si se pasan esas fuentes.
     """
     capacidad = consumo["vehiculo_id"].map(flota.set_index("Matricula")["CapacidadTanque"])
-    duplicados = detectar_duplicados(consumo)["id_registro"]
+    # Un doble cobro no es una carga más del vehículo: no cuenta en el odómetro ni en las cargas del día
+    duplicados = pd.concat([detectar_duplicados(consumo)["id_registro"], detectar_doble_cobro(consumo)["id_registro"]],
+                           ignore_index=True)
     # Las cargas de otra red del registro interno cierran los tramos de odómetro y rendimiento
     fuera = cargas_fuera_del_reporte(solicitudes) if "FechaEstado" in flota.columns else None
     seq = secuencia_odometro(consumo, excluir_ids=duplicados, fuera=fuera).set_index("id")

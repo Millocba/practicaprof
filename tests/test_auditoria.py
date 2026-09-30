@@ -52,7 +52,8 @@ def con_forma_real(s):
         "IDENTIFICACION TARJETA": consumo["dominio"].where(~personal, documento(consumo["conductor"])),
         "ODOMETRO": consumo["odometro"], "REMITO": consumo["id"], "PRODUCTO": consumo["producto"],
         "LITROS UNIDADES": consumo["litros"], "PRECIO PVP ESTABLECIMIENTO": consumo["precio_unitario"],
-        "IMP TOT PVP ESTABLECIMIENTO": consumo["importe_total"]})
+        "IMP TOT PVP ESTABLECIMIENTO": consumo["importe_total"],
+        "ORIGEN DE TRANSACCION": consumo["origen_transaccion"]})
     interno = pd.DataFrame({
         "Id": registro["id"], "Fecha": registro["fecha"], "Hora": registro["hora"], "Matricula": registro["vehiculo_id"],
         "Dominio": registro["dominio"], "OdometroRegistrado": registro["odometro"],
@@ -137,6 +138,8 @@ def test_el_adaptador_traduce_y_vincula(sintetico):
     assert set(diagnostico["fuentes_encontradas"]) >= {"padron", "consumo", "registro", "facturas", "dispositivos"}
     assert diagnostico["consumo"]["fechas_legibles_pct"] == 100.0
     assert diagnostico["consumo"]["con_vehiculo_del_padron_pct"] > 95
+    assert diagnostico["consumo"]["contingencias_pct"] > 0
+    assert set(datos["consumo"]["origen_transaccion"]) == {"POSNET", "CONTINGENCIA"}
     assert diagnostico["registro"]["estaciones_de_otra_red_pct"] > 3
     assert len(datos["consumo"]) == len(sintetico["consumo"])
     assert leer_fecha(datos["solicitudes"]["fecha"]).notna().all()
@@ -144,7 +147,7 @@ def test_el_adaptador_traduce_y_vincula(sintetico):
 
 
 def test_la_auditoria_corre_las_hipotesis_con_datos(resultado):
-    assert {"H1", "H8", "H9", "H11", "H12"} <= set(resultado["hipotesis"])
+    assert {"H1", "H8", "H9", "H11", "H12", "H13"} <= set(resultado["hipotesis"])
     odometro = resultado["diagnostico"]["odometro"]
     assert odometro["sin_avance_con_excepcion"] not in (0, "1–19")      # el historial cubre las repetidas
     assert not {"H6", "H7", "H10"} & set(resultado["hipotesis"])   # faltan las fuentes que necesitan

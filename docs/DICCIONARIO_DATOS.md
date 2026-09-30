@@ -255,6 +255,7 @@ Cada vehículo se simula día por día desde un perfil propio que no forma parte
 | consumo | `precio_unitario` | Precio base del producto con un aumento del 2% mensual |
 | consumo | `litros` / `odometro` | Resultan de la simulación: el odómetro avanza según los km recorridos y los litros reponen lo consumido |
 | consumo | `hora` / `tipo_identificacion` / `contrato` (nuevas) | Hora de la carga; PATENTE o DNI (tarjeta personal, sin dominio); contrato de la tarjeta |
+| consumo | `origen_transaccion` (nueva) | `POSNET` (medio de pago electrónico habitual) o `CONTINGENCIA` (carga registrada por una vía alternativa); ~1,2% de contingencias, como en la fuente (ver *Origen de la transacción*) |
 | telemetria | `Odometro` | km acumulados del vehículo al final del período |
 | telemetria | `Grupo` (nueva) | Grupo de la dependencia del móvil, o `BAJA / REEMPLAZOS` si el dispositivo está en depósito |
 | solicitudes | todas | Registro interno: pedido, rendición con ticket, anulaciones y estaciones de otra red (ver *Registro interno*) |
@@ -317,6 +318,7 @@ Cargas que una regla ingenua marcaría como anomalía pero no lo son. No están 
 | `DOMINIO_CON_FORMATO` | 0,5% de las cargas | El dominio llega en minúsculas, con espacios o guiones, o con un espacio al final (`za123bc`, `ZA 123 BC`, `ZA-123-BC`); normalizado es el del vehículo |
 | `TRANSFERENCIA_DE_SALDO` | ~25 contratos-mes (`tabla` = contrato_mes) | El contrato recibió saldo porque la proyección del mes no alcanzaba |
 | `ODOMETRO_EXCEPTUADO` | ~100 cargas de 6 vehículos | La carga repite la lectura del odómetro con una excepción vigente ese día |
+| `CONTINGENCIA` | ~1,1% de las cargas | La carga se registró por contingencia y no se duplicó; en el 30% hay otra carga del vehículo a menos de 12 horas, pero con otros litros |
 
 La columna `tabla` indica a qué tabla pertenece `id_registro`: `consumo`, `facturacion` o `facturacion_detalle`.
 
@@ -343,6 +345,7 @@ Incluye las del escenario didáctico, con otra forma de inyección, y cinco tipo
 | `CARGA_CON_CUPO_AGOTADO` | H10 | 1 contrato-mes (`tabla` = contrato_mes, id `CTO-N|AAAA-MM`) | Nadie revisa el saldo de un contrato ajustado: sus transferencias del mes llegan de 1 a 3 días después de que se agota, y esos días se carga igual |
 | `TRANSFERENCIA_SIN_NECESIDAD` | H10 | 2 contratos-mes | Transferencia a principio de mes a un contrato con holgura, que la proyección no justificaba |
 | `ODOMETRO_SIN_AVANCE` | H12 | 3 vehículos, de 3 a 6 cargas cada uno | La lectura se repite sin excepción vigente ese día; en uno de ellos, porque la excepción venció y la lectura se siguió repitiendo |
+| `DOBLE_COBRO` | H13 | 8 cargas | La misma carga aparece por las dos vías: una segunda transacción de `CONTINGENCIA` unos minutos después de una carga por `POSNET`, con hasta 1,5% de diferencia de litros y la misma lectura de odómetro |
 
 ### Registro interno (escenario realista)
 
@@ -360,6 +363,15 @@ En el escenario realista `solicitudes.csv` es el registro interno, como en la fu
 | `TARJETA_PERSONAL` | legítimo | ~1,2% de las cargas | Tarjeta personal: el reporte trae la persona (`tipo_identificacion` DNI) y el dominio vacío |
 | `ESTACION_AJENA` | legítimo | ~7% de los pedidos (`tabla` = solicitudes) | Carga en otra red: está en el registro y no en el reporte |
 | `REGISTRO_REHECHO` | legítimo | ~27 pedidos (`tabla` = solicitudes) | El pedido se anuló y se volvió a hacer antes de cargar |
+
+### Origen de la transacción (escenario realista)
+
+El reporte del proveedor indica el origen de cada transacción (`origen_transaccion`): el medio de pago electrónico habitual (`POSNET`) o una contingencia, la carga registrada por una vía alternativa cuando el habitual no funciona. En la fuente, el 1,2% es de contingencia. Casi todas son legítimas (caso `CONTINGENCIA`); la anomalía `DOBLE_COBRO` (H13) es la misma carga cobrada por las dos vías: la copia es una transacción de contingencia con la misma hora aproximada (hasta 45 minutos después) y los mismos litros (hasta 1,5% de diferencia), y solo ella se etiqueta. Cuántas contingencias son un doble cobro no se conoce: es un supuesto del diseño (8 por cada 200 vehículos, una de cada diez contingencias).
+
+- **Registro interno:** la copia no tiene pedido propio, porque la carga fue una sola.
+- **Facturación:** la copia se factura como cualquier carga, con su línea. H9 no la ve como `LINEA_DUPLICADA`, que es una carga facturada dos veces: acá son dos transacciones distintas, cada una con su línea.
+- **Otras reglas:** un doble cobro no es una carga más del vehículo, así que las reglas de odómetro, de cargas del día y del cruce con el registro no lo cuentan (como los duplicados de nuestro registro).
+- **Generador:** usa un generador aleatorio propio, por lo que no altera el resto del escenario; el escenario didáctico no trae la columna.
 
 ### Excepciones de odómetro (escenario realista)
 
