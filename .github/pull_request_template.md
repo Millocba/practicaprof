@@ -2,6 +2,8 @@
 
 <!-- Explicar qué resuelve y qué queda fuera. -->
 
+Closes #
+
 ## Cambios
 
 <!-- Enumerar cambios relevantes y decisiones tomadas. -->
@@ -18,6 +20,8 @@
 - [ ] No contiene secretos, bases, dumps, backups o logs con filas.
 
 ## Persistencia
+
+<!-- Marcar una sola de las dos primeras opciones. -->
 
 - [ ] No modifica persistencia.
 - [ ] Modifica persistencia y documenta entorno, tablas, migración, impacto y recuperación.
