@@ -11,6 +11,7 @@ sys.path.insert(0, str(APP_DIR / "utils"))
 sys.path.insert(0, str(APP_DIR.parent))
 
 from ayudas import seccion  # noqa: E402
+from explicaciones import explicar  # noqa: E402
 from data_loader import (  # noqa: E402
     NOMBRES_ESCENARIO,
     asegurar_datos_maestro,
@@ -31,6 +32,7 @@ seccion(
           "es medir si eso era cierto. Un F1 alto en un escenario donde las reglas se "
           "escribieron contra el mismo generador no dice nada sobre cómo se comportarían con "
           "datos reales.")
+explicar("deteccion")
 st.markdown(
     "Las reglas analizan solo las entidades generadas; después sus alertas se comparan "
     "con el **ground truth** (las anomalías que inyectó el generador)."

@@ -10,6 +10,7 @@ sys.path.insert(0, str(APP_DIR / "utils"))
 sys.path.insert(0, str(APP_DIR.parent))
 
 from ayudas import seccion  # noqa: E402
+from explicaciones import explicar  # noqa: E402
 from data_loader import (  # noqa: E402
     asegurar_datos_maestro,
     load_dataset_deteccion,
@@ -49,6 +50,7 @@ def pagina_didactica():
               "es habitual y marca lo que se aparta. Sirve para responder una pregunta concreta: "
               "¿alcanza con un método que no conoce el problema, o hace falta escribir las "
               "reglas?")
+    explicar("modelo")
     st.markdown(
         "Modelo **no supervisado**: aprende qué es habitual sin ver ninguna etiqueta y marca "
         "las transacciones que se apartan. Se compara con la línea base de reglas sobre las "
@@ -156,6 +158,7 @@ def pagina_realista():
               "suspiciosas**. Esta página compara cinco maneras de ordenar esa cola y muestra, "
               "para la mejor, el trabajo concreto que quedaría pendiente con el motivo de cada "
               "caso.")
+    explicar("modelo")
     st.markdown(
         "Un equipo de auditoría no revisa cientos de alertas: revisa las **N cargas más sospechosas**. "
         "Esta página compara cinco maneras de ordenar esa revisión y muestra, para la mejor, la cola "

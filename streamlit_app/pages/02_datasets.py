@@ -9,6 +9,7 @@ utils_path = Path(__file__).parent.parent / "utils"
 sys.path.insert(0, str(utils_path))
 
 from ayudas import seccion
+from explicaciones import explicar  # noqa: E402
 from data_loader import (
     selector_escenario,
     load_diccionario,
@@ -33,6 +34,7 @@ seccion(
     ayuda="La herramienta para mirar los datos crudos antes de analizarlos. Sirve para verificar "
           "a mano un caso concreto que una regla marcó, o para explorar una tabla sin idea previa "
           "de qué tiene. No calcula métricas de detección: eso está en las páginas de análisis.")
+explicar("datasets")
 st.markdown("Visualiza, filtra y analiza todos los datasets del proyecto")
 
 escenario = selector_escenario()
