@@ -192,12 +192,14 @@ def test_la_causa_va_en_el_detalle_y_la_alerta_se_mantiene():
     assert con_causa["detalle"].iloc[1] == "sin pedido"
 
 
-def test_a_igual_puntaje_va_primero_lo_que_no_tiene_explicacion():
+def test_lo_explicado_va_al_final_de_la_cola_cualquiera_sea_su_puntaje():
+    """Decisión del dueño (PR #31): una carga con causa probable de error de carga se cita después
+    de todo lo que no tiene explicación, aunque su puntaje sea más alto."""
     from deteccion.priorizacion import _orden
 
     puntaje = pd.Series([1.0, 1.0, 0.5], index=["A", "B", "C"])
     assert list(_orden(puntaje)) == ["A", "B", "C"]
-    assert list(_orden(puntaje, explicadas={"A"})) == ["B", "A", "C"]
+    assert list(_orden(puntaje, explicadas={"A"})) == ["B", "C", "A"]
 
 
 def test_la_curva_de_esfuerzo_usa_el_mismo_desempate_que_la_cola():

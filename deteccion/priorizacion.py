@@ -113,16 +113,18 @@ def puntuar(dataset, modelo_supervisado, seed=42):
 def _orden(puntaje, explicadas=()):
     """Índice ordenado de mayor a menor puntaje; los empates se resuelven por id.
 
-    Con `explicadas`, a igual puntaje van después las cargas cuyas alertas tienen una causa probable
-    de error de carga (#24): primero se revisa lo que no tiene explicación. La cola, la curva de
-    esfuerzo, el recall por tipo y los vehículos prioritarios usan el mismo orden
-    (`cargas_explicadas(alertas)`), para que midan lo mismo que ve quien revisa.
+    Con `explicadas`, las cargas cuyas alertas tienen una causa probable de error de carga (#24) van
+    al final, cualquiera sea su puntaje: se siguen citando, pero primero se revisa lo que no tiene
+    explicación. Así lo decidió el dueño del código; solo desempatar no alcanzaba con los puntajes
+    continuos (combinado, modelo), que casi nunca empatan. La cola, la curva de esfuerzo, el recall
+    por tipo y los vehículos prioritarios usan el mismo orden (`cargas_explicadas(alertas)`), para
+    que midan lo mismo que ve quien revisa.
     """
-    orden = puntaje.sort_index().sort_values(ascending=False, kind="mergesort")
+    orden = puntaje.sort_index().sort_values(ascending=False, kind="mergesort").index
     if len(explicadas):
-        clave = pd.DataFrame({"puntaje": -orden, "explicada": orden.index.isin(list(explicadas))}, index=orden.index)
-        orden = orden.loc[clave.sort_values(["puntaje", "explicada"], kind="mergesort").index]
-    return orden.index
+        explicada = orden.isin(list(explicadas))
+        orden = orden[~explicada].append(orden[explicada])
+    return orden
 
 
 def cargas_explicadas(alertas):

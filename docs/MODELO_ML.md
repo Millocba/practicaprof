@@ -20,18 +20,18 @@ Cada carga de la cola viene con sus **motivos** ("cargó 140% de lo autorizado",
 
 ## Resultados
 
-Escenario realista, semilla 42: 7.086 cargas, 108 anomalías de comportamiento.
+Escenario realista, semilla 42: 7.094 cargas, 108 anomalías de comportamiento.
 
 | Método | Revisando 50: encontradas | Precisión | Casos legítimos revisados | Revisando 100: encontradas |
 |---|---|---|---|---|
-| Reglas ingenuas | 11 (10%) | 22% | 30 | 26 (24%) |
-| Isolation Forest | 5 (5%) | 10% | 17 | 15 (14%) |
+| Reglas ingenuas | 11 (10%) | 22% | 31 | 26 (24%) |
+| Isolation Forest | 8 (7%) | 16% | 19 | 17 (16%) |
 | Reglas con contexto | 39 (36%) | 78% | 1 | 83 (77%) |
-| Modelo supervisado | 49 (45%) | 98% | 0 | 85 (79%) |
-| **Combinado** | **50 (46%)** | **100%** | **0** | **89 (82%)** |
+| Modelo supervisado | 48 (44%) | 96% | 0 | 85 (79%) |
+| **Combinado** | **48 (44%)** | **96%** | **0** | **89 (82%)** |
 
 - El **Isolation Forest** rinde peor que las reglas ingenuas: las anomalías del escenario realista son sutiles, y los casos legítimos que se les parecen (tanques auxiliares, viajes largos) también son raros. Ser raro no alcanza para ser sospechoso.
-- El **combinado** acierta todo lo que revisa en las primeras 50 y, revisando 100, encuentra 89 contra 83 de las reglas con contexto: las reglas aportan lo que sabemos explicar y el modelo, el orden.
+- El **combinado** acierta 48 de las primeras 50 y, revisando 100, encuentra 89 contra 83 de las reglas con contexto: las reglas aportan lo que sabemos explicar y el modelo, el orden.
 
 ## Por qué estos modelos
 
@@ -54,15 +54,15 @@ Variables que más pesan en el modelo supervisado:
 | Variable | Importancia |
 |---|---|
 | Rendimiento km/L frente al habitual del vehículo | 23% |
-| Cambio de odómetro desde la carga anterior | 18% |
-| Tanques cargados en el día | 11% |
+| Cambio de odómetro desde la carga anterior | 19% |
 | Litros cargados / litros autorizados | 11% |
+| Tanques cargados en el día | 11% |
 
 Tienen sentido para un auditor, y eso permite confiar en el orden que propone.
 
 ## Cómo se entrena
 
-- **Datos de entrenamiento:** tres datasets realistas generados con **otras semillas** (1001, 1002 y 1003), como si fueran auditorías anteriores ya resueltas. Son 21.005 cargas, 317 anómalas.
+- **Datos de entrenamiento:** tres datasets realistas generados con **otras semillas** (1001, 1002 y 1003), como si fueran auditorías anteriores ya resueltas. Son 21.029 cargas, 317 anómalas.
 - **Variables:** 15 por carga, calculadas de las tablas y nunca de la verdad de referencia:
   - litros frente al tanque y a lo habitual del vehículo;
   - km y retrocesos del odómetro;
@@ -102,5 +102,5 @@ Antes de la etapa 1, la **auditoría agregada** corre las reglas y los modelos s
 ## Limitaciones
 
 - El modelo aprende las anomalías tal como las inyecta el generador. Con datos reales los patrones serán otros: estos resultados son un **techo de referencia**, no una promesa de desempeño.
-- Frente a las reglas con contexto la mejora es chica (50 contra 39 revisando 50; 89 contra 83 revisando 100). Su valor está en ordenar dentro de lo marcado y en rescatar casos que las reglas no ven.
+- Frente a las reglas con contexto la mejora es chica (48 contra 39 revisando 50; 89 contra 83 revisando 100). Su valor está en ordenar dentro de lo marcado y en rescatar casos que las reglas no ven.
 - Hay pocas anomalías para aprender: unas 110 por dataset. Con datos reales, la etapa 2 depende de cuántas revisiones se registren.
