@@ -164,16 +164,17 @@ def dias_de_prueba(*relativos, litros=40.0, capacidad=50.0, ids=None, con_tipo=T
     return dias
 
 
-@pytest.mark.parametrize("relativo,marca", [
-    (0.50, False),   # rinde normal
-    (0.30, False),   # borde exacto del umbral: no se marca
-    (0.2999, True),
-    (0.10, True),
+@pytest.mark.parametrize("desvio,marca", [
+    (0.20, False),   # rinde normal
+    (0.00, False),   # borde exacto del umbral: no se marca
+    (-0.0001, True), # apenas por debajo: se marca
+    (-0.20, True),
 ])
-def test_umbral_de_rendimiento_marca_por_debajo_de_la_fraccion(relativo, marca):
-    """El umbral es 0,3 de lo habitual del vehículo; en el borde exacto no marca."""
-    from deteccion.reglas import detectar_rendimiento_bajo
+def test_umbral_de_rendimiento_marca_por_debajo_de_la_fraccion(desvio, marca):
+    """En el umbral exacto no se marca y apenas por debajo sí; el borde es del criterio ">="."""
+    from deteccion.reglas import RENDIMIENTO_MINIMO, detectar_rendimiento_bajo
 
+    relativo = RENDIMIENTO_MINIMO + desvio
     alertas = detectar_rendimiento_bajo(dias_de_prueba(relativo), "odometro")
     assert list(alertas["id_registro"]) == (["C0"] if marca else [])
 
