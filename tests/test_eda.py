@@ -5,6 +5,7 @@ from streamlit_app.utils.eda import (
     comparacion_auditoria,
     preparar_cargas,
     resumen_calidad,
+    resumen_cargas,
     resumen_cruces,
     resumen_flota,
     resumen_temporal,
@@ -39,6 +40,9 @@ def test_flota_y_cargas_producen_resumenes_reproducibles():
     cargas = preparar_cargas(consumo, flota)
     assert cargas.loc[cargas["id"] == "C2", "km"].iloc[0] == 200
     assert cargas["proporcion_tanque"].round(2).tolist() == [.4, .5, .5]
+    resumen = resumen_cargas(cargas)
+    assert resumen["por_tipo"]["cargas"].sum() == 3
+    assert {"TipoVehiculo", "proporcion_tanque", "km"} <= set(resumen["distribuciones"])
     assert resumen_temporal(cargas)["mes"]["cargas"].sum() == 3
 
 
@@ -51,6 +55,19 @@ def test_calidad_mide_la_mejora_de_h1_sin_usar_etiquetas():
     assert not calidad["columnas"].empty
 
 
+def test_calidad_clasifica_patente_de_moto_por_su_vinculo():
+    flota = pd.DataFrame({"Dominio": ["A999AAA", "AA123BB"]})
+    consumo = pd.DataFrame({
+        "id": ["C1", "C2", "C3"], "dominio": ["A999AAA", "aa-123-bb", "NOEXISTE"],
+        "tipo_identificacion": ["PATENTE"] * 3,
+    })
+    formatos = resumen_calidad({"consumo": consumo}, flota, consumo)["formatos_dominio"]
+    conteos = formatos.set_index("formato")["cantidad"]
+    assert conteos["Coincide exactamente"] == 1
+    assert conteos["Coincide solo normalizado"] == 1
+    assert conteos["Sin vínculo con la flota"] == 1
+
+
 def test_cruces_describen_cobertura_sin_emitir_veredicto():
     flota, consumo, _ = tablas_minimas()
     solicitudes = pd.DataFrame({
@@ -61,9 +78,12 @@ def test_cruces_describen_cobertura_sin_emitir_veredicto():
         "rendido": ["SI"] * 3, "anulado": ["NO"] * 3, "estacion_servicio": ["RED"] * 3,
         "odometro": [1000.0, 1200.0, 3000.0],
     })
+    gps = pd.DataFrame({"Placa": ["AA123BB", "AA123BB"],
+                        "fecha": ["2026-01-01", "2026-01-03"]})
     detalle = pd.DataFrame({"referencia_consumo": ["C1", "C3"]})
-    cruces = resumen_cruces(consumo, flota, solicitudes, None, detalle)
-    assert set(cruces["tramo"]) == {"Pedido → carga", "Carga → línea facturada"}
+    cruces = resumen_cruces(consumo, flota, solicitudes, gps, detalle)
+    assert set(cruces["tramo"]) == {"Pedido → carga", "Carga → GPS diario", "Carga → línea facturada"}
+    assert cruces.loc[cruces["tramo"] == "Carga → GPS diario", "cubiertas"].iloc[0] == 2
     assert cruces.loc[cruces["tramo"] == "Carga → línea facturada", "cubiertas"].iloc[0] == 2
 
 
@@ -72,6 +92,7 @@ def test_comparacion_usa_solo_percentiles_aprobados():
         "real": {"p05": 1, "p50": 2, "p95": 3},
         "sintetico": {"p05": 1.5, "p50": 2, "p95": 4},
     }}}}
-    tabla = comparacion_auditoria(auditoria)
+    tabla = comparacion_auditoria(auditoria, pd.DataFrame({"km": [1.5, 2.0, 4.0]}))
     assert tabla["percentil"].tolist() == ["p05", "p50", "p95"]
     assert "min" not in set(tabla["percentil"])
+    assert tabla.loc[tabla["percentil"] == "p50", "sintetico"].iloc[0] == 2

@@ -105,7 +105,6 @@ with tab_datos:
 
     if df.empty:
         st.warning(f"❌ El dataset '{selected_dataset}' está vacío")
-        st.stop()
 
     # Metrics
     seccion(
@@ -307,18 +306,7 @@ with tab_datos:
 
 
 with tab_eda:
-    fuentes_eda = {
-        etiqueta: df for etiqueta, df in datasets.items()
-        if etiqueta not in {GROUND_TRUTH, LEGITIMOS}
-    }
     mostrar_eda(
         escenario=escenario,
-        flota=load_flota(escenario),
-        telemetria=load_telemetria(escenario),
-        consumo=load_consumo_maestro(escenario),
-        solicitudes=load_solicitudes(escenario),
-        gps_diario=load_telemetria_diaria(escenario) if escenario == "realista" else pd.DataFrame(),
-        detalle=load_facturacion_detalle(escenario) if escenario == "realista" else pd.DataFrame(),
-        fuentes=fuentes_eda,
         base_dir=Path(__file__).parent.parent.parent,
     )

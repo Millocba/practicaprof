@@ -16,9 +16,12 @@ from deteccion.reglas import (
     cargas_fuera_del_reporte,
     cargas_por_dia,
     cruzar_registro,
+    detectar_doble_cobro,
+    detectar_dominio_invalido,
+    detectar_duplicados,
     normalizar_dominio,
-    secuencia_odometro,
 )
+from deteccion.modelo import construir_variables
 
 
 def _conteo(df: pd.DataFrame, columna: str, etiqueta: str) -> pd.DataFrame:
@@ -76,21 +79,29 @@ def preparar_cargas(
     else:
         datos["hora_del_dia"] = np.nan
 
-    fuera = cargas_fuera_del_reporte(solicitudes) if solicitudes is not None else None
-    if {"id", "vehiculo_id", "odometro", "fecha"} <= set(consumo):
-        secuencia = secuencia_odometro(consumo, fuera=fuera)
-        datos = datos.merge(secuencia[["id", "km"]].drop_duplicates("id"), on="id", how="left")
-        datos["rendimiento_km_l"] = datos["km"].where(datos["km"] >= 0) / datos["litros"]
+    if {"id", "vehiculo_id", "odometro", "fecha", "litros"} <= set(consumo) and "Matricula" in flota:
+        variables = construir_variables(
+            flota, consumo, telemetria_diaria=gps_diario, solicitudes=solicitudes,
+        ).reset_index()
+        disponibles = [c for c in ["id", "km", "rendimiento_relativo", "cargas_en_el_dia"] if c in variables]
+        datos = datos.merge(variables[disponibles], on="id", how="left")
+
+        fuera = cargas_fuera_del_reporte(solicitudes) if solicitudes is not None else None
+        excluir = pd.concat(
+            [detectar_duplicados(consumo)["id_registro"], detectar_doble_cobro(consumo)["id_registro"]],
+            ignore_index=True,
+        )
+        diario = cargas_por_dia(
+            consumo, flota, excluir_ids=excluir, gps_diario=gps_diario, fuera=fuera,
+        )
+        diario["rendimiento_km_l"] = diario["rendimiento_gps"].fillna(diario["rendimiento_odometro"])
+        por_id = (diario.explode("ids")[["ids", "rendimiento_km_l"]]
+                  .rename(columns={"ids": "id"}).drop_duplicates("id"))
+        datos = datos.merge(por_id, on="id", how="left")
     else:
         datos["km"] = np.nan
+        datos["rendimiento_relativo"] = np.nan
         datos["rendimiento_km_l"] = np.nan
-
-    # Reutiliza el resumen diario del motor de reglas; se conserva aparte del km/L por carga.
-    if {"id", "vehiculo_id", "odometro", "fecha", "litros"} <= set(consumo) and "Matricula" in flota:
-        diario = cargas_por_dia(consumo, flota, gps_diario=gps_diario, fuera=fuera)
-        por_id = diario.explode("ids")[["ids", "rendimiento_odometro", "rendimiento_gps"]]
-        por_id = por_id.rename(columns={"ids": "id"}).drop_duplicates("id")
-        datos = datos.merge(por_id, on="id", how="left")
     return datos
 
 
@@ -105,7 +116,10 @@ def resumen_cargas(cargas: pd.DataFrame) -> dict[str, pd.DataFrame]:
     variables = [c for c in ["proporcion_tanque", "km", "rendimiento_km_l"] if c in cargas]
     percentiles = (cargas[variables].quantile([.05, .25, .5, .75, .95]).rename_axis("percentil").reset_index()
                    if variables else pd.DataFrame())
-    return {"por_tipo": litros, "percentiles": percentiles}
+    columnas = [c for c in ["id", "TipoVehiculo", "litros", "proporcion_tanque", "km", "rendimiento_km_l"]
+                if c in cargas]
+    distribuciones = cargas[columnas].replace([np.inf, -np.inf], np.nan).copy()
+    return {"por_tipo": litros, "percentiles": percentiles, "distribuciones": distribuciones}
 
 
 def resumen_temporal(cargas: pd.DataFrame) -> dict[str, pd.DataFrame]:
@@ -143,25 +157,28 @@ def resumen_calidad(fuentes: dict[str, pd.DataFrame], flota: pd.DataFrame, consu
     vinculacion = pd.DataFrame(columns=["criterio", "vinculadas", "total", "porcentaje"])
     formatos = pd.DataFrame(columns=["formato", "cantidad", "porcentaje"])
     if not consumo.empty and "dominio" in consumo and "Dominio" in flota:
-        personales = consumo.get("tipo_identificacion", pd.Series("PATENTE", index=consumo.index)).eq("DNI")
-        evaluar = consumo.loc[~personales, "dominio"]
+        total = len(consumo)
+        invalidos_raw = detectar_dominio_invalido(consumo, flota)
+        invalidos_norm = detectar_dominio_invalido(consumo, flota, normalizado=True)
+        vinculadas_raw = total - len(invalidos_raw)
+        vinculadas_norm = total - len(invalidos_norm)
+        vinculacion = pd.DataFrame([
+            {"criterio": "Formato original", "vinculadas": vinculadas_raw, "total": total,
+             "porcentaje": round(100 * vinculadas_raw / total, 1) if total else np.nan},
+            {"criterio": "Dominio normalizado (H1)", "vinculadas": vinculadas_norm, "total": total,
+             "porcentaje": round(100 * vinculadas_norm / total, 1) if total else np.nan},
+        ])
         flota_raw = set(flota["Dominio"].dropna().astype(str))
         flota_norm = set(normalizar_dominio(flota["Dominio"]).dropna())
-        raw = evaluar.astype(str).isin(flota_raw)
-        norm = normalizar_dominio(evaluar).isin(flota_norm)
-        vinculacion = pd.DataFrame([
-            {"criterio": "Formato original", "vinculadas": int(raw.sum()), "total": len(evaluar),
-             "porcentaje": round(100 * raw.mean(), 1) if len(evaluar) else np.nan},
-            {"criterio": "Dominio normalizado (H1)", "vinculadas": int(norm.sum()), "total": len(evaluar),
-             "porcentaje": round(100 * norm.mean(), 1) if len(evaluar) else np.nan},
-        ])
-        texto = evaluar.fillna("").astype(str)
-        clase = np.select([
-            texto.str.fullmatch(r"[A-Z]{3}\d{3}"), texto.str.fullmatch(r"[A-Z]{2}\d{3}[A-Z]{2}"),
-            texto.str.fullmatch(r"[A-Za-z0-9 ._-]+")],
-            ["Patente antigua", "Patente Mercosur", "Variante normalizable"], default="Otro/inválido")
+        exacta = consumo["dominio"].astype("string").isin(flota_raw)
+        normalizada = normalizar_dominio(consumo["dominio"]).isin(flota_norm)
+        clase = np.select(
+            [exacta, ~exacta & normalizada],
+            ["Coincide exactamente", "Coincide solo normalizado"],
+            default="Sin vínculo con la flota",
+        )
         formatos = pd.Series(clase).value_counts().rename_axis("formato").reset_index(name="cantidad")
-        formatos["porcentaje"] = (100 * formatos["cantidad"] / len(evaluar)).round(1)
+        formatos["porcentaje"] = (100 * formatos["cantidad"] / total).round(1)
     return {"columnas": calidad, "vinculacion": vinculacion, "formatos_dominio": formatos}
 
 
@@ -195,18 +212,29 @@ def resumen_cruces(
     return pd.DataFrame(filas, columns=["tramo", "cubiertas", "total", "cobertura_pct"])
 
 
-def comparacion_auditoria(auditoria: dict | str | Path) -> pd.DataFrame:
-    """Convierte los percentiles aprobados de real vs. sintético a formato largo."""
+def comparacion_auditoria(
+    auditoria: dict | str | Path,
+    variables_sinteticas: pd.DataFrame,
+    variables_elegidas: list[str] | None = None,
+) -> pd.DataFrame:
+    """Compara agregados reales aprobados con percentiles del escenario actual."""
     if isinstance(auditoria, (str, Path)):
         with open(auditoria, encoding="utf-8") as archivo:
             auditoria = json.load(archivo)
     variables = auditoria.get("modelos", {}).get("variables", {})
+    elegidas = variables_elegidas or list(variables)
     filas = []
-    for variable, valores in variables.items():
-        for percentil in ["p05", "p50", "p95"]:
+    cuantiles = {"p05": .05, "p50": .5, "p95": .95}
+    for variable in elegidas:
+        valores = variables.get(variable, {})
+        if variable not in variables_sinteticas:
+            continue
+        sintetica = pd.to_numeric(variables_sinteticas[variable], errors="coerce").dropna()
+        for percentil, q in cuantiles.items():
             real = valores.get("real", {}).get(percentil)
-            sintetico = valores.get("sintetico", {}).get(percentil)
+            sintetico = sintetica.quantile(q) if not sintetica.empty else None
             if real is not None and sintetico is not None:
                 filas.append({"variable": variable, "percentil": percentil, "real": real,
-                              "sintetico": sintetico, "diferencia": sintetico - real})
+                              "sintetico": round(float(sintetico), 3),
+                              "diferencia": round(float(sintetico - real), 3)})
     return pd.DataFrame(filas)
