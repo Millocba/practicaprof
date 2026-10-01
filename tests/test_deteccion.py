@@ -8,7 +8,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from deteccion.evaluacion import evaluar_binario, evaluar_por_regla, evaluar_por_tipo
-from deteccion.reglas import ejecutar_reglas, secuencia_odometro
+from deteccion.reglas import (
+    cargas_por_dia, detectar_carga_vehiculo_inactivo, detectar_rendimiento_bajo, ejecutar_reglas,
+    secuencia_odometro,
+)
 from generator_pipeline_maestro import GeneradorMaestro
 
 
@@ -141,15 +144,23 @@ def test_odometro_sin_avance_solo_alerta_sin_excepcion_ese_dia():
 
 # --- H5: umbral de rendimiento y descarte de lo que ya explican otras reglas -------
 
-def dias_de_prueba(*relativos, litros=40.0, capacidad=50.0, ids=None):
-    """Arma el resumen por día que consume `detectar_rendimiento_bajo`, sin pasar por el generador."""
+def dias_de_prueba(*relativos, litros=40.0, capacidad=50.0, ids=None, con_tipo=True):
+    """Arma el resumen por día que consumen las reglas de H5, sin pasar por el generador."""
+    n = len(relativos)
     dias = pd.DataFrame({
-        "litros": [litros] * len(relativos),
-        "capacidad": [capacidad] * len(relativos),
+        "litros": [litros] * n,
+        "capacidad": [capacidad] * n,
         "rendimiento_odometro_relativo": list(relativos),
-        "rendimiento_gps_relativo": [float("nan")] * len(relativos),
-        "ids": ids or [[f"C{i}"] for i in range(len(relativos))],
+        "rendimiento_gps_relativo": [float("nan")] * n,
+        "ids": ids or [[f"C{i}"] for i in range(n)],
     })
+    if con_tipo:
+        dias["tipo_vehiculo"] = ["SEDAN"] * n
+        # con esta referencia, la mediana del tipo queda en 1 y el relativo es el mismo
+        dias["rendimiento_odometro_tipo"] = list(relativos)
+        dias["rendimiento_gps_tipo"] = [float("nan")] * n
+        dias["km_odometro"] = [100.0] * n
+        dias["km_gps"] = [float("nan")] * n
     return dias
 
 
@@ -167,8 +178,21 @@ def test_umbral_de_rendimiento_marca_por_debajo_de_la_fraccion(relativo, marca):
     assert list(alertas["id_registro"]) == (["C0"] if marca else [])
 
 
-def test_el_minimo_de_litros_sigue_dejando_marcar_la_carga_chica():
-    """Con menos del 30% del tanque la carga no se evalúa; el resto de las del día sí."""
+@pytest.mark.parametrize("litros,marca", [
+    (15.0, True),    # exactamente el 30% del tanque: se evalúa, el criterio es ">="
+    (14.99, False),
+])
+def test_el_minimo_de_litros_incluye_el_borde_exacto(litros, marca):
+    """Con el 30% del tanque justo la carga se evalúa; con menos, no."""
+    from deteccion.reglas import detectar_rendimiento_bajo
+
+    dias = dias_de_prueba(0.1, ids=[["C1"]], litros=litros, capacidad=50.0)
+    alertas = detectar_rendimiento_bajo(dias, "odometro")
+    assert list(alertas["id_registro"]) == (["C1"] if marca else [])
+
+
+def test_un_dia_por_debajo_del_minimo_de_litros_no_se_evalua():
+    """Un día con 10 L de un tanque de 50 no se evalúa, aunque el rendimiento sea bajo."""
     from deteccion.reglas import detectar_rendimiento_bajo
 
     dias = dias_de_prueba(0.1, 0.1, ids=[["C1"], ["C2"]], litros=10.0, capacidad=50.0)
@@ -186,7 +210,7 @@ def test_el_parametro_minimo_permite_medir_la_curva_de_umbrales():
 
 
 def test_h5_no_repite_lo_que_ya_explica_otra_regla():
-    """Una carga ya marcada por H2, H4, H6 o H9 saca el día de H5: su bajo rendimiento es consecuencia."""
+    """Una carga ya marcada por H3b, H4, H6 o H7 saca el día de H5: su bajo rendimiento es consecuencia."""
     from deteccion.reglas import detectar_rendimiento_bajo
 
     dias = dias_de_prueba(0.1, 0.1, ids=[["C1", "C2"], ["C3"]])
@@ -199,7 +223,7 @@ def test_h5_no_repite_lo_que_ya_explica_otra_regla():
     assert sorted(explicado["id_registro"]) == ["C3"]
 
 
-def test_el_descarte_de_explicadas_sacade_un_dia_completo():
+def test_el_descarte_de_explicadas_saca_un_dia_completo():
     """El día entero sale, aunque solo una de sus cargas esté explicada."""
     from deteccion.reglas import detectar_rendimiento_bajo
 
@@ -229,9 +253,59 @@ def test_el_gps_toma_el_odometro_cuando_no_reporto_el_intervalo_completo():
     from deteccion.reglas import detectar_rendimiento_bajo
 
     dias = dias_de_prueba(0.1, 0.1)
-    dias["rendimiento_gps_relativo"] = [0.05, float("nan")]   # solo el primer día Odds tiene GPS
+    dias["rendimiento_gps_relativo"] = [0.05, float("nan")]   # solo el primer día tiene GPS completo
     alertas = detectar_rendimiento_bajo(dias, "gps")
     assert sorted(alertas["id_registro"]) == ["C0", "C1"]
+
+
+def test_el_criterio_de_la_fuente_compara_con_el_tipo_y_descarta_tramos_largos():
+    """Nivel intermedio de H5: mediana del tipo, −30% y nada de tramos de más de 2.000 km."""
+    from deteccion.reglas import detectar_rendimiento_fuente
+
+    dias = dias_de_prueba(0.69, 0.69, ids=[["C1"], ["C2"]])
+    dias["km_odometro"] = [500.0, 2500.0]      # el segundo tramo es del largo que la fuente descarta
+    alertas = detectar_rendimiento_fuente(dias, "odometro")
+    assert list(alertas["id_registro"]) == ["C1"]
+
+    # en el borde de −30% no marca, y un tramo de exactamente 2.000 km sigue evaluándose
+    borde = dias_de_prueba(0.70, 0.6999, ids=[["C1"], ["C2"]])
+    borde["km_odometro"] = [2000.0, 2000.0]
+    assert list(detectar_rendimiento_fuente(borde, "odometro")["id_registro"]) == ["C2"]
+
+
+def test_un_dia_explicado_por_h6_no_produce_rendimiento_bajo():
+    """H6 manda sobre H5: si la carga ya se reportó como carga a vehículo inactivo, H5 no la repite."""
+    # cuatro cargas que dan un historial de 600 km por 45 L (unos 13 km/L) y después, ya dado
+    # de baja el vehículo, dos cargas de 5 km: su rendimiento relativo es minúsculo y H5 las
+    # marcaría si no las sacara H6 primero
+    fechas = ["2024-03-01", "2024-03-06", "2024-03-11", "2024-03-16", "2024-03-22", "2024-03-25"]
+    odometro = [100000, 100600, 101200, 101800, 101805, 101810]
+    consumo = pd.DataFrame({
+        "id": [f"C{i}" for i in range(1, 7)], "vehiculo_id": "V1", "fecha": fechas,
+        "hora": ["10:00:00"] * 6, "estacion": ["E1"] * 6, "conductor": ["X"] * 6,
+        "dominio": ["za001aa"] * 6, "odometro": odometro, "litros": [45.0] * 6,
+    })
+    flota = pd.DataFrame({
+        "Matricula": ["V1"], "Dominio": ["ZA001AA"], "CapacidadTanque": [50.0],
+        "TipoVehiculo": ["SEDAN"], "Estado": ["FUERA DE SERVICIO"],
+        "FechaEstado": ["2024-03-20"], "ExcepcionOdometro": ["NO"],
+        "FechaHastaExcepcionOdometro": [None],
+    })
+    dias = cargas_por_dia(consumo, flota)
+
+    # sin el descarte, H5 sí marcaría las dos cargas de cuando el vehículo ya estaba de baja
+    sin_descarte = set(detectar_rendimiento_bajo(dias, "odometro")["id_registro"])
+    inactivas = set(detectar_carga_vehiculo_inactivo(consumo, flota)["id_registro"])
+    assert inactivas == {"C5", "C6"}
+    assert inactivas <= sin_descarte
+
+    # con el descarte ya no se repiten, y H6 sigue reportándolas
+    alertas = ejecutar_reglas(flota, consumo)
+    assert set(alertas.loc[alertas["regla"] == "carga_vehiculo_inactivo", "id_registro"]) == inactivas
+    rend = set(alertas.loc[alertas["regla"].str.startswith("rendimiento_bajo_"), "id_registro"])
+    assert not (rend & inactivas)
+
+
 def _cargas_con_origen(*filas):
     """(id, vehículo, fecha, hora, litros, origen)"""
     return pd.DataFrame(filas, columns=["id", "vehiculo_id", "fecha", "hora", "litros", "origen_transaccion"])

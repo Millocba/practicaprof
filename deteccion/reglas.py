@@ -35,6 +35,8 @@ FRACCIONAMIENTO_TANQUES = 1.05  # litros del día, en tanques, a partir de los q
 HORAS_CARGAS_MULTIPLES = 6     # criterio de la fuente (H4): más de una carga del mismo vehículo en menos de 6 h
 KM_SIN_AVANCE_FUENTE = 5       # criterio de la fuente (H12): el odómetro avanza menos de 5 km
 RENDIMIENTO_MINIMO = 0.3       # km/L del día por debajo de esta fracción de lo habitual
+RENDIMIENTO_MINIMO_FUENTE = 0.7  # la fuente alerta a más de un 30% por debajo de la mediana del tipo
+KM_MAXIMOS_FUENTE = 2000       # la fuente descarta los tramos más largos: los toma por error de tipeo
 RENDIMIENTO_MINIMO_FRACCIONAMIENTO = 0.75
 LITROS_MINIMOS_RENDIMIENTO = 0.3  # fracción mínima del tanque; hoy no descarta nada (medido en las 5 semillas)
 DISTANCIA_MAXIMA_KM = 50       # distancia de la estación a la posición del vehículo
@@ -479,6 +481,14 @@ def cargas_por_dia(consumo, flota, excluir_ids=(), gps_diario=None, fuera=None):
     for columna in ["rendimiento_odometro", "rendimiento_gps"]:
         habitual = dias.groupby("vehiculo_id")[columna].transform("median")
         dias[columna + "_relativo"] = dias[columna] / habitual
+    # La referencia del criterio de la fuente es la mediana del tipo de vehículo y no la del
+    # propio: con una sola carga buena el vehículo no tiene historial, y la del tipo reparte
+    # mejor el riesgo entre vehículos que rinden distinto por naturaleza.
+    tipo = dias["vehiculo_id"].map(flota.set_index("Matricula")["TipoVehiculo"])
+    dias["tipo_vehiculo"] = tipo
+    for columna in ["rendimiento_odometro", "rendimiento_gps"]:
+        tipica = dias.groupby(tipo)[columna].transform("median")
+        dias[columna + "_tipo"] = dias[columna] / tipica
     return dias[dias["ids"].str.len() > 0].reset_index(drop=True)
 
 
@@ -551,6 +561,47 @@ def detectar_cargas_multiples(consumo, excluir_ids=()):
                     f"otra carga del mismo vehículo a menos de {HORAS_CARGAS_MULTIPLES} horas")
 
 
+def detectar_rendimiento_fuente(dias, fuente="odometro", sin_odometro=(),
+                               minimo=RENDIMIENTO_MINIMO_FUENTE, km_maximos=KM_MAXIMOS_FUENTE,
+                               explicadas=()):
+    """H5 con el criterio de la fuente: el rendimiento contra la mediana del tipo de vehículo.
+
+    Tres diferencias con `detectar_rendimiento_bajo`:
+
+    - la referencia es la mediana del **tipo de vehículo**, no la del propio;
+    - avisa por debajo de `minimo` (0,7), o sea más de un 30 % bajo la referencia;
+    - descarta los tramos de más de `km_maximos` km, porque la fuente los toma por error de tipeo.
+
+    Se queda como nivel intermedio de H5 y no se adopta como regla con contexto. Medido como
+    lo hace la fuente (excluyendo solo las cargas con excepción vigente, sin el descarte de lo
+    que ya explican otras reglas): encuentra las 45 anomalías de las 5 semillas, recall 1,00,
+    pero su F1 queda en 0,25 porque el umbral laxo marca 323 cargas de las que 278 no son ni
+    anomalías ni casos legítimos. Acerca el recall de H5 al 1,00 y aleja el F1.
+
+    `sin_odometro` recibe solo las cargas con excepción vigente, como hace la fuente: las que no
+    avanzan sin excepción las ve H12, y el criterio de la fuente no las excluye.
+    """
+    relativo = dias["rendimiento_odometro_tipo"]
+    km = dias["km_odometro"]
+    if fuente == "gps":
+        relativo = dias["rendimiento_gps_tipo"].fillna(relativo)
+        km = dias["km_gps"].fillna(km)
+    candidato = ((dias["litros"] >= LITROS_MINIMOS_RENDIMIENTO * dias["capacidad"])
+                 & (relativo < minimo)
+                 & (km <= km_maximos))
+    if explicadas:
+        ya = set(explicadas)
+        candidato &= ~dias["ids"].apply(lambda ids: bool(ya.intersection(ids)))
+    if sin_odometro:
+        sin_dato = set(sin_odometro)
+        candidato &= ~dias["ids"].apply(lambda ids: bool(sin_dato.intersection(ids)))
+    marcados = dias[candidato].assign(relativo=relativo[candidato], km_tramo=km[candidato])
+    return _explotar_dias(marcados, "RENDIMIENTO_IMPOSIBLE", "rendimiento_fuente",
+                          lambda d: "rendimiento " + d["relativo"].round(2).astype(str)
+                          + "× la mediana del tipo, tramo de "
+                          + d["km_tramo"].round(0).astype(str) + " km")
+
+
 def detectar_rendimiento_bajo(dias, fuente, sin_odometro=(), minimo=RENDIMIENTO_MINIMO, explicadas=()):
     """H5: se cargó mucho combustible para lo poco que se recorrió desde la carga anterior.
 
@@ -561,7 +612,7 @@ def detectar_rendimiento_bajo(dias, fuente, sin_odometro=(), minimo=RENDIMIENTO_
     marca. Va como parámetro para poder medir la curva de umbrales sin tocarla en el
     código que corre.
 
-    `explicadas` son las cargas que otra regla con contexto ya marcó (H2, H4, H6, H9): el
+    `explicadas` son las cargas que otra regla con contexto ya marcó (H3b, H4, H6, H7): el
     día del que salen no se vuelve a evaluar acá. Esas cargas cargan sin recorrido por su
     propio motivo, así que el bajo rendimiento es consecuencia y no el hecho, y reportarlo
     dos veces infla los falsos positivos de H5 sin encontrar ninguna anomalía nueva.
@@ -569,6 +620,11 @@ def detectar_rendimiento_bajo(dias, fuente, sin_odometro=(), minimo=RENDIMIENTO_
     El descarte es por día, no por carga, porque el rendimiento es una propiedad del día: si
     una carga del día ya está explicada, el rendimiento de ese día tampoco es un indicio
     propio. Medido sobre las 5 semillas del README, quitar el día completo no costó recall.
+
+    Ojo con la circularidad: `fraccionamiento_sin_recorrido` (H4) también se apoya en el
+    rendimiento, con su propio umbral de 0,75. Así, un día que H4 ya marcó por fraccionamiento
+    tampoco se evalúa acá, y el día que H4 descartó por tener recorrido tampoco se descarta por
+    rendimiento. Hoy no cuesta recall en las 5 semillas, pero las dos reglas leen el mismo dato.
     """
     relativo = dias["rendimiento_odometro_relativo"]
     if fuente == "gps":
@@ -1023,8 +1079,8 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
         exceptuadas = cargas_exceptuadas(consumo, flota, excepciones)
         sin_avance = detectar_sin_avance_sin_excepcion(con_repetidas, exceptuadas)
         # H5 no repite lo que ya explican otras reglas con contexto: una carga con exceso sin
-        # antecedente (H2), a un vehículo inactivo (H6), dentro de un día fraccionado (H4) o
-        # lejos del GPS (H9) carga sin recorrido por su propio motivo, y el bajo rendimiento
+        # antecedente (H3b), a un vehículo inactivo (H6), dentro de un día fraccionado (H4) o
+        # lejos del GPS (H7) carga sin recorrido por su propio motivo, y el bajo rendimiento
         # es consecuencia. Se calculan antes para poder pasarle los ids a H5.
         exceso = detectar_exceso_sin_antecedente(consumo, flota)
         inactivo = detectar_carga_vehiculo_inactivo(consumo, flota)
@@ -1042,6 +1098,7 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
             inactivo,
             detectar_fraccionamiento(dias_del_reporte),
             fraccionado,
+            detectar_rendimiento_fuente(dias, "odometro", exceptuadas),
             detectar_rendimiento_bajo(dias, "odometro", sin_datos, explicadas=explicadas),
             detectar_odometro_sin_avance(secuencia),
             detectar_avance_menor_fuente(secuencia, cargas_exceptuadas(consumo, flota)),
