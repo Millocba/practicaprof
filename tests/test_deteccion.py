@@ -305,42 +305,83 @@ def test_un_dia_explicado_por_h6_no_produce_rendimiento_bajo():
     assert set(alertas.loc[alertas["regla"] == "carga_vehiculo_inactivo", "id_registro"]) == inactivas
     rend = set(alertas.loc[alertas["regla"].str.startswith("rendimiento_bajo_"), "id_registro"])
     assert not (rend & inactivas)
+def test_causa_probable_de_cada_error_de_carga():
+    """#24: cada firma de error de carga se reconoce; una carga con su pedido no tiene causa."""
+    from deteccion.reglas import ESTACION_AJENA, causas_probables
+
+    flota = pd.DataFrame({"Matricula": ["V1", "V2", "V3"], "Dominio": ["ZA001AA", "ZA002AA", "ZA003AA"],
+                          "NumeroTarjeta": ["T1", "T2", "T3"]})
+    dominio = dict(zip(flota["Matricula"], flota["Dominio"]))
+    tarjeta = dict(zip(flota["Matricula"], flota["NumeroTarjeta"]))
+    # (id, vehículo del reporte, fecha, hora, litros, odómetro)
+    cargas = [("A1", "V1", "2024-03-01", "10:00:00", 30, 1000), ("A2", "V1", "2024-03-05", "10:00:00", 40, 1300),
+              ("A3", "V1", "2024-03-10", "10:00:00", 30, 1800),
+              ("B0", "V2", "2024-03-01", "10:00:00", 30, 4900), ("B1", "V2", "2024-03-02", "11:00:00", 25, 5000),
+              ("B2", "V2", "2024-03-06", "10:00:00", 30, 5200),
+              ("C1", "V3", "2024-03-01", "10:00:00", 30, 9000), ("X", "V3", "2024-03-08", "12:00:00", 20, 1500),
+              ("C3", "V3", "2024-03-12", "10:00:00", 30, 9300)]
+    consumo = pd.DataFrame(cargas, columns=["id", "vehiculo_id", "fecha", "hora", "litros", "odometro"]).assign(
+        tipo_identificacion="PATENTE", conductor="C", estacion="EST-001")
+    consumo["dominio"] = consumo["vehiculo_id"].map(dominio)
+    consumo["numero_tarjeta"] = consumo["vehiculo_id"].map(tarjeta)
+
+    def pedido(id_, vehiculo, carga, minutos_antes=30, estacion="EST-001"):
+        c = consumo.set_index("id").loc[carga]
+        instante = pd.Timestamp(f"{c['fecha']} {c['hora']}") - pd.Timedelta(minutes=minutos_antes)
+        return {"id": id_, "vehiculo_id": vehiculo, "dominio": dominio[vehiculo], "fecha": instante.strftime("%d/%m/%Y"),
+                "hora": instante.strftime("%H:%M:%S"), "litros_cargados": c["litros"], "litros_autorizados": c["litros"] + 5,
+                "rendido": "SI", "anulado": "NO", "estacion_servicio": estacion, "tarjeta_personal": False,
+                "solicitante": "C"}
+
+    registro = pd.DataFrame([pedido(f"P-{c}", consumo.set_index("id").at[c, "vehiculo_id"], c)
+                             for c in ["A1", "A3", "B0", "B2", "C1", "C3"]]
+                            + [pedido("P2", "V1", "A2", 40, ESTACION_AJENA),   # proveedor equivocado
+                               pedido("P3", "V3", "B1"),                        # dominio de otro vehículo
+                               pedido("P4", "V1", "X", 20)])                    # tarjeta de V3, la cargó V1
+    causas = causas_probables(consumo, registro, flota)
+    assert causas == {"A2": "proveedor_equivocado", "P2": "proveedor_equivocado",
+                      "B1": "dominio_equivocado", "P3": "dominio_equivocado",
+                      "X": "tarjeta_equivocada", "P4": "tarjeta_equivocada",
+                      "C3": "tarjeta_equivocada"}     # C3 cierra el tramo que abrió X en V3
 
 
-def _cargas_con_origen(*filas):
-    """(id, vehículo, fecha, hora, litros, origen)"""
-    return pd.DataFrame(filas, columns=["id", "vehiculo_id", "fecha", "hora", "litros", "origen_transaccion"])
+def test_la_causa_va_en_el_detalle_y_la_alerta_se_mantiene():
+    from deteccion.reglas import SIN_EXPLICACION, asignar_causa_probable
+
+    alertas = pd.DataFrame({"id_registro": ["A2", "Z9", "F1"], "tipo_anomalia": "X",
+                            "regla": ["carga_sin_registro", "carga_sin_registro", "linea_duplicada"],
+                            "detalle": ["sin pedido", "sin pedido", "línea repetida"]})
+    con_causa = asignar_causa_probable(alertas, {"A2": "proveedor_equivocado"})
+    assert len(con_causa) == 3
+    assert list(con_causa["causa_probable"].fillna("—")) == ["proveedor_equivocado", SIN_EXPLICACION, "—"]
+    assert con_causa["detalle"].iloc[0] == "sin pedido · causa probable: proveedor equivocado"
+    assert con_causa["detalle"].iloc[1] == "sin pedido"
 
 
-def test_doble_cobro_requiere_el_mismo_vehiculo_menos_de_12_horas_y_litros_dentro_de_2_por_ciento():
-    """H13: la ingenua marca toda contingencia; el contexto, solo la que repite una carga habitual."""
-    from deteccion.reglas import detectar_contingencia, detectar_doble_cobro
+def test_lo_explicado_va_al_final_de_la_cola_cualquiera_sea_su_puntaje():
+    """Decisión del dueño (PR #31): una carga con causa probable de error de carga se cita después
+    de todo lo que no tiene explicación, aunque su puntaje sea más alto."""
+    from deteccion.priorizacion import _orden
 
-    consumo = _cargas_con_origen(
-        ("H1", "V1", "2024-03-01", "10:00:00", 40.0, "POSNET"),
-        ("C1", "V1", "2024-03-01", "10:20:00", 40.5, "CONTINGENCIA"),   # 20 min y 1,25%: doble cobro
-        ("C2", "V1", "2024-03-01", "21:59:00", 40.0, "CONTINGENCIA"),   # 11 h 59 min: doble cobro
-        ("C3", "V1", "2024-03-01", "22:00:00", 40.0, "CONTINGENCIA"),   # 12 h justas: no
-        ("C4", "V1", "2024-03-01", "10:20:00", 41.0, "CONTINGENCIA"),   # 2,5%: litros distintos
-        ("C5", "V2", "2024-03-01", "10:20:00", 40.0, "CONTINGENCIA"),   # otro vehículo
-        ("H2", "V3", "2024-03-05", "08:00:00", 30.0, "POSNET"),
-        ("C6", "V3", "2024-03-05", "09:00:00", 30.6, "CONTINGENCIA"),   # 2% justo: doble cobro
-        ("C7", "V4", "2024-03-05", "09:00:00", 30.0, "CONTINGENCIA"),   # contingencia sola
-        ("C8", "V1", "2024-03-01", "10:10:00", 40.0, "contingencia"),   # el origen no distingue mayúsculas
-    )
-    assert set(detectar_contingencia(consumo)["id_registro"]) == {f"C{i}" for i in range(1, 9)}
-    dobles = detectar_doble_cobro(consumo)
-    assert set(dobles["id_registro"]) == {"C1", "C2", "C6", "C8"}
-    assert set(dobles["tipo_anomalia"]) == {"DOBLE_COBRO"} and set(dobles["regla"]) == {"doble_cobro"}
+    puntaje = pd.Series([1.0, 1.0, 0.5], index=["A", "B", "C"])
+    assert list(_orden(puntaje)) == ["A", "B", "C"]
+    assert list(_orden(puntaje, explicadas={"A"})) == ["B", "C", "A"]
 
 
-def test_una_carga_habitual_no_es_doble_cobro_ni_cuenta_como_contingencia():
-    from deteccion.reglas import detectar_contingencia, detectar_doble_cobro
+def test_la_curva_de_esfuerzo_usa_el_mismo_desempate_que_la_cola():
+    """Una carga explicada no le quita lugar, a igual puntaje, a una anomalía sin explicación."""
+    from deteccion.priorizacion import curva_de_esfuerzo
 
-    consumo = _cargas_con_origen(("H1", "V1", "2024-03-01", "10:00:00", 40.0, "POSNET"),
-                                 ("H2", "V1", "2024-03-01", "10:05:00", 40.0, "POSNET"))
-    assert detectar_contingencia(consumo).empty and detectar_doble_cobro(consumo).empty
-    sin_origen = consumo.drop(columns="origen_transaccion")      # escenario didáctico o fuente sin la columna
-    assert detectar_contingencia(sin_origen).empty and detectar_doble_cobro(sin_origen).empty
+    puntajes = pd.DataFrame({"Reglas con contexto": [1.0, 1.0, 0.0]}, index=["E", "F", "N"])
+    ground_truth = pd.DataFrame({"id_registro": ["F"], "tipo_anomalia": ["FRACCIONAMIENTO"], "hipotesis": ["H4"]})
+    sin = curva_de_esfuerzo(puntajes, ground_truth, maximo=1)
+    con = curva_de_esfuerzo(puntajes, ground_truth, maximo=1, explicadas={"E"})
+    assert sin["encontradas"].iloc[0] == 0 and con["encontradas"].iloc[0] == 1
 
 
+def test_h8_cuenta_los_errores_de_carga_como_aciertos():
+    """Decisión del dueño (PR #31): las alertas de los errores de carga son correctas, se citan."""
+    from deteccion.hipotesis import HIPOTESIS
+
+    h8 = next(h for h in HIPOTESIS if h["codigo"] == "H8")
+    assert {"ERROR_PROVEEDOR", "ERROR_DOMINIO", "ERROR_TARJETA"} <= set(h8["tipos"])
