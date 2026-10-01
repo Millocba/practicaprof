@@ -59,6 +59,15 @@ def test_la_pagina_principal_muestra_kpis_con_datos():
 
 
 @pytest.mark.parametrize("escenario", ESCENARIOS)
+def test_eda_abre_en_ambos_escenarios(escenario):
+    at = abrir("pages/02_datasets.py", escenario)
+    assert not at.exception, [e.value for e in at.exception]
+    assert [t.label for t in at.tabs] == ["📋 Explorar tablas", "📊 Análisis exploratorio"]
+    assert any("Análisis exploratorio" in s.value for s in at.subheader)
+    assert len(at.get("plotly_chart")) >= (8 if escenario == "realista" else 7)
+
+
+@pytest.mark.parametrize("escenario", ESCENARIOS)
 def test_analisis_ofrece_cada_hipotesis_del_catalogo_y_todas_abren(escenario):
     from deteccion.hipotesis import hipotesis_del_escenario
     at = abrir("pages/05_analisis_por_hipotesis.py", escenario)
