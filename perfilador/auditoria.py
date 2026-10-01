@@ -275,6 +275,10 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
         ids = set(grupo["id_registro"])
         tabla, total = _unidad(ids, datos)
         por_regla[regla] = {"alertas": acotar(len(ids)), "pct": _pct(len(ids), total), "sobre": tabla}
+        if "causa_probable" in grupo.columns and grupo["causa_probable"].notna().any():
+            # Qué parte de las alertas tiene la firma de un error de carga (#24)
+            causas = grupo.drop_duplicates("id_registro")["causa_probable"].value_counts()
+            por_regla[regla]["causa_probable_pct"] = {c: _pct(int(n), len(ids)) for c, n in causas.items()}
 
     if datos.get("reclamos") is not None:
         diagnostico["reclamos"] = _reclamos(datos, alertas, set(alertas["regla"]))

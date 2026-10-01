@@ -66,7 +66,7 @@ python -m perfilador auditar /ruta/de/los/archivos --base-url-env VARIABLE --pro
 - Un adaptador traduce cada fuente al esquema del generador. Cada fuente se reconoce por sus columnas, no por su nombre.
 - `--proveedor` es el texto que identifica las estaciones del proveedor en el registro interno. Se usa para separar las estaciones de otra red y no se guarda en ningún lado.
 - **Resultado:**
-  - cuántas cargas marca cada regla y cada hipótesis, con la versión ingenua y con contexto;
+  - cuántas cargas marca cada regla y cada hipótesis, con la versión ingenua y con contexto; en las reglas de H2, H3, H4, H5, H8 y H12, qué parte de sus alertas tiene la firma de un error de carga (`causa_probable_pct`: proveedor, dominio o tarjeta equivocados, o sin explicación);
   - qué proporción de cargas cruza con el registro interno y con qué diferencia de horario;
   - cuantiles de las variables del modelo, reales frente a sintéticos, para ver si el modelo generaliza;
   - coincidencias entre los métodos en las 100 cargas más prioritarias;

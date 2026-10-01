@@ -109,9 +109,12 @@ HIPOTESIS = [
         "enunciado": "El cruce diario por dominio, voraz y sin tolerancias, confunde las tarjetas personales y "
                      "las rendiciones pendientes con cargas sin respaldo, y no ve los registros anulados, los "
                      "desacuerdos de litros ni los excesos sobre lo autorizado; cruzar por dominio o persona y "
-                     "horario, con asignación óptima y tolerancias, los separa.",
+                     "horario, con asignación óptima y tolerancias, los separa. Los errores de carga (proveedor, "
+                     "dominio o tarjeta equivocados) son alertas correctas: se citan a quien hizo el pedido.",
+        # Los errores de carga son calidad de datos en el ground truth, pero según el procedimiento del
+        # área sus alertas son correctas (casos a citar): H8 los cuenta como aciertos (#24)
         "tipos": ["CARGA_SIN_REGISTRO", "ANULADA_CON_CARGA", "RENDIDA_SIN_CARGA", "DESACUERDO_DE_LITROS",
-                  "CARGA_SUPERA_AUTORIZADO"],
+                  "CARGA_SUPERA_AUTORIZADO", "ERROR_PROVEEDOR", "ERROR_DOMINIO", "ERROR_TARJETA"],
         "reglas": [("cruce_por_dominio_y_dia", "cruce diario por dominio, voraz, sin tolerancias"),
                    (["carga_sin_registro", "carga_de_registro_anulado", "rendida_sin_carga", "desacuerdo_de_litros",
                      "supera_autorizado_con_tolerancia"],

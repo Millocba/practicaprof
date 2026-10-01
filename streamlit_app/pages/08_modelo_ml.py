@@ -199,7 +199,8 @@ def pagina_realista():
     presupuesto = st.slider("Presupuesto de revisión (cargas)", 10, 300, 50, step=10, key="presupuesto",
                             help="Cuántas cargas alcanza a revisar el equipo en este período. "
                                  "Es la restricción que define si un método sirve o no.")
-    curva = priorizacion.curva_de_esfuerzo(puntajes, ground_truth, legitimos, maximo=300)
+    curva = priorizacion.curva_de_esfuerzo(puntajes, ground_truth, legitimos, maximo=300,
+                                          explicadas=priorizacion.cargas_explicadas(alertas))
     en_presupuesto = curva[curva["revisadas"] == presupuesto].set_index("metodo").loc[priorizacion.METODOS]
 
     mejor = en_presupuesto["encontradas"].idxmax()
@@ -239,7 +240,8 @@ def pagina_realista():
         ayuda="El mismo desglose por tipo de anomalía, ahora con el presupuesto ya fijado. Sirve "
               "para ver si a un método se le escapa una categoría concreta: puede ganar en total y "
               "no detectar nada de un tipo.")
-    por_tipo = priorizacion.recall_por_tipo(puntajes, ground_truth, presupuesto)
+    por_tipo = priorizacion.recall_por_tipo(puntajes, ground_truth, presupuesto,
+                                           explicadas=priorizacion.cargas_explicadas(alertas))
     fig = px.bar(por_tipo, x="tipo_anomalia", y="recall", color="metodo", barmode="group", range_y=[0, 1.05],
                  labels={"tipo_anomalia": "", "recall": f"Encontradas revisando {presupuesto}", "metodo": "Método"})
     fig.update_layout(yaxis_tickformat=".0%", height=380)
@@ -250,7 +252,10 @@ def pagina_realista():
         ayuda="El resultado accionable: la lista ordenada de cargas a revisar, con la "
               "**prioridad** y el **motivo** por el que se marcaron. El motivo es lo que la "
               "distingue de un número: es lo que permite que otra persona repita el criterio o "
-              "lo discuta. Cambiá el método de ordenamiento arriba y la cola se recalcula.")
+              "lo discuta. La **causa probable** indica si la alerta tiene la firma de un error de carga "
+              "(proveedor, dominio o tarjeta equivocados) para preparar la citación; a igual puntaje, "
+              "las cargas sin explicación van primero. Cambiá el método de ordenamiento arriba y la "
+              "cola se recalcula.")
     col1, col2 = st.columns([2, 1])
     with col1:
         metodo = st.selectbox("Ordenar según", priorizacion.METODOS, index=priorizacion.METODOS.index("Combinado"),
@@ -263,9 +268,12 @@ def pagina_realista():
     if verificar:
         caso = legitimos.drop_duplicates("id_registro").set_index("id_registro")["tipo_caso"]
         tipo = ground_truth[ground_truth["id_registro"].isin(anomalas)].groupby("id_registro")["tipo_anomalia"].first()
+        error = ground_truth[ground_truth["tipo_anomalia"].str.startswith("ERROR_")].groupby("id_registro")[
+            "tipo_anomalia"].first()
         cola["resultado"] = cola["id"].map(tipo).radd("⚠️ ").fillna(
-            cola["id"].map(caso).radd("✅ legítimo: ")).fillna("normal")
-    columnas = ["prioridad", "id", "vehiculo_id", "fecha", "estacion", "litros", "odometro", "motivos", "reglas"]
+            cola["id"].map(caso).radd("✅ legítimo: ")).fillna(
+            cola["id"].map(error).radd("🔧 error de carga: ")).fillna("normal")
+    columnas = ["prioridad", "id", "vehiculo_id", "fecha", "estacion", "litros", "odometro", "motivos", "reglas", "causa_probable"]
     st.dataframe(cola[columnas + (["resultado"] if verificar else [])], use_container_width=True, hide_index=True)
     st.download_button("⬇️ Descargar la cola (CSV)", cola.to_csv(index=False), file_name="cola_de_revision.csv",
                        mime="text/csv")
@@ -276,7 +284,8 @@ def pagina_realista():
               "vehículo aparece muchas veces, el problema no es un evento aislado sino un patrón "
               "que conviene tratar a nivel del vehículo, con su conductor o su estado.")
     st.caption(f"Vehículos con más cargas entre las {presupuesto} más sospechosas según {metodo}.")
-    vehiculos = priorizacion.vehiculos_prioritarios(puntajes, metodo, consumo, cantidad_cargas=presupuesto)
+    vehiculos = priorizacion.vehiculos_prioritarios(puntajes, metodo, consumo, cantidad_cargas=presupuesto,
+                                                     explicadas=priorizacion.cargas_explicadas(alertas))
     info = flota.set_index("Matricula")[["Dominio", "TipoVehiculo", "Estado", "DireccionGral"]]
     st.dataframe(vehiculos.join(info, on="vehiculo_id").head(20), use_container_width=True, hide_index=True)
 

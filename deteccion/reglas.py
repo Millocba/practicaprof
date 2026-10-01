@@ -764,6 +764,91 @@ def detectar_cruce_con_contexto(consumo, registro, excluir_ids=(), flota=None, t
     ], ignore_index=True)
 
 
+# ============================================================================
+# Causa probable de las alertas (#24)
+#
+# La mayoría de las alertas del registro son errores de carga que después se corrigen. La alerta
+# se mantiene; la causa probable acompaña la citación de quien hizo el pedido.
+# ============================================================================
+
+SIN_EXPLICACION = "sin_explicacion"
+REGLAS_CON_CAUSA = [
+    "cruce_por_dominio_y_dia", "carga_sin_registro", "carga_de_registro_anulado", "rendida_sin_carga",   # H8
+    "desacuerdo_de_litros", "supera_autorizado_con_tolerancia",
+    "odometro_disminuye", "retroceso_con_contexto", "salto_umbral_fijo", "salto_historial_vehiculo",    # H2
+    "salto_con_contexto",
+    "rendimiento_bajo_odometro", "rendimiento_bajo_gps",                                                # H5
+    "odometro_sin_avance", "sin_avance_sin_excepcion",                                                  # H12
+    # H4: el pedido registrado como de otra red suma sus litros a los del día
+    "fraccionamiento_diario", "fraccionamiento_sin_recorrido",
+    # H3: con la tarjeta de otro vehículo, la carga se compara con el tanque del dueño de la tarjeta
+    "litros_mayor_a_tanque", "exceso_sin_antecedente",
+]
+
+
+def _encaja(lecturas, vehiculo, instante, odometro):
+    """Si la lectura queda entre la anterior y la siguiente del vehículo en el reporte."""
+    propias = lecturas[lecturas["vehiculo_id"] == vehiculo]
+    antes = propias.loc[propias["instante"] < instante, "odometro"]
+    despues = propias.loc[propias["instante"] > instante, "odometro"]
+    return (antes.empty or antes.iloc[-1] <= odometro) and (despues.empty or odometro <= despues.iloc[0])
+
+
+def causas_probables(consumo, registro, flota=None):
+    """{id de carga o de pedido: causa} para las cargas sin pedido que tienen la firma de un error de carga.
+
+    - proveedor_equivocado: hay un pedido de otra red del mismo vehículo, en el horario del cruce
+      (de 3 horas antes a media hora después) y con los mismos litros.
+    - tarjeta_equivocada: hay un pedido sin carga de otro vehículo, en ese horario y con los mismos
+      litros, y el odómetro de la carga encaja con ese vehículo y no con el de la tarjeta. La carga
+      siguiente del vehículo de la tarjeta, que cierra el tramo, lleva la misma causa (en el generador
+      no se etiqueta: es una carga normal cuya alerta explica el error anterior).
+    - dominio_equivocado: el mismo pedido de otro vehículo, pero el odómetro encaja con el propio.
+    El pedido de cada firma lleva la misma causa que su carga.
+    """
+    pares, sin_carga = cruzar_registro(consumo, registro, flota=flota)
+    lecturas = consumo.assign(instante=pd.to_datetime(consumo["fecha"]) + pd.to_timedelta(consumo["hora"].astype(str)))
+    lecturas = lecturas.dropna(subset=["odometro"]).sort_values("instante")
+    cargas = lecturas[lecturas["id"].isin(pares.index[pares["registro_id"].isna()])].dropna(subset=["vehiculo_id"])
+    pedidos = registro.assign(instante=_instantes(registro["fecha"], registro["hora"]))
+    ajenos = pedidos[pedidos["estacion_servicio"] == ESTACION_AJENA]
+    candidatos = pd.concat([ajenos.assign(ajeno=True), pedidos[pedidos["id"].isin(sin_carga["id"])].assign(ajeno=False)])
+    cruce = cargas[["id", "vehiculo_id", "instante", "litros", "odometro"]].merge(
+        candidatos[["id", "vehiculo_id", "instante", "litros_cargados", "ajeno"]], how="cross", suffixes=("", "_pedido"))
+    minutos = (cruce["instante"] - cruce["instante_pedido"]) / pd.Timedelta(minutes=1)
+    cruce = cruce[minutos.between(-MINUTOS_DESPUES_REGISTRO, MINUTOS_ANTES_REGISTRO)
+                  & ((cruce["litros"] - cruce["litros_cargados"]).abs() <= TOLERANCIA_REGISTRO_LITROS)
+                  & (cruce["ajeno"] == (cruce["vehiculo_id"] == cruce["vehiculo_id_pedido"]))]
+    cruce = cruce.assign(distancia=(cruce["instante"] - cruce["instante_pedido"]).abs())
+    causas = {}
+    for carga, opciones in cruce.sort_values(["ajeno", "distancia"], ascending=[False, True]).groupby("id", sort=False):
+        c = opciones.iloc[0]
+        otras = lecturas[lecturas["id"] != carga]
+        if c["ajeno"]:
+            causa = "proveedor_equivocado"
+        elif (_encaja(otras, c["vehiculo_id_pedido"], c["instante"], c["odometro"])
+              and not _encaja(otras, c["vehiculo_id"], c["instante"], c["odometro"])):
+            causa = "tarjeta_equivocada"
+            siguiente = otras[(otras["vehiculo_id"] == c["vehiculo_id"]) & (otras["instante"] > c["instante"])]
+            if len(siguiente):
+                causas[siguiente["id"].iloc[0]] = causa
+        else:
+            causa = "dominio_equivocado"
+        causas[carga] = causas[c["id_pedido"]] = causa
+    return causas
+
+
+def asignar_causa_probable(alertas, causas):
+    """Agrega la columna causa_probable: la de la firma, SIN_EXPLICACION o vacía si la regla no tiene causa."""
+    con_causa = alertas["regla"].isin(REGLAS_CON_CAUSA)
+    causa = alertas["id_registro"].map(causas).where(con_causa)
+    causa = causa.where(~con_causa | causa.notna(), SIN_EXPLICACION)
+    explicada = causa.notna() & (causa != SIN_EXPLICACION)
+    detalle = alertas["detalle"].astype(str).where(~explicada, alertas["detalle"].astype(str) + " · causa probable: "
+                                                   + causa.fillna("").str.replace("_", " "))
+    return alertas.assign(detalle=detalle, causa_probable=causa)
+
+
 def detectar_conciliacion_mensual(consumo, facturacion, excluir_ids=()):
     """H9 (ingenua): el consumo del mes de cada contrato, a precio del surtidor (como se sigue la
     ejecución del cupo), no coincide con el total facturado del contrato en el mes."""
@@ -1050,4 +1135,8 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
                 detectar_irregularidades_de_cupo(consumo, contratos, transferencias),
             ]
 
-    return pd.concat([p for p in partes if not p.empty], ignore_index=True)[COLUMNAS_ALERTA]
+    alertas = pd.concat([p for p in partes if not p.empty], ignore_index=True)[COLUMNAS_ALERTA]
+    if "FechaEstado" in flota.columns and solicitudes is not None and "hora" in consumo.columns \
+            and "rendido" in solicitudes.columns:
+        alertas = asignar_causa_probable(alertas, causas_probables(consumo, solicitudes, flota))
+    return alertas
