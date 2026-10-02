@@ -32,21 +32,53 @@ Los cálculos se implementan en `streamlit_app/utils/eda.py` y la interfaz solo 
 
 ## La historia que cuentan los datos
 
+### Evidencia observada
+
 Con el escenario realista por defecto (semilla 42 y 200 vehículos), el código observa:
 
 - 7.094 operaciones de carga.
 - 109 vehículos en servicio, equivalentes al 54,5% de la flota.
 - 88 de esos 109 vehículos en servicio tienen telemetría asociada.
-- El 99,5% de las cargas encuentra un pedido del registro interno.
+- El 99,3% de las cargas encuentra un pedido del registro interno.
 - El 69,5% encuentra GPS diario para el vehículo y la fecha.
 - El 99,7% encuentra una línea de facturación relacionada.
 - La mediana de litros sobre capacidad del tanque es 0,64.
-- La mediana de distancia desde la carga anterior válida es 336 km.
+- La mediana descriptiva de distancia desde la carga anterior válida es 343 km; las cargas sin
+  tramo anterior se conservan vacías y no se cuentan como cero.
 
-La cobertura alta del pedido y de la línea facturada muestra que el circuito administrativo puede
-reconstruirse en la mayoría de las operaciones. La cobertura del GPS es menor y delimita qué casos
-pueden interpretarse con información de recorrido. Todas estas cifras se calculan sobre el escenario
-seleccionado y no están escritas como constantes en la interfaz.
+Todas estas cifras se calculan sobre el escenario seleccionado y no están escritas como constantes
+en la interfaz.
+
+La normalización de H1 también aclara una diferencia que antes podía resultar contradictoria. De
+7.094 cargas, 6.958 vinculan exactamente por dominio, 35 vinculan después de normalizarlo, 78 usan
+tarjeta personal y se identifican por persona, y 23 permanecen sin vínculo. Las tarjetas personales
+se muestran como una categoría propia: no son dominios inválidos.
+
+En la comparación con los agregados reales aprobados, las medianas mantienen una escala cercana.
+Las diferencias principales aparecen en el extremo superior: el rendimiento relativo p95 es 1,10
+en el escenario sintético y 2,80 en la referencia real; los kilómetros entre cargas p95 son 589 y
+800, respectivamente. Esto indica que el escenario sintético reproduce mejor el centro que los
+extremos de ambas distribuciones.
+
+### Interpretación de negocio
+
+La cobertura alta de pedidos y líneas facturadas permite reconstruir la mayor parte del circuito
+administrativo. La cobertura del GPS es menor y delimita qué cargas pueden analizarse con contexto
+de recorrido. Una ausencia de vínculo señala una limitación o un caso a revisar, pero no confirma
+por sí sola una irregularidad.
+
+La proximidad de las medianas permite usar el escenario para explorar relaciones y probar el
+funcionamiento de las reglas. Las diferencias de los percentiles altos impiden trasladar umbrales o
+conclusiones directamente a un entorno real.
+
+### Relación con las hipótesis
+
+- **H1:** la evidencia sostiene que normalizar el dominio mejora la vinculación y que las tarjetas
+  personales deben analizarse por su tipo de identificación.
+- **Hipótesis de odómetro y rendimiento:** las distribuciones de kilómetros y rendimiento justifican
+  analizarlas por tipo de vehículo e historial, sin convertir los extremos del EDA en alertas.
+- **Hipótesis de integración:** las coberturas de pedido, GPS y facturación muestran qué cruces están
+  disponibles y qué limitaciones deberá respetar cada contraste.
 
 ## Criterio de interpretación
 

@@ -39,6 +39,7 @@ def test_flota_y_cargas_producen_resumenes_reproducibles():
 
     cargas = preparar_cargas(consumo, flota)
     assert cargas.loc[cargas["id"] == "C2", "km"].iloc[0] == 200
+    assert cargas.loc[cargas["id"].isin(["C1", "C3"]), "km"].isna().all()
     assert cargas["proporcion_tanque"].round(2).tolist() == [.4, .5, .5]
     resumen = resumen_cargas(cargas)
     assert resumen["por_tipo"]["cargas"].sum() == 3
@@ -49,23 +50,34 @@ def test_flota_y_cargas_producen_resumenes_reproducibles():
 def test_calidad_mide_la_mejora_de_h1_sin_usar_etiquetas():
     flota, consumo, _ = tablas_minimas()
     calidad = resumen_calidad({"flota": flota, "consumo": consumo}, flota, consumo)
-    tasas = calidad["vinculacion"].set_index("criterio")["vinculadas"]
-    assert tasas["Formato original"] == 2
-    assert tasas["Dominio normalizado (H1)"] == 3
+    vinculos = calidad["vinculacion"]
+    originales = vinculos[vinculos["criterio"] == "Formato original"].set_index("resultado")["cantidad"]
+    normalizados = vinculos[vinculos["criterio"] == "Dominio normalizado (H1)"].set_index("resultado")["cantidad"]
+    assert originales["Vinculada por dominio"] == 2
+    assert originales["Sin vínculo"] == 1
+    assert normalizados["Vinculada por dominio"] == 3
+    assert normalizados["Sin vínculo"] == 0
     assert not calidad["columnas"].empty
 
 
 def test_calidad_clasifica_patente_de_moto_por_su_vinculo():
     flota = pd.DataFrame({"Dominio": ["A999AAA", "AA123BB"]})
     consumo = pd.DataFrame({
-        "id": ["C1", "C2", "C3"], "dominio": ["A999AAA", "aa-123-bb", "NOEXISTE"],
-        "tipo_identificacion": ["PATENTE"] * 3,
+        "id": ["C1", "C2", "C3", "C4"],
+        "dominio": ["A999AAA", "aa-123-bb", "NOEXISTE", "30111222"],
+        "tipo_identificacion": ["PATENTE", "PATENTE", "PATENTE", "DNI"],
     })
     formatos = resumen_calidad({"consumo": consumo}, flota, consumo)["formatos_dominio"]
     conteos = formatos.set_index("formato")["cantidad"]
     assert conteos["Coincide exactamente"] == 1
     assert conteos["Coincide solo normalizado"] == 1
     assert conteos["Sin vínculo con la flota"] == 1
+    assert conteos["Tarjeta personal"] == 1
+
+    vinculacion = resumen_calidad({"consumo": consumo}, flota, consumo)["vinculacion"]
+    h1 = vinculacion[vinculacion["criterio"] == "Dominio normalizado (H1)"].set_index("resultado")
+    assert h1.loc["Tarjeta personal", "cantidad"] == 1
+    assert h1.loc["Sin vínculo", "cantidad"] == 1
 
 
 def test_cruces_describen_cobertura_sin_emitir_veredicto():

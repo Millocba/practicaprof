@@ -4,8 +4,11 @@ import pandas as pd
 from pathlib import Path
 import sys
 
-# Add utils to path
-utils_path = Path(__file__).parent.parent / "utils"
+# La pagina puede abrirse directamente despues de reiniciar la app. En ese caso
+# Python todavia no conoce ni la raiz del proyecto ni el directorio de utilidades.
+project_root = Path(__file__).parent.parent.parent
+utils_path = project_root / "streamlit_app" / "utils"
+sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(utils_path))
 
 from ayudas import seccion
@@ -72,9 +75,14 @@ diccionario = load_diccionario(escenario)
 st.caption("📖 El diccionario completo y el diagrama de relaciones entre tablas están en la página "
            "**Diccionario de datos** (menú lateral).")
 
-tab_datos, tab_eda = st.tabs(["📋 Explorar tablas", "📊 Análisis exploratorio"])
+vista = st.radio(
+    "Vista",
+    ["📋 Explorar tablas", "📊 Análisis exploratorio"],
+    horizontal=True,
+    key="vista_datasets",
+)
 
-with tab_datos:
+if vista == "📋 Explorar tablas":
     # Dataset selector
     selected_dataset = st.selectbox(
         "Selecciona un dataset:",
@@ -305,8 +313,8 @@ with tab_datos:
     """)
 
 
-with tab_eda:
+else:
     mostrar_eda(
         escenario=escenario,
-        base_dir=Path(__file__).parent.parent.parent,
+        base_dir=project_root,
     )

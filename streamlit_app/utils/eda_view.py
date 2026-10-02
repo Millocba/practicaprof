@@ -23,11 +23,23 @@ LABELS = {
     "cantidad": "Cantidad", "telemetria": "Telemetría", "TipoVehiculo": "Tipo de vehículo",
     "litros_mediana": "Mediana de litros (L)", "cargas": "Cantidad de cargas",
     "proporcion_tanque": "Proporción del tanque", "km": "Kilómetros desde la carga anterior",
-    "rendimiento_km_l": "Rendimiento (km/L)", "litros": "Litros", "mes": "Mes",
+    "rendimiento_km_l": "Rendimiento (km/L)", "litros": "Litros (L)", "mes": "Mes",
     "dia_semana": "Día de la semana", "hora_del_dia": "Hora del día", "criterio": "Criterio",
     "porcentaje": "Porcentaje (%)", "formato": "Resultado del vínculo",
-    "tramo": "Tramo del circuito", "cobertura_pct": "Cobertura (%)",
+    "resultado": "Resultado", "tramo": "Tramo del circuito", "cobertura_pct": "Cobertura (%)",
 }
+
+NOMBRES_VARIABLES = {
+    "ratio_litros_tanque": "Proporción del tanque",
+    "proporcion_tanque": "Proporción del tanque",
+    "km": "Kilómetros entre cargas",
+    "rendimiento_relativo": "Rendimiento relativo",
+    "rendimiento_km_l": "Rendimiento (km/L)",
+    "cargas_en_el_dia": "Cargas en el día",
+    "litros_vs_autorizado": "Litros sobre autorizados",
+}
+NOMBRES_PERCENTILES = {"p05": "P5", "p50": "Mediana", "p95": "P95",
+                       .05: "P5", .25: "P25", .5: "Mediana", .75: "P75", .95: "P95"}
 
 
 @st.cache_data(show_spinner=False)
@@ -103,7 +115,9 @@ def _dispersion(df):
                      color_discrete_sequence=PALETA)
     fig.update_layout(legend_title_text="", margin=dict(l=10, r=10, t=50, b=10))
     st.plotly_chart(fig, use_container_width=True)
-    st.caption("Variables: km desde la carga anterior válida y litros. Unidad de análisis: carga.")
+    st.caption("Variables: kilómetros desde la carga anterior válida y litros cargados. Unidad: carga; "
+               "ejes en kilómetros y litros. Permite reconocer operaciones alejadas del patrón general, "
+               "pero una separación visual necesita contexto antes de interpretarse.")
 
 
 def mostrar_eda(escenario: str, base_dir: Path):
@@ -117,18 +131,22 @@ def mostrar_eda(escenario: str, base_dir: Path):
     c1, c2 = st.columns(2)
     with c1:
         _barra(datos["flota"]["estados"], "estado", "cantidad", "Vehículos por estado",
-               "Variables: estado y cantidad. Unidad de análisis: vehículo.")
+               "Variables: estado y cantidad. Unidad: vehículo. Delimita qué parte de la flota está "
+               "operativa y qué estados administrativos deben considerarse en los cruces.")
     with c2:
         _barra(datos["flota"]["tipos"], "tipo_vehiculo", "cantidad", "Vehículos por tipo",
-               "Variables: tipo y cantidad. Unidad de análisis: vehículo.")
+               "Variables: tipo y cantidad. Unidad: vehículo. La mezcla de unidades impide aplicar un "
+               "único patrón de capacidad, recorrido o consumo a toda la flota.")
     c1, c2 = st.columns(2)
     with c1:
         _barra(datos["flota"]["combustibles"], "combustible", "cantidad", "Combustible declarado",
-               "Variables: combustible y cantidad. Unidad de análisis: vehículo.")
+               "Variables: combustible declarado y cantidad. Unidad: vehículo. Sirve para controlar la "
+               "compatibilidad del producto informado en cada carga.")
     with c2:
         _barra(datos["flota"]["telemetria_estado"], "Estado", "cantidad",
                "Cobertura de telemetría por estado",
-               "Variables: estado y presencia de dispositivo. Unidad de análisis: vehículo.", "telemetria")
+               "Variables: estado y presencia de dispositivo. Unidad: vehículo. Muestra en qué estados "
+               "la ubicación y la actividad pueden aportar contexto adicional.", "telemetria")
 
     seccion("2. Cargas — ¿Cómo carga la flota?", nivel=3,
             ayuda="Compara volumen, capacidad, recorrido y rendimiento sin convertirlos en alertas.")
@@ -136,19 +154,27 @@ def mostrar_eda(escenario: str, base_dir: Path):
     c1, c2 = st.columns(2)
     with c1:
         _barra(datos["cargas"]["por_tipo"], "TipoVehiculo", "litros_mediana",
-               "Mediana de litros por tipo", "Variables: litros y tipo. Unidad: carga; volumen en litros.")
+               "Mediana de litros por tipo", "Variables: litros y tipo. Unidad: carga; volumen en litros. "
+               "La referencia cambia por tipo de vehículo, por lo que una carga alta no se interpreta aislada.")
     with c2:
         _caja(dist, "proporcion_tanque", "Proporción del tanque por tipo",
-              "Variables: litros/capacidad y tipo. Unidad: carga; razón sin unidad.")
+              "Variables: litros/capacidad y tipo. Unidad: carga; razón sin unidad. Los valores altos "
+              "orientan la revisión volumétrica, pero no constituyen por sí solos un exceso.")
     c1, c2 = st.columns(2)
     with c1:
         _caja(dist, "km", "Kilómetros entre cargas por tipo",
-              "Variables: diferencia de odómetro y tipo. Unidad: carga; distancia en km.")
+              "Variables: diferencia de odómetro y tipo. Unidad: carga; distancia en kilómetros. Solo "
+              "incluye cargas con un tramo anterior válido; los casos sin tramo quedan vacíos.")
     with c2:
         _caja(dist, "rendimiento_km_l", "Rendimiento por tipo",
-              "Variables: recorrido y litros. Unidad: día con carga; km/L.")
+              "Variables: recorrido diario y litros. Unidad mostrada: carga; rendimiento en km/L. El "
+              "valor diario se repite en las cargas del mismo vehículo y día, por lo que se usa como contexto.")
     _dispersion(dist)
-    st.dataframe(datos["cargas"]["percentiles"], use_container_width=True, hide_index=True)
+    tabla_percentiles = datos["cargas"]["percentiles"].rename(columns=NOMBRES_VARIABLES).copy()
+    if "percentil" in tabla_percentiles:
+        tabla_percentiles["percentil"] = tabla_percentiles["percentil"].map(NOMBRES_PERCENTILES)
+        tabla_percentiles = tabla_percentiles.rename(columns={"percentil": "Percentil"})
+    st.dataframe(tabla_percentiles, use_container_width=True, hide_index=True)
 
     seccion("3. Tiempo — ¿Cuándo se realizan las cargas?", nivel=3,
             ayuda="Muestra frecuencia y volumen cargado durante el período.")
@@ -156,10 +182,12 @@ def mostrar_eda(escenario: str, base_dir: Path):
         c1, c2 = st.columns(2)
         with c1:
             _barra(datos["tiempo"][clave], clave, "cargas", f"Cargas por {nombre}",
-                   f"Variables: {nombre} y cantidad. Unidad: carga.")
+                   f"Variables: {nombre} y cantidad. Unidad: carga. Permite reconocer cuándo se concentra "
+                   "la actividad y qué períodos requieren contexto operativo adicional.")
         with c2:
             _barra(datos["tiempo"][clave], clave, "litros", f"Litros por {nombre}",
-                   f"Variables: {nombre} y litros. Unidad: carga; volumen en litros.")
+                   f"Variables: {nombre} y litros. Unidad: carga; volumen en litros. Distingue períodos "
+                   "con muchas operaciones de aquellos con mayor volumen total.")
 
     seccion("4. Calidad — ¿Qué tan preparados están los datos?", nivel=3,
             ayuda="Mide completitud, unicidad y el efecto de normalizar dominios con la regla oficial H1.")
@@ -167,14 +195,22 @@ def mostrar_eda(escenario: str, base_dir: Path):
     with c1:
         _barra(datos["calidad"]["vinculacion"], "criterio", "porcentaje",
                "Vinculación antes y después de H1",
-               "Variables: criterio y porcentaje. Unidad de análisis: carga.")
+               "Variables: criterio y resultado. Unidad: carga; resultado en porcentaje. Separar las "
+               "tarjetas personales evita confundir una identificación por persona con un dominio inválido.",
+               "resultado")
     with c2:
         _barra(datos["calidad"]["formatos_dominio"], "formato", "cantidad",
                "Resultado del vínculo de dominios",
-               "Coincidencia exacta, solo normalizada o sin vínculo. Unidad: carga.")
+               "Variables: forma de vinculación y cantidad. Unidad: carga. Muestra qué parte coincide de "
+               "forma exacta, cuál requiere normalización, cuál usa tarjeta personal y cuál queda sin vínculo.")
     calidad = datos["calidad"]["columnas"]
     if not calidad.empty:
-        st.dataframe(calidad.sort_values(["completitud_pct", "fuente", "columna"]).head(30),
+        tabla_calidad = calidad.sort_values(["completitud_pct", "fuente", "columna"]).head(30).rename(columns={
+            "fuente": "Fuente", "columna": "Columna", "filas": "Filas",
+            "completitud_pct": "Completitud (%)", "valores_unicos": "Valores únicos",
+            "unicidad_pct": "Unicidad (%)",
+        })
+        st.dataframe(tabla_calidad,
                      use_container_width=True, hide_index=True)
         st.caption("Se muestran primero las 30 columnas con menor completitud.")
     st.info("La comparación de reglas simples y con contexto permanece en las páginas de análisis e hipótesis.")
@@ -183,7 +219,8 @@ def mostrar_eda(escenario: str, base_dir: Path):
             ayuda="Describe cobertura sin convertir una ausencia de vínculo en irregularidad.")
     cruces = datos["cruces"]
     _barra(cruces, "tramo", "cobertura_pct", "Cobertura de los cruces disponibles",
-           "Variables: tramo y cobertura. Unidad: carga; resultado en porcentaje.")
+           "Variables: tramo y cobertura. Unidad: carga; resultado en porcentaje. Una cobertura menor "
+           "delimita el universo analizable con esa fuente y no confirma una irregularidad.")
     if not cruces.empty:
         st.dataframe(cruces, use_container_width=True, hide_index=True)
     if escenario != "realista":
@@ -200,8 +237,14 @@ def mostrar_eda(escenario: str, base_dir: Path):
     if comp.empty:
         st.info("No se encontró una auditoría agregada aprobada.")
         return
-    grafico = comp.melt(id_vars=["variable", "percentil"], value_vars=["real", "sintetico"],
+    comp_presentacion = comp.copy()
+    comp_presentacion["variable"] = comp_presentacion["variable"].map(NOMBRES_VARIABLES).fillna(
+        comp_presentacion["variable"])
+    comp_presentacion["percentil"] = comp_presentacion["percentil"].map(NOMBRES_PERCENTILES).fillna(
+        comp_presentacion["percentil"])
+    grafico = comp_presentacion.melt(id_vars=["variable", "percentil"], value_vars=["real", "sintetico"],
                         var_name="origen", value_name="valor")
+    grafico["origen"] = grafico["origen"].map({"real": "Real agregado", "sintetico": "Sintético"})
     fig = px.bar(grafico, x="percentil", y="valor", color="origen", facet_col="variable",
                  barmode="group", color_discrete_sequence=PALETA,
                  title="Fuente real agregada y escenario sintético actual",
@@ -210,6 +253,12 @@ def mostrar_eda(escenario: str, base_dir: Path):
     fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
     fig.update_layout(margin=dict(l=10, r=10, t=70, b=10), legend_title_text="")
     st.plotly_chart(fig, use_container_width=True)
-    st.dataframe(comp, use_container_width=True, hide_index=True)
-    st.caption("Cinco variables representan volumen relativo, recorrido, rendimiento, frecuencia diaria y autorización. "
-               "Los sintéticos se calculan sobre el escenario actual; los reales son agregados aprobados.")
+    tabla_comp = comp_presentacion.rename(columns={
+        "variable": "Variable", "percentil": "Percentil", "real": "Real agregado",
+        "sintetico": "Sintético", "diferencia": "Diferencia",
+    })
+    st.dataframe(tabla_comp, use_container_width=True, hide_index=True)
+    st.caption("Variables: volumen relativo, recorrido, rendimiento, frecuencia diaria y autorización. "
+               "Unidad: agregado por variable y percentil. Las medianas son cercanas, pero los extremos "
+               "de kilómetros y rendimiento son menores en el escenario sintético; la comparación evalúa "
+               "escala, no equivalencia estadística.")

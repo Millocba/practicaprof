@@ -17,7 +17,6 @@ from deteccion.reglas import (
     cargas_por_dia,
     cruzar_registro,
     detectar_doble_cobro,
-    detectar_dominio_invalido,
     detectar_duplicados,
     normalizar_dominio,
 )
@@ -83,8 +82,12 @@ def preparar_cargas(
         variables = construir_variables(
             flota, consumo, telemetria_diaria=gps_diario, solicitudes=solicitudes,
         ).reset_index()
+        # ``construir_variables`` usa 0 cuando no existe un tramo anterior porque
+        # ese valor es neutro para el modelo. Para describir la distribucion no es
+        # una distancia observada: el EDA conserva esos casos como ausentes.
         disponibles = [c for c in ["id", "km", "rendimiento_relativo", "cargas_en_el_dia"] if c in variables]
         datos = datos.merge(variables[disponibles], on="id", how="left")
+        datos["km"] = datos["km"].mask(datos["km"].eq(0))
 
         fuera = cargas_fuera_del_reporte(solicitudes) if solicitudes is not None else None
         excluir = pd.concat(
@@ -154,27 +157,46 @@ def resumen_calidad(fuentes: dict[str, pd.DataFrame], flota: pd.DataFrame, consu
             })
     calidad = pd.DataFrame(filas)
 
-    vinculacion = pd.DataFrame(columns=["criterio", "vinculadas", "total", "porcentaje"])
+    vinculacion = pd.DataFrame(columns=["criterio", "resultado", "cantidad", "total", "porcentaje"])
     formatos = pd.DataFrame(columns=["formato", "cantidad", "porcentaje"])
     if not consumo.empty and "dominio" in consumo and "Dominio" in flota:
         total = len(consumo)
-        invalidos_raw = detectar_dominio_invalido(consumo, flota)
-        invalidos_norm = detectar_dominio_invalido(consumo, flota, normalizado=True)
-        vinculadas_raw = total - len(invalidos_raw)
-        vinculadas_norm = total - len(invalidos_norm)
-        vinculacion = pd.DataFrame([
-            {"criterio": "Formato original", "vinculadas": vinculadas_raw, "total": total,
-             "porcentaje": round(100 * vinculadas_raw / total, 1) if total else np.nan},
-            {"criterio": "Dominio normalizado (H1)", "vinculadas": vinculadas_norm, "total": total,
-             "porcentaje": round(100 * vinculadas_norm / total, 1) if total else np.nan},
-        ])
         flota_raw = set(flota["Dominio"].dropna().astype(str))
         flota_norm = set(normalizar_dominio(flota["Dominio"]).dropna())
+        personal = consumo.get(
+            "tipo_identificacion", pd.Series("PATENTE", index=consumo.index),
+        ).astype("string").str.upper().eq("DNI")
         exacta = consumo["dominio"].astype("string").isin(flota_raw)
         normalizada = normalizar_dominio(consumo["dominio"]).isin(flota_norm)
+
+        # En ambos criterios las tarjetas personales se muestran aparte: no
+        # traen dominio y H1 las vincula por persona. Mezclarlas con "sin
+        # vinculo" producia dos graficos aparentemente contradictorios.
+        filas_vinculacion = []
+        for criterio, coincide in [
+            ("Formato original", exacta),
+            ("Dominio normalizado (H1)", normalizada),
+        ]:
+            categorias = np.select(
+                [personal, ~personal & coincide],
+                ["Tarjeta personal", "Vinculada por dominio"],
+                default="Sin vínculo",
+            )
+            conteos = pd.Series(categorias).value_counts()
+            for resultado in ["Vinculada por dominio", "Tarjeta personal", "Sin vínculo"]:
+                cantidad = int(conteos.get(resultado, 0))
+                filas_vinculacion.append({
+                    "criterio": criterio,
+                    "resultado": resultado,
+                    "cantidad": cantidad,
+                    "total": total,
+                    "porcentaje": round(100 * cantidad / total, 1) if total else np.nan,
+                })
+        vinculacion = pd.DataFrame(filas_vinculacion)
+
         clase = np.select(
-            [exacta, ~exacta & normalizada],
-            ["Coincide exactamente", "Coincide solo normalizado"],
+            [personal, ~personal & exacta, ~personal & ~exacta & normalizada],
+            ["Tarjeta personal", "Coincide exactamente", "Coincide solo normalizado"],
             default="Sin vínculo con la flota",
         )
         formatos = pd.Series(clase).value_counts().rename_axis("formato").reset_index(name="cantidad")

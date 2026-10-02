@@ -3,6 +3,8 @@
 Reproduce la situación de un despliegue recién reiniciado: no hay datos y la app
 debe generarlos por su cuenta.
 """
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -62,9 +64,29 @@ def test_la_pagina_principal_muestra_kpis_con_datos():
 def test_eda_abre_en_ambos_escenarios(escenario):
     at = abrir("pages/02_datasets.py", escenario)
     assert not at.exception, [e.value for e in at.exception]
-    assert [t.label for t in at.tabs] == ["📋 Explorar tablas", "📊 Análisis exploratorio"]
+    assert at.radio(key="vista_datasets").value == "📋 Explorar tablas"
+    assert len(at.get("plotly_chart")) == 0  # la vista de tablas no redibuja los graficos del EDA
+    at.radio(key="vista_datasets").set_value("📊 Análisis exploratorio").run()
+    assert not at.exception, [e.value for e in at.exception]
     assert any("Análisis exploratorio" in s.value for s in at.subheader)
     assert len(at.get("plotly_chart")) >= (8 if escenario == "realista" else 7)
+
+
+def test_datasets_puede_ser_la_primera_pagina_de_un_proceso_nuevo(tmp_path):
+    """La pagina resuelve la raiz del proyecto sin depender de imports previos."""
+    entorno = os.environ.copy()
+    dependencias = [ruta for ruta in sys.path if "site-packages" in ruta]
+    entorno["PYTHONPATH"] = os.pathsep.join(dependencias)
+    proceso = subprocess.run(
+        [sys.executable, str(APP_DIR / "pages/02_datasets.py")],
+        cwd=tmp_path,
+        env=entorno,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert proceso.returncode == 0, proceso.stderr
+    assert "ModuleNotFoundError" not in proceso.stderr
 
 
 @pytest.mark.parametrize("escenario", ESCENARIOS)
