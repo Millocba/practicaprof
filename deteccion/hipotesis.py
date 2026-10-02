@@ -79,6 +79,7 @@ HIPOTESIS = [
                      "los litros; el rendimiento km/L frente al habitual del vehículo lo revela.",
         "tipos": ["RENDIMIENTO_IMPOSIBLE"],
         "reglas": [("litros_mayor_a_tanque", "control de litros"),
+                   ("rendimiento_fuente", "criterio de la fuente: mediana del tipo, −30%, sin tramos de más de 2.000 km"),
                    ("rendimiento_bajo_odometro", "km/L según el odómetro"),
                    ("rendimiento_bajo_gps", "km/L según el GPS (odómetro si no hay)")],
         "contexto": "rendimiento habitual del vehículo",
