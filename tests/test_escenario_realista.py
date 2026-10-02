@@ -309,3 +309,38 @@ def test_la_cola_de_revision_explica_cada_caso(dataset, puntajes):
     cola = priorizacion.cola_de_revision(pun, "Combinado", dataset["consumo"], variables, alertas_, cantidad=20)
     assert len(cola) == 20 and list(cola["prioridad"]) == list(range(1, 21))
     assert (cola["motivos"].str.len() + cola["reglas"].str.len() > 0).all()
+
+
+# --- Errores de carga y causa probable (#24) ---------------------------------
+
+def test_los_errores_de_carga_se_inyectan_en_la_carga_y_en_su_pedido(dataset):
+    gt = dataset["ground_truth"]
+    errores = gt[gt["tipo_anomalia"].str.startswith("ERROR_")]
+    assert errores.groupby(["tipo_anomalia", "tabla"]).size().to_dict() == {
+        ("ERROR_DOMINIO", "consumo"): 6, ("ERROR_DOMINIO", "solicitudes"): 6,
+        ("ERROR_PROVEEDOR", "consumo"): 6, ("ERROR_PROVEEDOR", "solicitudes"): 6,
+        ("ERROR_TARJETA", "consumo"): 4, ("ERROR_TARJETA", "solicitudes"): 4}
+    assert set(errores["hipotesis"]) == {"CALIDAD"}
+    pedidos = dataset["solicitudes"].set_index("id")
+    proveedor = errores[(errores["tipo_anomalia"] == "ERROR_PROVEEDOR") & (errores["tabla"] == "solicitudes")]
+    assert (pedidos.loc[proveedor["id_registro"], "estacion_servicio"] == "ESTACION AJENA").all()
+    # En la tarjeta equivocada, la carga figura en otro vehículo que su pedido (se registran de a pares)
+    cargas = dataset["consumo"].set_index("id")
+    tarjeta = errores[errores["tipo_anomalia"] == "ERROR_TARJETA"]
+    de_carga, de_pedido = tarjeta[tarjeta["tabla"] == "consumo"], tarjeta[tarjeta["tabla"] == "solicitudes"]
+    assert (cargas.loc[de_carga["id_registro"], "vehiculo_id"].values != de_pedido["vehiculo_id"].values).all()
+
+
+def test_la_causa_probable_reconoce_los_errores_y_no_las_anomalias(dataset, alertas):
+    """La mayoría de los errores inyectados recibe su causa; ninguna anomalía real recibe una causa de error."""
+    gt = dataset["ground_truth"]
+    causa = alertas.dropna(subset=["causa_probable"]).drop_duplicates("id_registro").set_index("id_registro")[
+        "causa_probable"]
+    esperada = {"ERROR_PROVEEDOR": "proveedor_equivocado", "ERROR_DOMINIO": "dominio_equivocado",
+                "ERROR_TARJETA": "tarjeta_equivocada"}
+    cargas = gt[gt["tipo_anomalia"].isin(esperada) & (gt["tabla"] == "consumo")]
+    for tipo, grupo in cargas.groupby("tipo_anomalia"):
+        aciertos = (causa.reindex(grupo["id_registro"]) == esperada[tipo]).mean()
+        assert aciertos > 0.5, tipo
+    reales = causa.reindex(gt.loc[gt["hipotesis"] != "CALIDAD", "id_registro"]).dropna()
+    assert len(reales) > 0 and (reales == "sin_explicacion").all()

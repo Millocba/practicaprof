@@ -69,8 +69,9 @@ def main():
         semillas = [s for s in priorizacion.SEMILLAS_ENTRENAMIENTO + [1004] if s != semilla][:3]
         variables, etiqueta = priorizacion.datos_de_entrenamiento(semillas)
         modelo = priorizacion.entrenar_supervisado(variables, etiqueta)
-        puntajes, _, _ = priorizacion.puntuar(datos, modelo)
-        curva = priorizacion.curva_de_esfuerzo(puntajes, ground_truth, datos["casos_legitimos"], maximo=200)
+        puntajes, _, alertas_ml = priorizacion.puntuar(datos, modelo)
+        curva = priorizacion.curva_de_esfuerzo(puntajes, ground_truth, datos["casos_legitimos"], maximo=200,
+                                               explicadas=priorizacion.cargas_explicadas(alertas_ml))
         resumen_ml = priorizacion.resumen_por_presupuesto(curva)
         print("\nPriorización: anomalías encontradas según cuántas cargas se revisan")
         print(resumen_ml.pivot(index="metodo", columns="revisadas", values="encontradas").to_string())

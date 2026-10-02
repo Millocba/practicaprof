@@ -42,7 +42,7 @@ DIRECTORIOS_ESCENARIO = {
 SEED = 42
 # Versión de los datos que produce el generador: cambiarla cuando cambie lo que genera, así la
 # aplicación regenera los datos que tenga en disco de una versión anterior
-VERSION_GENERADOR = "2.5"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md); 2.1: horas del día en el orden del odómetro; 2.2: forma de cargar calibrada; 2.3: excepciones de odómetro; 2.4: textos del diccionario; 2.5: origen de la transacción (H13)
+VERSION_GENERADOR = "2.6"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md); 2.1: horas del día en el orden del odómetro; 2.2: forma de cargar calibrada; 2.3: excepciones de odómetro; 2.4: textos del diccionario; 2.5: origen de la transacción (H13); 2.6: errores de carga en el registro interno
 
 # Ventana temporal de los datos: consumos y solicitudes entre FECHA_INICIO y
 # FECHA_INICIO + DIAS_VENTANA. FECHA_REFERENCIA hace de "ahora" para la telemetría.
@@ -90,6 +90,11 @@ CATALOGO_ANOMALIAS = {
     "TRANSFERENCIA_SIN_NECESIDAD": ("H10", "MEDIA"),
     "ODOMETRO_SIN_AVANCE": ("H12", "MEDIA"),
     "DOBLE_COBRO": ("H13", "ALTA"),
+    # Errores de carga en el registro interno (realista): disparan alertas correctas, que se citan y
+    # se corrigen; no son irregularidades (#24)
+    "ERROR_PROVEEDOR": ("CALIDAD", "BAJA"),
+    "ERROR_DOMINIO": ("CALIDAD", "BAJA"),
+    "ERROR_TARJETA": ("CALIDAD", "BAJA"),
 }
 
 ESCENARIOS = ("didactico", "realista")
@@ -294,6 +299,13 @@ EVENTOS_REALISTA = {
     "TRANSFERENCIA_SIN_NECESIDAD": 2,  # transferencias que la proyección no justifica
     "AJUSTE_DOCUMENTADO": 4,        # legítimos: facturas con un ajuste
     "DOBLE_COBRO": 8,               # cargas duplicadas por contingencia (~0,1% de las cargas)
+}
+# Errores de carga cada 200 vehículos (#24). Provisorio: la proporción real hay que definirla con el
+# referente del dominio; según él, son la mayoría de las alertas del registro interno.
+ERRORES_DE_CARGA = {
+    "ERROR_PROVEEDOR": 6,   # el pedido se registra como de otra red
+    "ERROR_DOMINIO": 6,     # el pedido se registra con el dominio de otro vehículo
+    "ERROR_TARJETA": 4,     # se carga con la tarjeta de otro vehículo: el reporte atribuye la carga a ese
 }
 PROB_DESFASE_DE_CORTE = 0.5         # cargas del último día del mes facturadas al mes siguiente
 TASAS_CALIDAD_REALISTA = {"DOMINIO_INVALIDO": 0.003, "VALOR_NULO": 0.005, "DUPLICADO": 0.003}
@@ -1634,6 +1646,60 @@ class GeneradorMaestro:
         logger.info(f"✓ REGISTRO INTERNO generado: {len(df)} registros ({len(ajenas)} en estaciones de otra red)")
         return df
 
+    def aplicar_errores_de_carga(self):
+        """Realista: errores de carga en el registro interno (#24), con un generador aleatorio propio.
+
+        Son errores humanos que disparan alertas correctas (H8 y, según el caso, H2, H5 o H12) y se
+        resuelven citando a quien hizo el pedido:
+        - ERROR_PROVEEDOR: el pedido de una carga del reporte se registra como de otra red.
+        - ERROR_DOMINIO: el pedido se registra con el dominio de otro vehículo.
+        - ERROR_TARJETA: se carga con la tarjeta de otro vehículo; el reporte atribuye la carga, con el
+          odómetro del vehículo que cargó, al dueño de la tarjeta. El pedido queda del que cargó.
+        Se registran en el ground truth como calidad de datos, sobre la carga y sobre su pedido.
+        """
+        # Desplazamiento propio: 5_000_003 es el de las contingencias de H13 (PR #25)
+        rng = random.Random(self.seed + 6_000_003)
+        consumo, solicitudes, flota = self.datasets["consumo"], self.datasets["solicitudes"], self.datasets["flota"]
+        etiquetados = {a["id_registro"] for a in self.anomalias} | {c["id_registro"] for c in self.casos_legitimos}
+        en_servicio = flota[flota["Estado"] == "EN SERVICIO"].set_index("Matricula")
+        # Cada carga con su pedido: mismo vehículo, odómetro y litros, ni anulado ni de otra red
+        pedidos = solicitudes[(solicitudes["anulado"] == "NO") & (solicitudes["estacion_servicio"] != ESTACION_AJENA)
+                              & ~solicitudes["id"].isin(etiquetados)]
+        claves = ["vehiculo_id", "odometro", "litros"]
+        unicos = pedidos.assign(litros=pedidos["litros_cargados"]).drop_duplicates(claves, keep=False)
+        cargas = consumo[(consumo["tipo_identificacion"] == "PATENTE") & ~consumo["id"].isin(etiquetados)
+                         & consumo["vehiculo_id"].isin(en_servicio.index) & consumo["odometro"].notna()]
+        pares = (cargas.assign(litros=cargas["litros"].round(2), odometro=cargas["odometro"].astype("Int64"))
+                 .drop_duplicates(claves, keep=False)
+                 .merge(unicos[claves + ["id"]].rename(columns={"id": "pedido"}), on=claves)[["id", "vehiculo_id", "pedido"]])
+        elegidos = rng.sample(list(pares.itertuples(index=False)),
+                              k=min(len(pares), sum(max(1, round(n * self.n_flota / 200)) for n in ERRORES_DE_CARGA.values())))
+        otros = sorted(en_servicio.index)
+        fila_carga = pd.Series(consumo.index, index=consumo["id"])
+        fila_pedido = pd.Series(solicitudes.index, index=solicitudes["id"])
+        for tipo, n in ERRORES_DE_CARGA.items():
+            for _ in range(max(1, round(n * self.n_flota / 200))):
+                if not elegidos:
+                    break
+                carga, vehiculo, pedido = elegidos.pop()
+                otro = rng.choice([v for v in otros if v != vehiculo])
+                i, j = fila_carga[carga], fila_pedido[pedido]
+                if tipo == "ERROR_PROVEEDOR":
+                    solicitudes.at[j, "estacion_servicio"] = ESTACION_AJENA
+                    detalle = "el pedido se registró como de otra red"
+                elif tipo == "ERROR_DOMINIO":
+                    solicitudes.at[j, "vehiculo_id"] = otro
+                    solicitudes.at[j, "dominio"] = en_servicio.at[otro, "Dominio"]
+                    detalle = "el pedido se registró con el dominio de otro vehículo"
+                else:
+                    consumo.at[i, "vehiculo_id"] = otro
+                    consumo.at[i, "dominio"] = en_servicio.at[otro, "Dominio"]
+                    consumo.at[i, "numero_tarjeta"] = en_servicio.at[otro, "NumeroTarjeta"]
+                    detalle = "se cargó con la tarjeta de otro vehículo"
+                self._registrar_anomalia("consumo", carga, consumo.at[i, "vehiculo_id"], tipo, "registro", detalle)
+                self._registrar_anomalia("solicitudes", pedido, solicitudes.at[j, "vehiculo_id"], tipo, "registro", detalle)
+        self.metadata['generadores_ejecutados'].append('errores_de_carga')
+
     def _asignar_contratos(self):
         """Cada vehículo (y su tarjeta) pertenece a un contrato. Generador aleatorio propio."""
         self._rng_contratos = random.Random(self.seed + 2_000_003)
@@ -2310,6 +2376,7 @@ class GeneradorMaestro:
             if self.escenario == "realista":
                 self.generar_solicitudes_realista()
                 self.aplicar_contingencias()
+                self.aplicar_errores_de_carga()
                 self.generar_facturacion_realista()
                 self.aplicar_formatos_de_origen()
                 self.generar_contratos_realista()
