@@ -161,3 +161,24 @@ def test_portada_tiene_una_ayuda_por_modulo():
     titulos = [m.value for m in at.markdown if m.value.startswith("### ")]
     assert [t.split(". ")[0][-1] for t in titulos if ". " in t][:9] == list("123456789")
     assert len(popovers(at._tree)) >= 9 + 1  # una por módulo y la de la sección
+
+
+@pytest.mark.parametrize("escenario", ESCENARIOS)
+def test_el_cartel_del_generador_lista_todas_las_entidades_del_escenario(escenario):
+    """El cartel de información sale del diccionario del generador: no puede quedarse en las 5 entidades originales."""
+    at = abrir("pages/01_generador.py", escenario)
+    cartel = next(i.value for i in at.info if "Entidades generadas" in i.value)
+    entidades = data_loader.entidades_del_escenario(escenario)
+    assert f"Entidades generadas ({len(entidades)})" in cartel
+    assert all(f"- {nombre}:" in cartel for nombre, _ in entidades)
+    assert ("casos_legitimos" in cartel) == (escenario == "realista")
+
+
+@pytest.mark.parametrize("escenario", ESCENARIOS)
+def test_el_resumen_de_datasets_cubre_todas_las_entidades_generadas(escenario):
+    """Cada entidad del escenario figura en el inventario (la hoja de respuestas queda aparte)."""
+    data_loader.asegurar_datos_maestro(escenario)
+    resumen = data_loader.get_maestro_datasets_info(escenario)
+    esperadas = {data_loader.ETIQUETAS_TABLAS.get(n, n) for n, _ in data_loader.entidades_del_escenario(escenario)}
+    assert set(resumen["name"]) == esperadas
+    assert not {"ground_truth", "casos_legitimos"} & set(resumen["name"])

@@ -248,18 +248,34 @@ def load_maestro_metadata(escenario="didactico"):
     return {}
 
 
+# Tablas de evaluación: la verdad de referencia y los casos legítimos no son entidades ni entradas de las reglas
+TABLAS_DE_EVALUACION = ("ground_truth", "casos_legitimos")
+ETIQUETAS_TABLAS = {
+    "flota": "Flota", "telemetria": "Telemetría", "consumo": "Consumo", "solicitudes": "Solicitudes",
+    "facturacion": "Facturación", "estaciones": "Estaciones", "facturacion_detalle": "Detalle de facturación",
+    "telemetria_diaria": "Telemetría diaria", "contratos": "Contratos", "transferencias": "Transferencias",
+    "excepciones_odometro": "Excepciones de odómetro",
+}
+
+
+def entidades_del_escenario(escenario):
+    """Las entidades que genera el escenario, con su grano: [(tabla, "un vehículo"), ...].
+
+    Salen del diccionario de datos del propio generador, así que la lista no se desactualiza cuando
+    se agrega una tabla. Excluye las tablas de evaluación (ground_truth y casos_legitimos).
+    """
+    if str(BASE_DIR) not in sys.path:
+        sys.path.insert(0, str(BASE_DIR))
+    from generator_pipeline_maestro import diccionario_de_datos
+
+    tablas = diccionario_de_datos(escenario)["tablas"]
+    return [(nombre, tabla["grano"]) for nombre, tabla in tablas.items() if nombre not in TABLAS_DE_EVALUACION]
+
+
 def get_maestro_datasets_info(escenario="didactico"):
     """Get info about all datasets of the scenario."""
-    datasets = {
-        "Flota": load_flota(escenario),
-        "Telemetría": load_telemetria(escenario),
-        "Consumo": load_consumo_maestro(escenario),
-        "Solicitudes": load_solicitudes(escenario),
-        "Facturación": load_facturacion(escenario),
-        "Estaciones": load_estaciones(escenario),
-        "Detalle de facturación": load_facturacion_detalle(escenario),
-        "Telemetría diaria": load_telemetria_diaria(escenario),
-    }
+    datasets = {ETIQUETAS_TABLAS.get(nombre, nombre): _leer_csv(nombre, escenario)
+                for nombre, _ in entidades_del_escenario(escenario)}
 
     stats = []
     for name, df in datasets.items():

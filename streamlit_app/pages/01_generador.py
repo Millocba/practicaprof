@@ -24,7 +24,8 @@ from data_loader import (
     load_solicitudes,
     load_facturacion,
     load_maestro_metadata,
-    get_maestro_datasets_info
+    get_maestro_datasets_info,
+    entidades_del_escenario,
 )
 
 st.set_page_config(page_title="Generador", page_icon="⚙️", layout="wide")
@@ -80,17 +81,18 @@ with col1:
 with col2:
     st.markdown("### 📊 Información")
 
+    # La lista sale del diccionario del generador: cambia con el escenario y no se desactualiza
+    entidades = entidades_del_escenario(escenario)
     info_lines = [
         "**Parámetros disponibles:**",
         "- n_flota: número de vehículos (50-500)",
         "- seed: para reproducibilidad",
         "",
-        "**Entidades generadas:**",
-        "- Flota (vehículos maestro)",
-        "- Telemetría (dispositivos GPS)",
-        "- Consumo (transacciones)",
-        "- Solicitudes (fuel requests)",
-        "- Facturación (facturas mensuales)"
+        f"**Entidades generadas ({len(entidades)}):**",
+        *[f"- {nombre}: {grano}" for nombre, grano in entidades],
+        "",
+        "**Además:** `ground_truth` (las anomalías inyectadas)"
+        + (" y `casos_legitimos` (los casos que parecen anomalías)." if escenario == "realista" else "."),
     ]
     st.info("\n".join(info_lines))
 
