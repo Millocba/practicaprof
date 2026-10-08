@@ -27,6 +27,7 @@ No trabajar directamente sobre `main`.
 
 - **Python 3.12**. Es la versión con la que se verifican los tests y la que usa CI.
 - `pip install -r requirements.txt` instala la aplicación y las herramientas de test. El despliegue usa solo `streamlit_app/requirements.txt`.
+- El `requirements.txt` de la raíz no lista `scikit-learn`, `streamlit`, `plotly` ni `openpyxl`, que los tests necesitan (están en `streamlit_app/requirements.txt`; pendiente). Con pandas 3 fallan algunos tests de fechas: usar `pandas<3`.
 - `python generator_pipeline_maestro.py` genera todos los datos sintéticos con la semilla por defecto; `--seed` y `--output` permiten otros escenarios sin pisar los datos locales.
 - `python -m perfilador perfilar archivo.xlsx` genera el perfil agregado de una fuente externa en `perfiles/pendientes/`; `aprobar` y `comparar` completan el procedimiento de [perfiles/README.md](../perfiles/README.md). Se ejecuta junto a los datos: los archivos no se copian al repositorio.
 - `python -m base_datos cargar` crea la base SQLite local del escenario realista (`datasets/auditoria_realista.db`, fuera de Git) y carga el dataset; `--hasta AAAA-MM-DD` hace una carga parcial, como una carga diaria.
