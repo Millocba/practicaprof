@@ -279,6 +279,12 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
             # Qué parte de las alertas tiene la firma de un error de carga (#24)
             causas = grupo.drop_duplicates("id_registro")["causa_probable"].value_counts()
             por_regla[regla]["causa_probable_pct"] = {c: _pct(int(n), len(ids)) for c, n in causas.items()}
+        if "documentada" in grupo.columns:
+            # Qué parte de las alertas ya se investigó y con qué resultado (#36): solo en agregado
+            con_resultado = grupo[grupo["documentada"]].drop_duplicates("id_registro")
+            por_regla[regla]["con_resultado_pct"] = _pct(len(con_resultado), len(ids))
+            por_regla[regla]["resultado_pct"] = {r: _pct(int(n), len(con_resultado))
+                                                 for r, n in con_resultado["resultado_observacion"].value_counts().items()}
 
     if datos.get("reclamos") is not None:
         diagnostico["reclamos"] = _reclamos(datos, alertas, set(alertas["regla"]))

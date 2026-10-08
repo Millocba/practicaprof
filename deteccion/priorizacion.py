@@ -136,6 +136,21 @@ def cargas_explicadas(alertas):
     return set(con_causa["id_registro"]) - sin
 
 
+def cargas_documentadas(alertas):
+    """Cargas con alguna alerta documentada, es decir, ya investigada (#36)."""
+    if "documentada" not in alertas.columns:
+        return set()
+    return set(alertas.loc[alertas["documentada"].fillna(False).astype(bool), "id_registro"])
+
+
+def resultado_de_cada_carga(alertas):
+    """El resultado documentado de cada carga (el primero si tiene varias alertas documentadas), o vacío."""
+    if "documentada" not in alertas.columns:
+        return pd.Series(dtype=object)
+    hechas = alertas[alertas["documentada"].fillna(False).astype(bool)]
+    return hechas.drop_duplicates("id_registro").set_index("id_registro")["resultado_observacion"]
+
+
 def causa_de_cada_carga(alertas):
     """La causa probable de cada carga (la primera distinta de sin explicación), o vacío."""
     if "causa_probable" not in alertas.columns:
@@ -215,14 +230,16 @@ def motivos(variables, alertas):
 def cola_de_revision(puntajes, metodo, consumo, variables, alertas, cantidad=50):
     """Las `cantidad` cargas a revisar primero según `metodo`, con sus motivos y su causa probable.
 
-    A igual puntaje, las cargas sin explicación van antes que las que tienen una causa probable de
-    error de carga (ver `_orden`).
+    Las cargas no investigadas y sin causa probable van antes que las que ya tienen una alerta
+    documentada (#36) o una causa probable de error de carga (ver `_orden`). Las documentadas siguen en
+    la cola, con su resultado: la alerta no desaparece.
     """
-    orden = _orden(puntajes[metodo], cargas_explicadas(alertas))[:cantidad]
+    orden = _orden(puntajes[metodo], cargas_explicadas(alertas) | cargas_documentadas(alertas))[:cantidad]
     datos = consumo.set_index("id").loc[orden, ["vehiculo_id", "fecha", "estacion", "litros", "odometro"]]
     causa = causa_de_cada_carga(alertas).reindex(orden).str.replace("_", " ").fillna("")
+    documentada = resultado_de_cada_carga(alertas).reindex(orden).str.replace("_", " ").fillna("")
     return (datos.join(motivos(variables.loc[orden], alertas))
-            .assign(causa_probable=causa.values, prioridad=range(1, len(orden) + 1),
+            .assign(causa_probable=causa.values, documentada=documentada.values, prioridad=range(1, len(orden) + 1),
                     puntaje=puntajes.loc[orden, metodo].round(3))
             .reset_index().rename(columns={"index": "id"}))
 

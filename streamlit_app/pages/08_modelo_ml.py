@@ -144,8 +144,8 @@ def modelo_supervisado(semillas):
 
 @st.cache_data(show_spinner=False)
 def puntuar(_modelo, clave_modelo, flota, consumo, estaciones, telemetria_diaria, solicitudes, facturacion,
-            facturacion_detalle, seed):
-    dataset = {"flota": flota, "consumo": consumo, "estaciones": estaciones, "telemetria_diaria": telemetria_diaria,
+            facturacion_detalle, seed, observaciones=None):
+    dataset = {"observaciones_alertas": observaciones, "flota": flota, "consumo": consumo, "estaciones": estaciones, "telemetria_diaria": telemetria_diaria,
                "solicitudes": solicitudes, "facturacion": facturacion, "facturacion_detalle": facturacion_detalle}
     return priorizacion.puntuar(dataset, _modelo, seed=seed)
 
@@ -183,7 +183,8 @@ def pagina_realista():
     with st.spinner("Puntuando las cargas..."):
         puntajes, variables, alertas = puntuar(modelo, semillas, flota, consumo, datos["estaciones"],
                                                datos["telemetria_diaria"], datos["solicitudes"],
-                                               datos["facturacion"], datos["facturacion_detalle"], seed)
+                                               datos["facturacion"], datos["facturacion_detalle"], seed,
+                                               datos["observaciones_alertas"])
 
     anomalas = ids_con_anomalia_de_comportamiento(ground_truth)
     legitimos = datos["casos_legitimos"]
@@ -254,7 +255,8 @@ def pagina_realista():
               "distingue de un número: es lo que permite que otra persona repita el criterio o "
               "lo discuta. La **causa probable** indica si la alerta tiene la firma de un error de carga "
               "(proveedor, dominio o tarjeta equivocados) para preparar la citación; a igual puntaje, "
-              "las cargas sin explicación van primero. Cambiá el método de ordenamiento arriba y la "
+              "las cargas sin explicación van primero. Una alerta **documentada** ya se investigó: muestra su "
+              "resultado, sigue en la cola y va después de las no investigadas. Cambiá el método de ordenamiento arriba y la "
               "cola se recalcula.")
     col1, col2 = st.columns([2, 1])
     with col1:
@@ -273,7 +275,8 @@ def pagina_realista():
         cola["resultado"] = cola["id"].map(tipo).radd("⚠️ ").fillna(
             cola["id"].map(caso).radd("✅ legítimo: ")).fillna(
             cola["id"].map(error).radd("🔧 error de carga: ")).fillna("normal")
-    columnas = ["prioridad", "id", "vehiculo_id", "fecha", "estacion", "litros", "odometro", "motivos", "reglas", "causa_probable"]
+    columnas = ["prioridad", "id", "vehiculo_id", "fecha", "estacion", "litros", "odometro", "motivos", "reglas", "causa_probable",
+                "documentada"]
     st.dataframe(cola[columnas + (["resultado"] if verificar else [])], use_container_width=True, hide_index=True)
     st.download_button("⬇️ Descargar la cola (CSV)", cola.to_csv(index=False), file_name="cola_de_revision.csv",
                        mime="text/csv")

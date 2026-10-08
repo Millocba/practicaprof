@@ -4,14 +4,14 @@ from pathlib import Path
 import pandas as pd
 
 ARCHIVOS = ["flota", "consumo", "ground_truth", "casos_legitimos", "estaciones", "telemetria", "telemetria_diaria",
-            "excepciones_odometro",
+            "excepciones_odometro", "observaciones_alertas",
             "solicitudes", "facturacion", "facturacion_detalle", "contratos", "transferencias"]
 
 
 def cargar_dataset(directorio):
     """Devuelve un dict con los DataFrames presentes en `directorio` (None si falta el archivo).
 
-    `casos_legitimos`, `estaciones`, `telemetria_diaria`, `contratos` y `transferencias` solo existen en el
+    `casos_legitimos`, `observaciones_alertas`, `estaciones`, `telemetria_diaria`, `contratos` y `transferencias` solo existen en el
     escenario realista.
     """
     directorio = Path(directorio)
