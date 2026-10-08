@@ -52,10 +52,11 @@ if flota.empty or consumo.empty or ground_truth.empty:
 @st.cache_data
 def calcular(flota, consumo, ground_truth, estaciones, telemetria_diaria, legitimos, solicitudes,
              facturacion, facturacion_detalle, contratos=None, transferencias=None, telemetria=None,
-             excepciones=None):
+             excepciones=None, observaciones=None):
     alertas = ejecutar_reglas(flota, consumo, estaciones, telemetria_diaria, solicitudes, facturacion,
                               facturacion_detalle, contratos=contratos, transferencias=transferencias,
-                              telemetria=telemetria, excepciones=excepciones)
+                              telemetria=telemetria, excepciones=excepciones,
+                              observaciones=observaciones)
     por_regla = evaluar_por_regla(alertas, ground_truth)
     if legitimos is not None:
         ids_legitimos = set(legitimos["id_registro"])
@@ -78,7 +79,7 @@ alertas, por_tipo, por_regla = calcular(flota, consumo, ground_truth, datos["est
                                         datos["telemetria_diaria"], legitimos, datos["solicitudes"],
                                         datos["facturacion"], datos["facturacion_detalle"],
                                         datos["contratos"], datos["transferencias"], datos["telemetria"],
-                                        datos["excepciones_odometro"])
+                                        datos["excepciones_odometro"], datos["observaciones_alertas"])
 
 if escenario == "didactico":
     st.warning(
@@ -105,10 +106,13 @@ col1.metric("Transacciones analizadas", f"{len(consumo):,}",
 col2.metric("Anomalías en el ground truth", f"{len(ground_truth):,}",
             help="Anomalías que el generador inyectó a propósito y dejó anotadas. Son la verdad "
                  "de referencia: ninguna regla las ve, solo se usan para medir después.")
+documentadas = int(alertas["documentada"].sum()) if "documentada" in alertas.columns else 0
 col3.metric("Alertas emitidas", f"{len(alertas):,}",
+            delta=f"{documentadas:,} documentadas" if documentadas else None, delta_color="off",
             help="Filas que produjo el conjunto de reglas. Suele ser mayor que la cantidad de "
                  "anomalías porque varias reglas pueden marcar la misma carga, y porque cada "
-                 "regla puede tener falsos positivos.")
+                 "regla puede tener falsos positivos. Una alerta documentada ya se investigó (#36): "
+                 "sigue contando como alerta.")
 col4.metric("Reglas", por_regla["regla"].nunique(),
             help="Reglas que corrieron con los datos disponibles. El número depende del "
                  "escenario: en el realista hay reglas con contexto que en el didáctico no "
