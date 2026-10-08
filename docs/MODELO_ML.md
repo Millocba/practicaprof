@@ -85,7 +85,7 @@ La dificultad principal es que **las fuentes reales no traen etiquetas**: nadie 
 
 1. **Sin etiquetas.**
    - Las reglas con contexto y el Isolation Forest arman la cola diaria.
-   - El auditor **registra el resultado de cada revisión**: confirmada, legítima o dato erróneo. Así se generan las etiquetas que faltan.
+   - El auditor **registra el resultado de cada revisión**: confirmada, legítima o dato erróneo. Así se generan las etiquetas que faltan. En la fuente esa etiqueta es la observación de la alerta (`observaciones_alertas`: `error_humano`, `facturacion_del_proveedor`, `faltante` o `sin_irregularidad`); la corrección solo se documenta, el dato de origen no se altera.
 2. **Con las primeras etiquetas** (algunos cientos de casos revisados).
    - Se entrena el Random Forest con casos reales y se valida con los meses más recientes, que el modelo no vio.
    - Se compara con la línea base (las reglas con contexto) y se adopta solo si encuentra más con el mismo esfuerzo.

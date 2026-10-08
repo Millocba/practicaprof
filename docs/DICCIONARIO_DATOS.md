@@ -59,6 +59,11 @@ flowchart LR
   casos_legitimos -->|"id_registro (N:1)"| facturacion_detalle
   casos_legitimos -->|"id_registro (N:1)"| solicitudes
   casos_legitimos -->|"id_registro (N:1)"| telemetria
+  observaciones_alertas -->|"id_registro (N:1)"| consumo
+  observaciones_alertas -->|"id_registro (N:1)"| facturacion
+  observaciones_alertas -->|"id_registro (N:1)"| facturacion_detalle
+  observaciones_alertas -->|"id_registro (N:1)"| solicitudes
+  observaciones_alertas -->|"id_registro (N:1)"| telemetria
   classDef evaluacion fill:#fdf1dc,stroke:#c9a15a
   class ground_truth,casos_legitimos evaluacion
 ```
@@ -84,6 +89,7 @@ flowchart LR
 | `facturacion_detalle` | `referencia_consumo` | `consumo` (`id`) | N:1 | realista | se rompe en LINEA_SIN_CONSUMO; dos líneas en LINEA_DUPLICADA |
 | `ground_truth` | `id_registro` | `consumo` / `facturacion` / `facturacion_detalle` / `solicitudes` / `telemetria` (`id`) | N:1 | ambos | según la columna tabla (en telemetria, el Alias); en tabla contrato_mes, el id es CTO-N|AAAA-MM |
 | `casos_legitimos` | `id_registro` | `consumo` / `facturacion` / `facturacion_detalle` / `solicitudes` / `telemetria` (`id`) | N:1 | realista | según la columna tabla (en telemetria, el Alias); en tabla contrato_mes, el id es CTO-N|AAAA-MM |
+| `observaciones_alertas` | `id_registro` | `consumo` / `facturacion` / `facturacion_detalle` / `solicitudes` / `telemetria` (`id`) | N:1 | realista | según la columna tabla; una alerta se identifica por id_registro y regla |
 
 En el escenario didáctico, `ground_truth` solo referencia cargas (`consumo`).
 
@@ -234,6 +240,7 @@ Cada vehículo se simula día por día desde un perfil propio que no forma parte
 | `excepciones_odometro.csv` | una excepción de odómetro, vigente o cumplida | ~7 (3 vigentes, como el 1,5% de la flota de la fuente) |
 | `ground_truth.csv` | una anomalía inyectada | ~125 |
 | `casos_legitimos.csv` | un caso legítimo que parece anomalía | ~200 |
+| `observaciones_alertas.csv` | una alerta ya investigada, con su resultado | ~85 (la mitad de los errores de carga y el 30% de las anomalías reales) |
 
 ### Diferencias con el escenario didáctico
 
@@ -321,6 +328,36 @@ Cargas que una regla ingenua marcaría como anomalía pero no lo son. No están 
 | `CONTINGENCIA` | ~1,1% de las cargas | La carga se registró por contingencia y no se duplicó; en el 30% hay otra carga del vehículo a menos de 12 horas, pero con otros litros |
 
 La columna `tabla` indica a qué tabla pertenece `id_registro`: `consumo`, `facturacion` o `facturacion_detalle`.
+
+### observaciones_alertas.csv
+
+Desde la versión 2.7. Ante una alerta se cita a quien hizo la solicitud, se investiga y se documenta el resultado. Regla acordada: **las correcciones solo se documentan; el dato de origen no se altera**. El error de carga sigue visible en el registro y la alerta sigue existiendo: lo que se agrega es la observación ligada a esa alerta. Por eso el generador no "arregla" nada después de inyectar un error, y los CSV de las fuentes son iguales con y sin esta tabla. No es entrada de las reglas: marca qué alertas ya se investigaron. Es también la etiqueta que le falta al modelo (etapa 1 de [MODELO_ML.md](MODELO_ML.md)): el resultado de cada investigación.
+
+| Columna | Descripción |
+|---|---|
+| `id` | Clave, `OBS-NNNNNNNN` |
+| `tabla` / `id_registro` | Registro alertado, como en `ground_truth` |
+| `regla` | Regla que emitió la alerta; con `id_registro` identifica la alerta |
+| `resultado` | `error_humano`, `facturacion_del_proveedor`, `faltante` o `sin_irregularidad` (los desenlaces del procedimiento); `pendiente` mientras no se investigó |
+| `fecha` | Fecha en que se documentó |
+| `observacion` | Texto libre y sintético. El perfilador y la auditoría no lo sacan |
+
+El generador (generador aleatorio propio, `seed + 7.000.003`) documenta el 50% de los errores de carga (`ERROR_PROVEEDOR`, `ERROR_DOMINIO` y `ERROR_TARJETA`) como `error_humano`, la carga y su pedido si alertó, y el 30% de las anomalías reales como `faltante` o, si son de facturación, `facturacion_del_proveedor`. Solo se documentan alertas que las reglas emiten. El resto queda sin observación, porque todavía no se investigó; el generador no produce filas `pendiente` ni `sin_irregularidad`. Las proporciones son provisorias: se ajustan con lo que muestre la fuente cuando haya observaciones, igual que la de errores de carga.
+
+En la detección, una alerta con observación se muestra como **documentada**, con su resultado, pero no sale de la cola ni de los conteos; en la cola de revisión van primero las no investigadas. La auditoría agregada, si la fuente trae una tabla equivalente, informa por regla solo qué parte de las alertas tiene resultado y su distribución, sin el texto.
+
+**Decisiones y consideraciones del diseño (#36)**
+
+- **Solo alertas que existen.** El generador corre las reglas sobre los datos ya generados y documenta únicamente alertas que se emiten: sin alerta no hay investigación. Una tabla fija de tipo de anomalía a regla no alcanzaba, porque algunas anomalías no las alerta su regla principal. `REGLA_DE_ANOMALIA` es la regla preferida; si no alertó, se usa la primera que sí. Por eso el generador importa `deteccion.reglas` al final de la generación (importación tardía, porque `deteccion` ya importa el generador) y tarda unos segundos más.
+- **Errores de carga.** Se documentan completos: la carga (`carga_sin_registro`) y, si alertó, su pedido (`rendida_sin_carga`). El pedido de un `ERROR_PROVEEDOR` no alerta, así que no se documenta.
+- **Una fila por alerta, no por registro.** La clave es `id_registro` + `regla`. Una carga con otras alertas (por ejemplo, un error de tarjeta que también dispara reglas de odómetro) solo documenta la de su fila; en la cola, la carga se considera documentada si alguna de sus alertas lo está.
+- **`pendiente` equivale a no investigada.** El generador no escribe filas `pendiente` ni `sin_irregularidad`: lo no investigado no tiene fila. Las reglas, la app y la auditoría tratan `pendiente` como no documentada.
+- **La fecha** se sortea entre 1 y 30 días antes de la fecha de referencia; no depende de la fecha del evento.
+- **Reproducibilidad.** Generador aleatorio propio (`seed + 7.000.003`) y aplicación al final: el resto del escenario no cambia. Un test compara las fuentes con y sin el paso.
+- **La cola y las cifras de priorización.** Solo la cola de revisión pone las documentadas después de las no investigadas (junto con las que tienen causa probable). La curva de esfuerzo, el recall por tipo y los vehículos prioritarios no las usan, así que las cifras del README no cambian. Si se quisiera medirlas con ese orden, cambiarían.
+- **Texto libre.** `observacion` no llega a las alertas ni a la auditoría; el adaptador de la auditoría descarta la columna. El perfilador ya la reconoce como texto libre por su nombre.
+- **Supuesto sobre la fuente.** El adaptador reconoce una tabla con las columnas `id_registro`, `regla`, `resultado` y `observacion`. Las columnas reales se confirman cuando se vea la tabla.
+- **Proporciones provisorias.** 50% de los errores de carga y 30% de las anomalías reales. La proporción de errores de carga (6, 6 y 4 cada 200 vehículos) no se tocó: se ajusta cuando la fuente muestre observaciones.
 
 ### Catálogo de anomalías del escenario realista
 
