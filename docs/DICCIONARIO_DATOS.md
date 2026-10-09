@@ -374,6 +374,34 @@ El reporte del proveedor indica el origen de cada transacción (`origen_transacc
 - **Otras reglas:** un doble cobro no es una carga más del vehículo, así que las reglas de odómetro, de cargas del día y del cruce con el registro no lo cuentan (como los duplicados de nuestro registro).
 - **Generador:** usa un generador aleatorio propio, por lo que no altera el resto del escenario; el escenario didáctico no trae la columna.
 
+### Relación de consumo (códigos del padrón)
+
+La columna `RelacionConsumo` del padrón es un código de una letra que indica cuántos kilómetros por litro rinde el vehículo. Dato del dominio, dado por el referente del área:
+
+| Código | Tipo de vehículo | Rendimiento |
+|:---:|---|---:|
+| A | Motocicleta | 50 km/L |
+| B | Motocicleta | 40 km/L |
+| C | Motocicleta | 30 km/L |
+| D | Motocicleta | 20 km/L |
+| E | Motocicleta | 10 km/L |
+| F | Sedán | 16 km/L |
+| G | Sedán | 14 km/L |
+| N | Sedán | 13 km/L |
+| H | Sedán / pick-up | 12 km/L |
+| O | Sedán / pick-up | 11 km/L |
+| I | Sedán / pick-up | 10 km/L |
+| P | Sedán / pick-up | 9 km/L |
+| J | Sedán / pick-up | 8 km/L |
+| Q | Sedán / pick-up | 7 km/L |
+| K | Sedán / pick-up | 6 km/L |
+| R | Sedán / pick-up | 5 km/L |
+| L | Vehículo de gran porte | 4 km/L |
+| S | Vehículo de gran porte | 3 km/L |
+| M | Vehículo de gran porte | 2 km/L |
+
+La **autonomía** de un vehículo es su capacidad de tanque por ese rendimiento: con el tanque lleno puede recorrer esa cantidad de kilómetros. Recorrer más que eso entre dos cargas, sin una carga intermedia, es una señal de revisión (H2c).
+
 ### Excepciones de odómetro (escenario realista)
 
 Como en la fuente, un vehículo con el odómetro sin funcionar o en reparación se exceptúa: el padrón lo indica en `ExcepcionOdometro` y `FechaHastaExcepcionOdometro`, y `excepciones_odometro.csv` guarda el historial (`id`, `patente`, `motivo` sintético, `activo`, `fecha_creacion`, `fecha_hasta`). Mientras rige, la carga repite la última lectura; una excepción puede durar un solo día. Por cada 200 vehículos: 3 con la excepción vigente hasta después del período, 3 con excepciones ya cumplidas (una de un solo día) y 3 anomalías `ODOMETRO_SIN_AVANCE`. Al terminar la excepción, la lectura vuelve al valor real. El dispositivo de telemetría (`Odometro`) sigue midiendo los km reales.
