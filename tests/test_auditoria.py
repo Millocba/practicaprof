@@ -296,3 +296,30 @@ def test_solo_los_meses_completos_del_reporte_se_concilian():
     dias = pd.concat([pd.Series(pd.date_range("2026-07-16", "2026-09-27")),
                       pd.Series(pd.date_range("2026-02-20", "2026-02-22"))])
     assert meses_completos(dias) == {"2026-08"}      # julio empieza a mitad de mes y septiembre sigue en curso
+
+
+def test_la_firma_del_consumo_exige_las_columnas_que_usa_el_adaptador():
+    """Un reporte viejo o incompleto que conserva las columnas mínimas no debe desplazar al bueno.
+
+    La selección prefiere la tabla más cruda (menos columnas): si la firma no exige todas las
+    columnas que el adaptador lee, un export viejo al que le falta alguna gana por tener menos
+    columnas y la traducción falla al pedir una que no está.
+    """
+    from perfilador.adaptador import buscar
+
+    columnas = ["FECHA", "TIPO IDENTIFICACION TARJETA", "IDENTIFICACION TARJETA", "TARJETA", "REMITO",
+                "ESTABLECIMIENTO", "PRODUCTO", "LITROS UNIDADES", "PRECIO PVP ESTABLECIMIENTO",
+                "IMP TOT PVP ESTABLECIMIENTO", "ODOMETRO"]
+    bueno = pd.DataFrame(columns=columnas)
+    viejo = bueno.drop(columns=["IDENTIFICACION TARJETA"])
+    tablas = {"reporte": bueno, "reporte_viejo": viejo}
+    assert buscar(tablas, "consumo") is bueno
+
+
+def test_el_adaptador_ignora_un_reporte_de_consumo_incompleto(sintetico):
+    """Con un export viejo presente, el adaptador sigue leyendo el reporte completo."""
+    tablas = con_forma_real(sintetico)
+    tablas["reporte_viejo"] = tablas["reporte"].drop(columns=["IDENTIFICACION TARJETA"])
+    datos, diagnostico = adaptar(tablas, proveedor="proveedor zeta")
+    assert "consumo" in diagnostico["fuentes_encontradas"]
+    assert len(datos["consumo"]) == len(sintetico["consumo"])
