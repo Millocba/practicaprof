@@ -88,7 +88,8 @@ def con_forma_real(s):
     return {"padron": padron, "reporte": reporte, "interno": interno, "fact_contratos": contratos.rename(
         columns={"limite_mensual": "limite"})[["numero", "limite"]], "fact_periodos": periodos, "fact_facturas": fact,
         "fact_transacciones": lineas, "dispositivos": dispositivos, "moviles_exceptuados": exceptuados,
-        "base.reclamos_combustible": reclamos_con_forma_real(consumo, reporte, flota)}
+        "base.reclamos_combustible": reclamos_con_forma_real(consumo, reporte, flota),
+        "base.observaciones_alertas": s["observaciones_alertas"]}
 
 
 def reclamos_con_forma_real(consumo, reporte, flota):
@@ -200,6 +201,24 @@ def test_la_salida_no_tiene_datos_de_los_reclamos(resultado, sintetico):
                   reclamos["nro_ticket"].dropna().iloc[0], reclamos["patente"].iloc[0],
                   reclamos["numero_tarjeta"].iloc[0]]:
         assert str(valor) not in texto
+
+
+def test_las_observaciones_se_informan_solo_en_agregado(resultado, sintetico):
+    """Por regla, qué parte de las alertas tiene resultado y su distribución; nunca el texto (#36)."""
+    reglas = resultado["reglas"]
+    con_resultado = {r: v for r, v in reglas.items() if v.get("resultado_pct")}
+    assert con_resultado, "alguna regla debería tener alertas documentadas"
+    for v in con_resultado.values():
+        # Los grupos de menos de 20 casos no se publican (None), como el resto de la auditoría
+        assert v["con_resultado_pct"] is None or 0 < v["con_resultado_pct"] <= 100
+        assert set(v["resultado_pct"]) <= {"error_humano", "facturacion_del_proveedor", "faltante",
+                                           "sin_irregularidad", "otro"}
+        assert all(p is None or 0 < p <= 100 for p in v["resultado_pct"].values())
+    texto = json.dumps(resultado, ensure_ascii=False)
+    for observacion in set(sintetico["observaciones_alertas"]["observacion"]):
+        assert observacion not in texto
+    datos, _ = adaptar(con_forma_real(sintetico), proveedor="proveedor zeta")
+    assert "observacion" not in datos["observaciones_alertas"].columns
 
 
 def test_un_reclamo_sin_ticket_se_vincula_por_patente_y_hora():

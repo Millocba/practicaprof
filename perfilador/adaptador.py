@@ -28,6 +28,8 @@ FIRMAS = {
     "periodos": {"id", "fecha_inicio", "fecha_fin"},
     "excepciones_odometro": {"patente", "motivo", "activo", "fecha_hasta"},
     "reclamos": {"tipo_alerta", "estado_reclamo", "monto_reclamable", "nro_ticket"},
+    # Supuesto (#36): las columnas de la fuente se confirman cuando se vea la tabla real
+    "observaciones_alertas": {"id_registro", "regla", "resultado", "observacion"},
 }
 HASTA_SIN_FECHA = "2100-01-01"   # una excepción activa sin fecha hasta rige indefinidamente
 MINUTOS_VINCULO_RECLAMO = 15     # un reclamo sin ticket se vincula con la carga del vehículo más cercana en el tiempo
@@ -39,6 +41,10 @@ TIPOS_RECLAMO = {"doble_cobro": ("doble", "duplicidad"), "cargas_multiples": ("m
                  "odometro_estancado": ("odometro",)}
 ESTADOS_RECLAMO = {"pendiente": ("pend",), "en_disputa": ("disput",), "nota_de_credito": ("nota", "credito"),
                    "rechazado": ("rechaz",)}
+# Resultados de las observaciones (#36); cualquier otro valor queda como "otro"
+RESULTADOS_OBSERVACION = {"error_humano": ("error", "humano"), "facturacion_del_proveedor": ("factur", "proveedor"),
+                          "faltante": ("faltante",), "sin_irregularidad": ("sin_irreg", "sin irreg"),
+                          "pendiente": ("pend",)}
 
 
 def _categoria(serie, categorias):
@@ -274,6 +280,13 @@ def adaptar(tablas, proveedor=None):
     reclamos = buscar(tablas, "reclamos")
     if reclamos is not None:
         datos["reclamos"] = _reclamos(reclamos, datos["consumo"], por_dominio)
+
+    observaciones = buscar(tablas, "observaciones_alertas")
+    if observaciones is not None:
+        # Solo la alerta y su resultado; el texto de la observación es libre y no se copia
+        datos["observaciones_alertas"] = pd.DataFrame({
+            "id_registro": _texto(observaciones["id_registro"]), "regla": _texto(observaciones["regla"]),
+            "resultado": _categoria(observaciones["resultado"], RESULTADOS_OBSERVACION)})
 
     dispositivos = buscar(tablas, "dispositivos")
     if dispositivos is not None:

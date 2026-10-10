@@ -27,7 +27,7 @@ ARCHIVOS_REQUERIDOS = {
     "didactico": _COMUNES,
     "realista": _COMUNES + ["casos_legitimos.csv", "estaciones.csv", "telemetria_diaria.csv",
                             "facturacion_detalle.csv", "contratos.csv", "transferencias.csv",
-                            "excepciones_odometro.csv"],
+                            "excepciones_odometro.csv", "observaciones_alertas.csv"],
 }
 
 # Parámetros del dataset que se genera automáticamente si no hay datos
@@ -193,6 +193,12 @@ def load_contratos(escenario="realista"):
 
 
 @st.cache_data
+def load_observaciones_alertas(escenario="realista"):
+    """Alertas ya investigadas y su resultado (solo escenario realista)."""
+    return _leer_csv("observaciones_alertas", escenario)
+
+
+@st.cache_data
 def load_transferencias(escenario="realista"):
     """Transferencias de saldo entre contratos (solo escenario realista)."""
     return _leer_csv("transferencias", escenario)
@@ -225,6 +231,7 @@ def load_dataset_deteccion(escenario):
         "transferencias": o_none(load_transferencias(escenario)) if realista else None,
         "telemetria": o_none(load_telemetria(escenario)) if realista else None,
         "excepciones_odometro": o_none(load_excepciones_odometro(escenario)) if realista else None,
+        "observaciones_alertas": o_none(load_observaciones_alertas(escenario)) if realista else None,
     }
 
 

@@ -21,7 +21,7 @@ from generator_pipeline_maestro import (
 
 ARCHIVOS = ["flota", "estaciones", "telemetria", "telemetria_diaria", "consumo", "solicitudes",
             "facturacion", "facturacion_detalle", "contratos", "transferencias", "ground_truth", "casos_legitimos",
-            "excepciones_odometro"]
+            "excepciones_odometro", "observaciones_alertas"]
 
 
 def generar(directorio, seed=42, n_flota=200):

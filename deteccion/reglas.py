@@ -922,6 +922,26 @@ def asignar_causa_probable(alertas, causas):
     return alertas.assign(detalle=detalle, causa_probable=causa)
 
 
+RESULTADO_PENDIENTE = "pendiente"
+
+
+def asignar_observacion(alertas, observaciones):
+    """Agrega `documentada` y `resultado_observacion`: qué alertas ya se investigaron y con qué resultado (#36).
+
+    Se cruza por `id_registro` y `regla`. Una alerta documentada sigue siendo una alerta: no sale de los
+    conteos ni de la cola. El texto de la observación no se trae: es texto libre. `pendiente` equivale a
+    no investigada.
+    """
+    if observaciones is None or observaciones.empty:
+        return alertas
+    hechas = observaciones[observaciones["resultado"] != RESULTADO_PENDIENTE]
+    resultado = hechas.drop_duplicates(["id_registro", "regla"], keep="last").set_index(
+        ["id_registro", "regla"])["resultado"]
+    claves = pd.MultiIndex.from_frame(alertas[["id_registro", "regla"]])
+    encontrado = pd.Series(resultado.reindex(claves).to_numpy(), index=alertas.index)
+    return alertas.assign(documentada=encontrado.notna(), resultado_observacion=encontrado)
+
+
 def detectar_conciliacion_mensual(consumo, facturacion, excluir_ids=()):
     """H9 (ingenua): el consumo del mes de cada contrato, a precio del surtidor (como se sigue la
     ejecución del cupo), no coincide con el total facturado del contrato en el mes."""
@@ -1122,12 +1142,13 @@ def reglas_del_dataset(datos):
     return ejecutar_reglas(datos["flota"], datos["consumo"], datos.get("estaciones"), datos.get("telemetria_diaria"),
                            datos.get("solicitudes"), datos.get("facturacion"), datos.get("facturacion_detalle"),
                            contratos=datos.get("contratos"), transferencias=datos.get("transferencias"),
-                           telemetria=datos.get("telemetria"), excepciones=datos.get("excepciones_odometro"))
+                           telemetria=datos.get("telemetria"), excepciones=datos.get("excepciones_odometro"),
+                           observaciones=datos.get("observaciones_alertas"))
 
 
 def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, solicitudes=None,
                     facturacion=None, facturacion_detalle=None, contratos=None, transferencias=None,
-                    telemetria=None, excepciones=None):
+                    telemetria=None, excepciones=None, observaciones=None):
     """Aplica todas las reglas disponibles y devuelve las alertas concatenadas.
 
     Las reglas con contexto se agregan cuando existen las fuentes que necesitan: fecha
@@ -1225,4 +1246,4 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
     if "FechaEstado" in flota.columns and solicitudes is not None and "hora" in consumo.columns \
             and "rendido" in solicitudes.columns:
         alertas = asignar_causa_probable(alertas, causas_probables(consumo, solicitudes, flota))
-    return alertas
+    return asignar_observacion(alertas, observaciones)

@@ -42,7 +42,7 @@ DIRECTORIOS_ESCENARIO = {
 SEED = 42
 # Versión de los datos que produce el generador: cambiarla cuando cambie lo que genera, así la
 # aplicación regenera los datos que tenga en disco de una versión anterior
-VERSION_GENERADOR = "2.6"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md); 2.1: horas del día en el orden del odómetro; 2.2: forma de cargar calibrada; 2.3: excepciones de odómetro; 2.4: textos del diccionario; 2.5: origen de la transacción (H13); 2.6: errores de carga en el registro interno
+VERSION_GENERADOR = "2.7"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md); 2.1: horas del día en el orden del odómetro; 2.2: forma de cargar calibrada; 2.3: excepciones de odómetro; 2.4: textos del diccionario; 2.5: origen de la transacción (H13); 2.6: errores de carga en el registro interno; 2.7: observaciones de las alertas
 
 # Ventana temporal de los datos: consumos y solicitudes entre FECHA_INICIO y
 # FECHA_INICIO + DIAS_VENTANA. FECHA_REFERENCIA hace de "ahora" para la telemetría.
@@ -307,6 +307,41 @@ ERRORES_DE_CARGA = {
     "ERROR_DOMINIO": 6,     # el pedido se registra con el dominio de otro vehículo
     "ERROR_TARJETA": 4,     # se carga con la tarjeta de otro vehículo: el reporte atribuye la carga a ese
 }
+# Observaciones de las alertas (#36): ante una alerta se cita a quien hizo la solicitud, se investiga y se
+# documenta el resultado. La corrección solo se documenta: el dato de origen no se altera. Proporciones
+# provisorias, a ajustar con lo que muestre la fuente.
+PROB_DOCUMENTAR_ERROR_DE_CARGA = 0.5   # de los errores de carga, los que ya se investigaron
+PROB_DOCUMENTAR_ANOMALIA = 0.3         # de las anomalías reales, las que ya se investigaron
+RESULTADOS_OBSERVACION = ("error_humano", "facturacion_del_proveedor", "faltante", "sin_irregularidad", "pendiente")
+COLUMNAS_OBSERVACIONES = ["id", "tabla", "id_registro", "regla", "resultado", "fecha", "observacion"]
+# Regla preferida para documentar cada tipo de anomalía (la de contexto, si hay varias); si no alertó, la primera que sí
+REGLA_DE_ANOMALIA = {
+    "ANULADA_CON_CARGA": "carga_de_registro_anulado", "CARGA_CON_CUPO_AGOTADO": "carga_con_saldo_agotado",
+    "CARGA_FUERA_DE_ZONA": "carga_lejos_del_gps", "CARGA_SIN_REGISTRO": "carga_sin_registro",
+    "CARGA_SUPERA_AUTORIZADO": "supera_autorizado_con_tolerancia", "CARGA_VEHICULO_INACTIVO": "carga_vehiculo_inactivo",
+    "DESACUERDO_DE_LITROS": "desacuerdo_de_litros", "DIFERENCIA_DEUDA_PDF": "pdf_no_concilia",
+    "DISPOSITIVO_ACTIVO_EN_BAJA": "dispositivo_activo_en_baja", "DOBLE_COBRO": "doble_cobro",
+    "DOMINIO_INVALIDO": "dominio_sin_vinculo_normalizado", "DUPLICADO": "duplicado_exacto",
+    "EXCESO_VOLUMETRICO": "exceso_sin_antecedente", "FACTURADA_A_PRECIO_DE_SURTIDOR": "precio_de_surtidor",
+    "FRACCIONAMIENTO": "fraccionamiento_sin_recorrido", "LINEA_DUPLICADA": "linea_duplicada",
+    "LINEA_SIN_CONSUMO": "linea_sin_consumo", "ODOMETRO_REGRESIVO": "retroceso_con_contexto",
+    "ODOMETRO_REGRESIVO_LEVE": "retroceso_con_contexto", "ODOMETRO_SALTO": "salto_con_contexto",
+    "ODOMETRO_SIN_AVANCE": "odometro_sin_avance", "PRODUCTO_NO_COMBUSTIBLE": "producto_no_combustible",
+    "RENDIDA_SIN_CARGA": "rendida_sin_carga", "RENDIMIENTO_IMPOSIBLE": "rendimiento_bajo_gps",
+    "SOBREPRECIO": "sobreprecio", "TOTAL_INFLADO": "factura_no_concilia",
+    "TRANSFERENCIA_SIN_NECESIDAD": "transferencia_no_justificada",
+}
+# Un error de carga alerta la carga (sin pedido) y, salvo el de proveedor, también el pedido (sin carga)
+REGLA_DE_ERROR_DE_CARGA = {"consumo": "carga_sin_registro", "solicitudes": "rendida_sin_carga"}
+OBSERVACIONES = {
+    "error_humano": ["Se citó a quien hizo el pedido: fue un error de carga y ya se corrigió en el registro interno.",
+                     "El solicitante confirmó el error al cargar el pedido."],
+    "facturacion_del_proveedor": ["El proveedor reconoció una diferencia en la facturación y emitirá el ajuste.",
+                                  "La diferencia proviene de la liquidación del proveedor."],
+    "faltante": ["La carga no tiene respaldo y se pasa a revisión del área responsable.",
+                 "El solicitante no pudo justificar la carga: queda como faltante."],
+}
+TABLAS_DE_FACTURACION = ("facturacion", "facturacion_detalle")
 PROB_DESFASE_DE_CORTE = 0.5         # cargas del último día del mes facturadas al mes siguiente
 TASAS_CALIDAD_REALISTA = {"DOMINIO_INVALIDO": 0.003, "VALOR_NULO": 0.005, "DUPLICADO": 0.003}
 
@@ -572,6 +607,19 @@ TABLAS = {
             "descripcion": ("texto", "Detalle legible"),
         },
     },
+    "observaciones_alertas": {
+        "grano": "la observación de una alerta investigada (la corrección se documenta; el dato de origen no se altera)",
+        "clave": "id", "escenarios": REALISTA,
+        "columnas": {
+            "id": ("texto", "Clave de la observación, OBS-NNNNNNNN"),
+            "tabla": ("categoría", "Tabla del registro alertado"),
+            "id_registro": ("texto", "Clave del registro alertado en esa tabla"),
+            "regla": ("texto", "Regla que emitió la alerta"),
+            "resultado": ("categoría", "error_humano, facturacion_del_proveedor, faltante, sin_irregularidad o pendiente (todavía no se investigó)"),
+            "fecha": ("fecha", "Fecha en que se documentó el resultado"),
+            "observacion": ("texto", "Texto libre y sintético con el resultado de la investigación"),
+        },
+    },
     "casos_legitimos": {
         "grano": "un caso legítimo que se parece a una anomalía", "clave": "tabla + id_registro",
         "escenarios": REALISTA,
@@ -610,6 +658,8 @@ RELACIONES = [
      "se rompe en LINEA_SIN_CONSUMO; dos líneas en LINEA_DUPLICADA"),
     ("ground_truth", "id_registro", "consumo / facturacion / facturacion_detalle / solicitudes / telemetria", "id",
      "N:1", AMBOS, "según la columna tabla (en telemetria, el Alias); en tabla contrato_mes, el id es CTO-N|AAAA-MM"),
+    ("observaciones_alertas", "id_registro", "consumo / facturacion / facturacion_detalle / solicitudes / telemetria", "id",
+     "N:1", REALISTA, "según la columna tabla; una alerta se identifica por id_registro y regla"),
     ("casos_legitimos", "id_registro", "consumo / facturacion / facturacion_detalle / solicitudes / telemetria", "id",
      "N:1", REALISTA, "según la columna tabla (en telemetria, el Alias); en tabla contrato_mes, el id es CTO-N|AAAA-MM"),
 ]
@@ -1700,6 +1750,59 @@ class GeneradorMaestro:
                 self._registrar_anomalia("solicitudes", pedido, solicitudes.at[j, "vehiculo_id"], tipo, "registro", detalle)
         self.metadata['generadores_ejecutados'].append('errores_de_carga')
 
+    def aplicar_observaciones(self):
+        """Realista: documenta una parte de las alertas como ya investigadas (#36), con un generador aleatorio propio.
+
+        Ante una alerta se cita a quien hizo la solicitud, se investiga y se documenta el resultado.
+        La corrección solo se documenta: ningún dato de origen cambia, el error de carga sigue en el
+        registro y la alerta sigue existiendo. Se documenta una parte de los errores de carga
+        (`error_humano`) y de las anomalías reales (`faltante`, o `facturacion_del_proveedor` si es de
+        facturación); el resto queda sin observación, porque todavía no se investigó. Solo se documentan
+        alertas que las reglas emiten: sin alerta no hay investigación. Se aplica al final y no modifica
+        ninguna fuente: lo único que cambia es la tabla nueva.
+        """
+        from deteccion.reglas import reglas_del_dataset   # importación tardía: deteccion usa este módulo
+
+        rng = random.Random(self.seed + 7_000_003)
+        alertas = reglas_del_dataset({**self.datasets, "observaciones_alertas": None})
+        reglas_de = alertas.groupby(["id_registro", "tipo_anomalia"])["regla"].agg(lambda r: sorted(set(r))).to_dict()
+        reglas_de_id = alertas.groupby("id_registro")["regla"].agg(set).to_dict()
+        filas = []
+
+        def documentar(tabla, id_registro, regla, resultado):
+            fecha = (FECHA_REFERENCIA - timedelta(days=rng.randint(1, 30))).strftime("%Y-%m-%d")
+            filas.append({"tabla": tabla, "id_registro": id_registro, "regla": regla, "resultado": resultado,
+                          "fecha": fecha, "observacion": rng.choice(OBSERVACIONES[resultado])})
+
+        # Un error de carga se investiga completo: la carga y, si alertó, su pedido (van seguidos en la lista)
+        errores = {}
+        for a in self.anomalias:
+            if a["tipo_anomalia"] in ERRORES_DE_CARGA:
+                errores.setdefault(a["tipo_anomalia"], []).append(a)
+        for registros in errores.values():
+            for k in range(0, len(registros), 2):
+                if rng.random() < PROB_DOCUMENTAR_ERROR_DE_CARGA:
+                    for a in registros[k:k + 2]:
+                        regla = REGLA_DE_ERROR_DE_CARGA[a["tabla"]]
+                        if regla in reglas_de_id.get(a["id_registro"], ()):
+                            documentar(a["tabla"], a["id_registro"], regla, "error_humano")
+        for a in self.anomalias:
+            if a["tipo_anomalia"] in ERRORES_DE_CARGA or rng.random() >= PROB_DOCUMENTAR_ANOMALIA:
+                continue
+            reglas = reglas_de.get((a["id_registro"], a["tipo_anomalia"]), [])
+            if not reglas:
+                continue
+            preferida = REGLA_DE_ANOMALIA.get(a["tipo_anomalia"])
+            resultado = "facturacion_del_proveedor" if a["tabla"] in TABLAS_DE_FACTURACION else "faltante"
+            documentar(a["tabla"], a["id_registro"], preferida if preferida in reglas else reglas[0], resultado)
+
+        df = pd.DataFrame(filas, columns=[c for c in COLUMNAS_OBSERVACIONES if c != "id"])
+        df.insert(0, "id", [f"OBS-{i:08d}" for i in range(1, len(df) + 1)])
+        self.datasets["observaciones_alertas"] = df
+        self.metadata['generadores_ejecutados'].append('observaciones_alertas')
+        logger.info(f"✓ OBSERVACIONES generadas: {len(df)} alertas documentadas")
+        return df
+
     def _asignar_contratos(self):
         """Cada vehículo (y su tarjeta) pertenece a un contrato. Generador aleatorio propio."""
         self._rng_contratos = random.Random(self.seed + 2_000_003)
@@ -2381,6 +2484,7 @@ class GeneradorMaestro:
                 self.aplicar_formatos_de_origen()
                 self.generar_contratos_realista()
                 self.aplicar_telemetria_de_bajas()
+                self.aplicar_observaciones()
             else:
                 self.generar_solicitudes()
                 self.generar_facturacion()
