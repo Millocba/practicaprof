@@ -273,6 +273,22 @@ def _es_error_de_tipeo(s):
     return hueco | rebote_tras_pico | pico | rebote_tras_hueco
 
 
+def forma_de_los_retrocesos(secuencia):
+    """Cómo se ve cada retroceso del odómetro, para saber si es la otra cara de un salto mal tipeado.
+
+    - `tras_un_salto`: la lectura anterior quedó muy por encima y esta vuelve a la secuencia de antes.
+    - `lectura_baja_aislada`: esta lectura queda muy por debajo y la siguiente vuelve a la secuencia.
+    - `otro`: ninguna de las dos (por ejemplo, un retroceso leve).
+    """
+    s = _vecinos_de_odometro(secuencia)
+    retroceso = s["km"] < 0
+    desvio = (s["anterior"] - s["odometro"]).abs() > DESVIO_TIPEO_KM
+    tras_un_salto = retroceso & (s["anterior2"] <= s["odometro"]) & desvio
+    aislada = retroceso & ~tras_un_salto & (s["siguiente"] >= s["anterior"]) & desvio
+    forma = pd.Series("otro", index=s.index).mask(aislada, "lectura_baja_aislada").mask(tras_un_salto, "tras_un_salto")
+    return forma[retroceso]
+
+
 def cargas_exceptuadas(consumo, flota, excepciones=None):
     """Ids de las cargas hechas con una excepción de odómetro vigente ese día.
 

@@ -20,7 +20,7 @@ from deteccion.hipotesis import hipotesis_del_escenario, reglas_de
 from deteccion.modelo import construir_variables, entrenar_isolation_forest, ids_con_anomalia_de_comportamiento
 from deteccion.priorizacion import REGLAS_CONTEXTO, entrenar_supervisado
 from deteccion.reglas import (ESTACION_AJENA, cargas_exceptuadas, cargas_fuera_del_reporte, cruzar_registro,
-                              leer_fecha, reglas_del_dataset)
+                              forma_de_los_retrocesos, leer_fecha, reglas_del_dataset, secuencia_odometro)
 from perfilador.adaptador import adaptar
 from perfilador.controles import acotar
 from perfilador.perfil import MINIMO_GRUPO, VERSION, cuantil_publicable, dos_cifras
@@ -110,6 +110,13 @@ def _odometro(datos, alertas):
         "sin_avance_el_mismo_dia_o_con_excepcion": acotar(len(sin_avance - sin_excepcion)),
         "sin_avance_sin_excepcion": acotar(len(sin_excepcion)),
     }
+
+
+def _retrocesos(consumo):
+    """Retrocesos del odómetro según su forma (H2): cuántos son la otra cara de un salto mal tipeado."""
+    formas = forma_de_los_retrocesos(secuencia_odometro(consumo)).value_counts()
+    return {"total": acotar(int(formas.sum())),
+            **{forma: acotar(int(formas.get(forma, 0))) for forma in ("tras_un_salto", "lectura_baja_aislada", "otro")}}
 
 
 # Qué hipótesis anticipa cada tipo de reclamo de la fuente
@@ -269,6 +276,7 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
 
     alertas = reglas_del_dataset(datos)
     diagnostico["odometro"] = _odometro(datos, alertas)
+    diagnostico["odometro"]["retrocesos"] = _retrocesos(datos["consumo"])
     diagnostico["cobertura"] = _cobertura(datos, alertas, registro_del_periodo if registro is not None else None)
     por_regla = {}
     for regla, grupo in alertas.groupby("regla"):
