@@ -385,3 +385,21 @@ def test_h8_cuenta_los_errores_de_carga_como_aciertos():
 
     h8 = next(h for h in HIPOTESIS if h["codigo"] == "H8")
     assert {"ERROR_PROVEEDOR", "ERROR_DOMINIO", "ERROR_TARJETA"} <= set(h8["tipos"])
+
+
+def test_forma_de_los_retrocesos_distingue_el_rebote_tras_un_salto_de_la_lectura_baja_aislada():
+    import pandas as pd
+
+    from deteccion.reglas import forma_de_los_retrocesos, secuencia_odometro
+
+    def vehiculo(nombre, lecturas):
+        return [{"id": f"{nombre}-{i}", "vehiculo_id": nombre, "fecha": f"2026-01-{i + 1:02d}", "odometro": o}
+                for i, o in enumerate(lecturas)]
+
+    consumo = pd.DataFrame(
+        vehiculo("A", [10000, 10100, 110200, 10300, 10400])      # pico mal tipeado y rebote
+        + vehiculo("B", [20000, 20100, 5200, 20300, 20400])      # una lectura baja aislada
+        + vehiculo("C", [30000, 30100, 30090, 30200, 30300]))    # retroceso leve
+    forma = forma_de_los_retrocesos(secuencia_odometro(consumo))
+    assert forma.to_dict() == {forma.index[0]: "tras_un_salto", forma.index[1]: "lectura_baja_aislada",
+                               forma.index[2]: "otro"}
