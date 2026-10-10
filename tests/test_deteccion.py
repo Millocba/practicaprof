@@ -403,3 +403,14 @@ def test_forma_de_los_retrocesos_distingue_el_rebote_tras_un_salto_de_la_lectura
     forma = forma_de_los_retrocesos(secuencia_odometro(consumo))
     assert forma.to_dict() == {forma.index[0]: "tras_un_salto", forma.index[1]: "lectura_baja_aislada",
                                forma.index[2]: "otro"}
+
+
+def test_las_lineas_se_comparan_con_el_precio_aunque_el_consumo_tenga_ids_nulos():
+    """H9: una carga sin remito queda con id nulo; eso no debe romper la comparación de precios."""
+    from deteccion.reglas import detectar_irregularidades_de_linea
+
+    consumo = pd.DataFrame({"id": ["c1", None, None], "precio_unitario": [100.0, 90.0, 95.0]})
+    detalle = pd.DataFrame({"concepto": ["COMBUSTIBLE"], "numero_linea": [1],
+                            "referencia_consumo": ["c1"], "precio_unitario": [150.0]})
+    alertas = detectar_irregularidades_de_linea(consumo, detalle)
+    assert "SOBREPRECIO" in set(alertas["tipo_anomalia"])

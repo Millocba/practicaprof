@@ -1010,7 +1010,9 @@ def detectar_irregularidades_de_linea(consumo, facturacion_detalle):
     sin_consumo = lineas[~lineas["referencia_consumo"].isin(consumo["id"])]
     duplicadas = lineas[lineas.duplicated("referencia_consumo", keep="first")
                         & lineas["referencia_consumo"].isin(consumo["id"])]
-    precio = consumo.set_index("id")["precio_unitario"]
+    # Una carga sin remito queda con id nulo: no puede referenciarla ninguna línea y su índice
+    # repetido rompería el mapeo, así que se excluye (y se deduplica por las dudas)
+    precio = consumo.dropna(subset=["id"]).drop_duplicates("id").set_index("id")["precio_unitario"]
     con_precio = lineas.assign(precio_carga=lineas["referencia_consumo"].map(precio)).dropna(subset=["precio_carga"])
     sobreprecio = con_precio[con_precio["precio_unitario"] > con_precio["precio_carga"] * (1 + TOLERANCIA_PRECIO)]
     al_surtidor = con_precio[(con_precio["precio_unitario"] >= con_precio["precio_carga"] * (1 - MARGEN_PRECIO_SURTIDOR))
