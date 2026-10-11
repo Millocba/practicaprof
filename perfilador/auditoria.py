@@ -347,9 +347,10 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
         instante_carga = pd.to_datetime(consumo["fecha"]) + pd.to_timedelta(consumo["hora"])
         instante_pedido = leer_fecha(registro["fecha"]) + pd.to_timedelta(registro["hora"].fillna("00:00:00"))
         pares = voraz["registro_id"].dropna()
-        # Usar índices originales para evitar duplicados en el eje al reindexar
-        ic = pd.Series(instante_carga.values, index=consumo.index)
-        ip = pd.Series(instante_pedido.values, index=registro.index)
+        # Por id, sin los ids nulos ni repetidos (una carga sin remito no tiene id): un eje con etiquetas
+        # duplicadas no se puede reindexar
+        ic = pd.Series(instante_carga.values, index=consumo["id"]).pipe(lambda s: s[s.index.notna() & ~s.index.duplicated()])
+        ip = pd.Series(instante_pedido.values, index=registro["id"]).pipe(lambda s: s[s.index.notna() & ~s.index.duplicated()])
         minutos = ((ic.reindex(pares.index).values
                     - ip.reindex(pares.values).values) / np.timedelta64(1, "m"))
         cruce = {"cargas_con_pedido_cruce_voraz_pct": _pct(voraz["registro_id"].notna().sum(), len(voraz)),

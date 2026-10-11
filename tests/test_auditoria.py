@@ -153,6 +153,7 @@ def test_la_auditoria_corre_las_hipotesis_con_datos(resultado):
     assert odometro["sin_avance_con_excepcion"] not in (0, "1–19")      # el historial cubre las repetidas
     assert not {"H6", "H7", "H10"} & set(resultado["hipotesis"])   # faltan las fuentes que necesitan
     assert resultado["cruce_registro"]["cargas_con_pedido_cruce_con_contexto_pct"] > 90
+    assert resultado["cruce_registro"]["minutos_de_la_carga_despues_del_pedido"] is not None  # el desfase pedido-carga (H8)
     assert resultado["modelos"]["variables"]["ratio_litros_tanque"]["real"] is not None
 
 
