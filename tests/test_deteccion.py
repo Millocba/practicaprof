@@ -345,6 +345,52 @@ def test_causa_probable_de_cada_error_de_carga():
                       "C3": "tarjeta_equivocada"}     # C3 cierra el tramo que abrió X en V3
 
 
+def test_el_cruce_de_causas_por_bloques_equivale_al_cruce_completo():
+    """El cruce de las cargas sin pedido con los candidatos del registro se hace por bloques de
+    tiempo: un cruce completo multiplicaría filas (cada carga sin pedido por cada candidato).
+    Por bloques tiene que dar exactamente lo mismo que completo."""
+    from deteccion import reglas as modulo
+    from deteccion.reglas import ESTACION_AJENA, causas_probables
+
+    flota = pd.DataFrame({"Matricula": ["V1", "V2", "V3"], "Dominio": ["ZA001AA", "ZA002AA", "ZA003AA"],
+                          "NumeroTarjeta": ["T1", "T2", "T3"]})
+    dominio = dict(zip(flota["Matricula"], flota["Dominio"]))
+    tarjeta = dict(zip(flota["Matricula"], flota["NumeroTarjeta"]))
+    cargas = [("A1", "V1", "2024-03-01", "10:00:00", 30, 1000), ("A2", "V1", "2024-03-05", "10:00:00", 40, 1300),
+              ("A3", "V1", "2024-03-10", "10:00:00", 30, 1800),
+              ("B0", "V2", "2024-03-01", "10:00:00", 30, 4900), ("B1", "V2", "2024-03-02", "11:00:00", 25, 5000),
+              ("B2", "V2", "2024-03-06", "10:00:00", 30, 5200),
+              ("C1", "V3", "2024-03-01", "10:00:00", 30, 9000), ("X", "V3", "2024-03-08", "12:00:00", 20, 1500),
+              ("C3", "V3", "2024-03-12", "10:00:00", 30, 9300)]
+    consumo = pd.DataFrame(cargas, columns=["id", "vehiculo_id", "fecha", "hora", "litros", "odometro"]).assign(
+        tipo_identificacion="PATENTE", conductor="C", estacion="EST-001")
+    consumo["dominio"] = consumo["vehiculo_id"].map(dominio)
+    consumo["numero_tarjeta"] = consumo["vehiculo_id"].map(tarjeta)
+
+    def pedido(id_, vehiculo, carga, minutos_antes=30, estacion="EST-001"):
+        c = consumo.set_index("id").loc[carga]
+        instante = pd.Timestamp(f"{c['fecha']} {c['hora']}") - pd.Timedelta(minutes=minutos_antes)
+        return {"id": id_, "vehiculo_id": vehiculo, "dominio": dominio[vehiculo], "fecha": instante.strftime("%d/%m/%Y"),
+                "hora": instante.strftime("%H:%M:%S"), "litros_cargados": c["litros"], "litros_autorizados": c["litros"] + 5,
+                "rendido": "SI", "anulado": "NO", "estacion_servicio": estacion, "tarjeta_personal": False,
+                "solicitante": "C"}
+
+    registro = pd.DataFrame([pedido(f"P-{c}", consumo.set_index("id").at[c, "vehiculo_id"], c)
+                             for c in ["A1", "A3", "B0", "B2", "C1", "C3"]]
+                            + [pedido("P2", "V1", "A2", 40, ESTACION_AJENA),
+                               pedido("P3", "V3", "B1"), pedido("P4", "V1", "X", 20)])
+    tamaño = modulo.TAMANO_BLOQUE_CRUCE
+    try:
+        modulo.TAMANO_BLOQUE_CRUCE = 10**9          # un solo bloque: el cruce completo
+        completo = causas_probables(consumo, registro, flota)
+        modulo.TAMANO_BLOQUE_CRUCE = 1              # un cruce por carga, por bloques
+        por_bloques = causas_probables(consumo, registro, flota)
+    finally:
+        modulo.TAMANO_BLOQUE_CRUCE = tamaño
+    assert por_bloques == completo
+    assert completo     # el ejemplo trae asuntos, no es vacío
+
+
 def test_la_causa_va_en_el_detalle_y_la_alerta_se_mantiene():
     from deteccion.reglas import SIN_EXPLICACION, asignar_causa_probable
 

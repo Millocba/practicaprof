@@ -731,6 +731,8 @@ ESTACION_AJENA = "ESTACION AJENA"
 MINUTOS_ANTES_REGISTRO = 180    # el pedido puede hacerse hasta 3 horas antes de la carga...
 MINUTOS_DESPUES_REGISTRO = 30   # ...o, por demoras en el registro, hasta media hora después
 TOLERANCIA_REGISTRO_LITROS = 0.5  # diferencia de litros entre el registro y la carga que no es desacuerdo
+TAMANO_BLOQUE_CRUCE = 1000         # cargas sin pedido por bloque en el cruce de las causas probables (#24):
+                                   # un cruce completo multiplicaría cada una por todos los candidatos
 
 
 def _instantes(fechas, horas):
@@ -902,28 +904,42 @@ def causas_probables(consumo, registro, flota=None):
     pedidos = registro.assign(instante=_instantes(registro["fecha"], registro["hora"]))
     ajenos = pedidos[pedidos["estacion_servicio"] == ESTACION_AJENA]
     candidatos = pd.concat([ajenos.assign(ajeno=True), pedidos[pedidos["id"].isin(sin_carga["id"])].assign(ajeno=False)])
-    cruce = cargas[["id", "vehiculo_id", "instante", "litros", "odometro"]].merge(
-        candidatos[["id", "vehiculo_id", "instante", "litros_cargados", "ajeno"]], how="cross", suffixes=("", "_pedido"))
-    minutos = (cruce["instante"] - cruce["instante_pedido"]) / pd.Timedelta(minutes=1)
-    cruce = cruce[minutos.between(-MINUTOS_DESPUES_REGISTRO, MINUTOS_ANTES_REGISTRO)
-                  & ((cruce["litros"] - cruce["litros_cargados"]).abs() <= TOLERANCIA_REGISTRO_LITROS)
-                  & (cruce["ajeno"] == (cruce["vehiculo_id"] == cruce["vehiculo_id_pedido"]))]
-    cruce = cruce.assign(distancia=(cruce["instante"] - cruce["instante_pedido"]).abs())
+    # Cruce por bloques de carga: un cruce completo multiplicaría cada carga sin pedido por cada
+    # candidato (decenas de millones de filas en datos reales). Un pedido solo puede coincidir con
+    # una carga dentro de la ventana, así que cada bloque basta con los candidatos de su entorno.
+    cand = candidatos[["id", "vehiculo_id", "instante", "litros_cargados", "ajeno"]]
+    ventana = pd.Timedelta(minutes=max(MINUTOS_ANTES_REGISTRO, MINUTOS_DESPUES_REGISTRO))
+    partes = []
+    for inicio in range(0, len(cargas), TAMANO_BLOQUE_CRUCE):
+        bloque = cargas.iloc[inicio:inicio + TAMANO_BLOQUE_CRUCE]
+        dentro = cand[cand["instante"].between(bloque["instante"].min() - ventana,
+                                               bloque["instante"].max() + ventana)]
+        cruce = bloque[["id", "vehiculo_id", "instante", "litros", "odometro"]].merge(
+            dentro, how="cross", suffixes=("", "_pedido"))
+        minutos = (cruce["instante"] - cruce["instante_pedido"]) / pd.Timedelta(minutes=1)
+        cruce = cruce[minutos.between(-MINUTOS_DESPUES_REGISTRO, MINUTOS_ANTES_REGISTRO)
+                      & ((cruce["litros"] - cruce["litros_cargados"]).abs() <= TOLERANCIA_REGISTRO_LITROS)
+                      & (cruce["ajeno"] == (cruce["vehiculo_id"] == cruce["vehiculo_id_pedido"]))]
+        if not cruce.empty:
+            cruce = cruce.assign(distancia=(cruce["instante"] - cruce["instante_pedido"]).abs())
+            partes.append(cruce)
+    cruce = pd.concat(partes, ignore_index=True) if partes else pd.DataFrame()
     causas = {}
-    for carga, opciones in cruce.sort_values(["ajeno", "distancia"], ascending=[False, True]).groupby("id", sort=False):
-        c = opciones.iloc[0]
-        otras = lecturas[lecturas["id"] != carga]
-        if c["ajeno"]:
-            causa = "proveedor_equivocado"
-        elif (_encaja(otras, c["vehiculo_id_pedido"], c["instante"], c["odometro"])
-              and not _encaja(otras, c["vehiculo_id"], c["instante"], c["odometro"])):
-            causa = "tarjeta_equivocada"
-            siguiente = otras[(otras["vehiculo_id"] == c["vehiculo_id"]) & (otras["instante"] > c["instante"])]
-            if len(siguiente):
-                causas[siguiente["id"].iloc[0]] = causa
-        else:
-            causa = "dominio_equivocado"
-        causas[carga] = causas[c["id_pedido"]] = causa
+    if not cruce.empty:
+        for carga, opciones in cruce.sort_values(["ajeno", "distancia"], ascending=[False, True]).groupby("id", sort=False):
+            c = opciones.iloc[0]
+            otras = lecturas[lecturas["id"] != carga]
+            if c["ajeno"]:
+                causa = "proveedor_equivocado"
+            elif (_encaja(otras, c["vehiculo_id_pedido"], c["instante"], c["odometro"])
+                  and not _encaja(otras, c["vehiculo_id"], c["instante"], c["odometro"])):
+                causa = "tarjeta_equivocada"
+                siguiente = otras[(otras["vehiculo_id"] == c["vehiculo_id"]) & (otras["instante"] > c["instante"])]
+                if len(siguiente):
+                    causas[siguiente["id"].iloc[0]] = causa
+            else:
+                causa = "dominio_equivocado"
+            causas[carga] = causas[c["id_pedido"]] = causa
     return causas
 
 
