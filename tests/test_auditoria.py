@@ -267,6 +267,101 @@ def test_montos_y_periodo_de_los_reclamos():
     assert regla["alertas"] == 27 and regla["alertas_con_reclamo_pct"] == 100.0
 
 
+def _lecturas(vehiculo, lecturas):
+    fechas = pd.date_range("2026-01-01", periods=len(lecturas), freq="D")
+    return pd.DataFrame({"id": [f"{vehiculo}#{i}" for i in range(len(lecturas))],
+                         "vehiculo_id": vehiculo, "fecha": fechas, "odometro": lecturas})
+
+
+def _leve(inicio, baja, vuelve, casos):
+    """Lecturas con un retroceso leve por caso; devuelve las lecturas y la posición de cada uno."""
+    lecturas, bajas = [inicio], []
+    odo = inicio
+    for _ in range(casos):
+        alto = odo + 10_000
+        lecturas += [alto, alto - baja]
+        bajas.append(len(lecturas) - 1)
+        odo = alto + 1_000 if vuelve else alto - baja + max(baja // 2, 1)
+        lecturas.append(odo)
+    return lecturas, bajas
+
+
+def _se_queda_abajo(inicio, salto, caida, avance, casos, continua=True):
+    """Lecturas con un retroceso que sigue desde el nivel nuevo por caso; devuelve lecturas y posiciones."""
+    lecturas, bajas = [inicio], []
+    odo = inicio
+    for _ in range(casos):
+        alto = odo + salto
+        lecturas += [alto, alto - caida]
+        bajas.append(len(lecturas) - 1)
+        odo = alto - caida + avance if continua else alto - caida - avance
+        lecturas.append(odo)
+    return lecturas, bajas
+
+
+def _consumo_y_alertas_de_retrocesos():
+    partes, marcadas = [], []
+
+    def agregar(vehiculo, lecturas, bajas):
+        tabla = _lecturas(vehiculo, lecturas)
+        partes.append(tabla)
+        marcadas.extend(tabla["id"].iloc[b] for b in bajas)
+
+    agregar("L1", *_leve(100_000, 5, True, 1))       # leve < 10 km, vuelve al valor viejo
+    agregar("L2", *_leve(200_000, 5, False, 1))      # leve < 10 km, retoma desde el nuevo
+    agregar("L3", *_leve(300_000, 50, True, 1))      # leve 10–100 km, vuelve
+    agregar("L4", *_leve(400_000, 300, False, 1))    # leve 100–500 km, retoma
+    agregar("S1", *_se_queda_abajo(1_000_000, 100, 1_000, 200, 1))
+    agregar("S2", *_se_queda_abajo(2_000_000, 1_000, 20_000, 1_500, 1))       # exceptuado
+    agregar("S3", *_se_queda_abajo(3_000_000, 1_000, 60_000, 5_000, 1, continua=False))
+    agregar("P2", *_se_queda_abajo(4_000_000, 100, 1_000, 200, 2))
+    agregar("M3", *_se_queda_abajo(5_000_000, 100, 1_000, 200, 3))
+    consumo = pd.concat(partes, ignore_index=True)
+    alertas = pd.DataFrame({"id_registro": marcadas, "regla": "retroceso_con_contexto"})
+    flota = pd.DataFrame({"Matricula": ["S2"], "ExcepcionOdometro": ["SI"],
+                          "FechaHastaExcepcionOdometro": ["2030-01-01"]})
+    return {"consumo": consumo, "flota": flota}, alertas
+
+
+def test_retrocesos_estudio_abre_las_bajas_leves_por_tamano_y_continuidad(monkeypatch):
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _retrocesos_estudio
+
+    datos, alertas = _consumo_y_alertas_de_retrocesos()
+    estudio = _retrocesos_estudio(datos, alertas)
+    assert estudio["leve_en_dias_distintos"] == {
+        "total": 4,
+        "por_baja": {"menos_de_10": 2, "de_10_a_100": 1, "de_100_a_500": 1},
+        "retoma_desde_el_nuevo": 2,
+        "vuelve_al_valor_viejo": 2,
+    }
+
+
+def test_retrocesos_estudio_abre_los_que_se_quedan_abajo(monkeypatch):
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _retrocesos_estudio
+
+    datos, alertas = _consumo_y_alertas_de_retrocesos()
+    estudio = _retrocesos_estudio(datos, alertas)
+    assert estudio["se_queda_abajo"] == {
+        "total": 8,
+        "vehiculos": 5,
+        "por_caida": {"de_500_a_5000": 6, "de_5000_a_50000": 1, "mas_de_50000": 1},
+        "con_excepcion_vigente": 1,
+        "continua_coherente": 7,
+        "vehiculos_por_casos": {"1": 3, "2": 1, "3_o_mas": 1},
+    }
+
+
+def test_retrocesos_estudio_suprime_los_grupos_pequenos():
+    from perfilador.auditoria import _retrocesos_estudio
+
+    datos, alertas = _consumo_y_alertas_de_retrocesos()
+    estudio = _retrocesos_estudio(datos, alertas)
+    assert estudio["leve_en_dias_distintos"]["total"] == "1–19"
+    assert estudio["se_queda_abajo"]["por_caida"]["de_5000_a_50000"] == "1–19"
+
+
 def test_el_adaptador_tolera_tipos_y_tarjetas_repetidas_de_la_fuente(sintetico):
     """La fuente trae el documento del conductor como número y tarjetas repetidas en el padrón."""
     tablas = con_forma_real(sintetico)
