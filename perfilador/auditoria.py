@@ -19,9 +19,9 @@ from deteccion.datos import cargar_dataset
 from deteccion.hipotesis import hipotesis_del_escenario, reglas_de
 from deteccion.modelo import construir_variables, entrenar_isolation_forest, ids_con_anomalia_de_comportamiento
 from deteccion.priorizacion import REGLAS_CONTEXTO, entrenar_supervisado
-from deteccion.reglas import (ESTACION_AJENA, cargas_exceptuadas, cargas_fuera_del_reporte, cruzar_registro,
-                              detectar_doble_cobro, detectar_duplicados, leer_fecha, reglas_del_dataset,
-                              secuencia_odometro, subforma_de_los_retrocesos)
+from deteccion.reglas import (ESTACION_AJENA, _vecinos_de_odometro, cargas_exceptuadas, cargas_fuera_del_reporte,
+                              cruzar_registro, detectar_doble_cobro, detectar_duplicados, leer_fecha,
+                              reglas_del_dataset, secuencia_odometro, subforma_de_los_retrocesos)
 from perfilador.adaptador import adaptar
 from perfilador.controles import acotar
 from perfilador.perfil import MINIMO_GRUPO, VERSION, cuantil_publicable, dos_cifras
@@ -138,6 +138,57 @@ def _retrocesos(consumo, alertas):
     return {"todos": contar(pd.Series(True, index=formas.index)),
             "regla_ingenua": contar(de_la_regla("odometro_disminuye")),
             "con_contexto": contar(de_la_regla("retroceso_con_contexto"))}
+
+
+def _retrocesos_estudio(datos, alertas):
+    """Qué hay detrás de los retrocesos que quedan con contexto (H2), solo en agregado.
+
+    Se mira la misma secuencia de `_retrocesos` (sin duplicados ni dobles cobros) y se abren los dos
+    patrones que quedan: las bajas leves de días distintos (por tamaño y por si la lectura siguiente
+    retoma el nivel nuevo o vuelve al viejo) y los que se quedan abajo (por tamaño de la caída, si
+    tenían una excepción vigente ese día y si continúan de forma coherente desde el nivel nuevo).
+    """
+    consumo, flota = datos["consumo"], datos["flota"]
+    excluidas = pd.concat([detectar_duplicados(consumo)["id_registro"], detectar_doble_cobro(consumo)["id_registro"]])
+    secuencia = secuencia_odometro(consumo, excluir_ids=excluidas)
+    s = _vecinos_de_odometro(secuencia)
+    s["forma"] = subforma_de_los_retrocesos(secuencia).reindex(s.index)
+    con_contexto = set(alertas.loc[alertas["regla"] == "retroceso_con_contexto", "id_registro"])
+    s = s[s["id"].isin(con_contexto)]
+
+    leve = s[(s["forma"] == "leve") & (s["dias"] > 0)]
+    baja = -leve["km"]
+    abajo = s[s["forma"] == "se_queda_abajo"]
+    caida = -abajo["km"]
+    exceptuadas = cargas_exceptuadas(consumo, flota, datos.get("excepciones_odometro"))
+    # La lectura siguiente avanza de forma coherente si no retrocede y no pasa del doble de lo esperado,
+    # con un piso de 500 km para no ser más estricto que eso en tramos cortos.
+    avance_siguiente = abajo["siguiente"] - abajo["odometro"]
+    tope = (2 * abajo["km_esperados"]).clip(lower=500)
+    por_vehiculo = abajo.groupby("vehiculo_id").size()
+
+    return {
+        "leve_en_dias_distintos": {
+            "total": acotar(len(leve)),
+            "por_baja": {"menos_de_10": acotar(int((baja < 10).sum())),
+                         "de_10_a_100": acotar(int(baja.between(10, 100, inclusive="left").sum())),
+                         "de_100_a_500": acotar(int(baja.between(100, 500).sum()))},
+            "retoma_desde_el_nuevo": acotar(int((leve["siguiente"] < leve["anterior"]).sum())),
+            "vuelve_al_valor_viejo": acotar(int((leve["siguiente"] >= leve["anterior"]).sum())),
+        },
+        "se_queda_abajo": {
+            "total": acotar(len(abajo)),
+            "vehiculos": acotar(int(abajo["vehiculo_id"].nunique())),
+            "por_caida": {"de_500_a_5000": acotar(int(caida.between(500, 5000, inclusive="right").sum())),
+                          "de_5000_a_50000": acotar(int(caida.between(5000, 50000, inclusive="right").sum())),
+                          "mas_de_50000": acotar(int((caida > 50000).sum()))},
+            "con_excepcion_vigente": acotar(int(abajo["id"].isin(exceptuadas).sum())),
+            "continua_coherente": acotar(int(avance_siguiente.between(0, tope).sum())),
+            "vehiculos_por_casos": {"1": acotar(int((por_vehiculo == 1).sum())),
+                                    "2": acotar(int((por_vehiculo == 2).sum())),
+                                    "3_o_mas": acotar(int((por_vehiculo >= 3).sum()))},
+        },
+    }
 
 
 # Qué hipótesis anticipa cada tipo de reclamo de la fuente
@@ -298,6 +349,7 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
     alertas = reglas_del_dataset(datos)
     diagnostico["odometro"] = _odometro(datos, alertas)
     diagnostico["odometro"]["retrocesos"] = _retrocesos(datos["consumo"], alertas)
+    diagnostico["odometro"]["retrocesos_estudio"] = _retrocesos_estudio(datos, alertas)
     diagnostico["cobertura"] = _cobertura(datos, alertas, registro_del_periodo if registro is not None else None)
     por_regla = {}
     for regla, grupo in alertas.groupby("regla"):
