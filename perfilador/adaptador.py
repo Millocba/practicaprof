@@ -19,7 +19,11 @@ from perfilador.perfil import _normalizar_valor
 ESTACION_AJENA = "ESTACION AJENA"
 FIRMAS = {
     "padron": {"Matricula", "Dominio", "CapacidadTanque", "NumeroTarjeta", "Estado"},
-    "consumo": {"LITROS UNIDADES", "TIPO IDENTIFICACION TARJETA", "REMITO", "FECHA"},
+    # La firma debe incluir todas las columnas que la traducción lee directamente: si sólo pide las
+    # más comunes, un export viejo al que le falta alguna gana por tener menos columnas (#43)
+    "consumo": {"FECHA", "TIPO IDENTIFICACION TARJETA", "IDENTIFICACION TARJETA", "TARJETA", "REMITO",
+                "ESTABLECIMIENTO", "PRODUCTO", "LITROS UNIDADES", "PRECIO PVP ESTABLECIMIENTO",
+                "IMP TOT PVP ESTABLECIMIENTO", "ODOMETRO"},
     "registro": {"Rendido", "Anulado", "LitrosAutorizados", "Solicitante", "Fecha", "Hora"},
     "dispositivos": {"Placa", "Grupo", "IMEI"},
     "facturas": {"numero", "numero_contrato", "monto_facturado"},
