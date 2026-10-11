@@ -273,6 +273,43 @@ def _es_error_de_tipeo(s):
     return hueco | rebote_tras_pico | pico | rebote_tras_hueco
 
 
+def forma_de_los_retrocesos(secuencia):
+    """Cómo se ve cada retroceso del odómetro, para saber si es la otra cara de un salto mal tipeado.
+
+    - `tras_un_salto`: la lectura anterior quedó muy por encima y esta vuelve a la secuencia de antes.
+    - `lectura_baja_aislada`: esta lectura queda muy por debajo y la siguiente vuelve a la secuencia.
+    - `otro`: ninguna de las dos (por ejemplo, un retroceso leve).
+    """
+    s = _vecinos_de_odometro(secuencia)
+    retroceso = s["km"] < 0
+    desvio = (s["anterior"] - s["odometro"]).abs() > DESVIO_TIPEO_KM
+    tras_un_salto = retroceso & (s["anterior2"] <= s["odometro"]) & desvio
+    aislada = retroceso & ~tras_un_salto & (s["siguiente"] >= s["anterior"]) & desvio
+    forma = pd.Series("otro", index=s.index).mask(aislada, "lectura_baja_aislada").mask(tras_un_salto, "tras_un_salto")
+    return forma[retroceso]
+
+
+def subforma_de_los_retrocesos(secuencia):
+    """Abre `otro` de `forma_de_los_retrocesos` para saber qué hay detrás de los retrocesos que no son un tipeo.
+
+    - `leve`: la lectura baja DESVIO_TIPEO_KM o menos.
+    - `sin_vecinos`: falta la lectura anterior a la anterior o la siguiente: no se puede comparar.
+    - `se_queda_abajo`: baja mucho y las lecturas siguientes continúan desde el nivel nuevo (puede ser un
+      odómetro reiniciado o reemplazado).
+    - `otro_patron`: ninguna de las anteriores.
+    Las formas `tras_un_salto` y `lectura_baja_aislada` se conservan tal cual.
+    """
+    s = _vecinos_de_odometro(secuencia)
+    forma = forma_de_los_retrocesos(secuencia)
+    s = s.loc[forma.index]
+    desvio = (s["anterior"] - s["odometro"]).abs() > DESVIO_TIPEO_KM
+    sin_vecinos = s["siguiente"].isna() | s["anterior2"].isna()
+    detalle = pd.Series("otro_patron", index=s.index)
+    detalle = detalle.mask(desvio & (s["siguiente"] < s["anterior"]), "se_queda_abajo")
+    detalle = detalle.mask(sin_vecinos, "sin_vecinos").mask(~desvio, "leve")
+    return forma.where(forma != "otro", detalle)
+
+
 def cargas_exceptuadas(consumo, flota, excepciones=None):
     """Ids de las cargas hechas con una excepción de odómetro vigente ese día.
 
@@ -715,6 +752,8 @@ ESTACION_AJENA = "ESTACION AJENA"
 MINUTOS_ANTES_REGISTRO = 180    # el pedido puede hacerse hasta 3 horas antes de la carga...
 MINUTOS_DESPUES_REGISTRO = 30   # ...o, por demoras en el registro, hasta media hora después
 TOLERANCIA_REGISTRO_LITROS = 0.5  # diferencia de litros entre el registro y la carga que no es desacuerdo
+TAMANO_BLOQUE_CRUCE = 1000         # cargas sin pedido por bloque en el cruce de las causas probables (#24):
+                                   # un cruce completo multiplicaría cada una por todos los candidatos
 
 
 def _instantes(fechas, horas):
@@ -886,28 +925,42 @@ def causas_probables(consumo, registro, flota=None):
     pedidos = registro.assign(instante=_instantes(registro["fecha"], registro["hora"]))
     ajenos = pedidos[pedidos["estacion_servicio"] == ESTACION_AJENA]
     candidatos = pd.concat([ajenos.assign(ajeno=True), pedidos[pedidos["id"].isin(sin_carga["id"])].assign(ajeno=False)])
-    cruce = cargas[["id", "vehiculo_id", "instante", "litros", "odometro"]].merge(
-        candidatos[["id", "vehiculo_id", "instante", "litros_cargados", "ajeno"]], how="cross", suffixes=("", "_pedido"))
-    minutos = (cruce["instante"] - cruce["instante_pedido"]) / pd.Timedelta(minutes=1)
-    cruce = cruce[minutos.between(-MINUTOS_DESPUES_REGISTRO, MINUTOS_ANTES_REGISTRO)
-                  & ((cruce["litros"] - cruce["litros_cargados"]).abs() <= TOLERANCIA_REGISTRO_LITROS)
-                  & (cruce["ajeno"] == (cruce["vehiculo_id"] == cruce["vehiculo_id_pedido"]))]
-    cruce = cruce.assign(distancia=(cruce["instante"] - cruce["instante_pedido"]).abs())
+    # Cruce por bloques de carga: un cruce completo multiplicaría cada carga sin pedido por cada
+    # candidato (decenas de millones de filas en datos reales). Un pedido solo puede coincidir con
+    # una carga dentro de la ventana, así que cada bloque basta con los candidatos de su entorno.
+    cand = candidatos[["id", "vehiculo_id", "instante", "litros_cargados", "ajeno"]]
+    ventana = pd.Timedelta(minutes=max(MINUTOS_ANTES_REGISTRO, MINUTOS_DESPUES_REGISTRO))
+    partes = []
+    for inicio in range(0, len(cargas), TAMANO_BLOQUE_CRUCE):
+        bloque = cargas.iloc[inicio:inicio + TAMANO_BLOQUE_CRUCE]
+        dentro = cand[cand["instante"].between(bloque["instante"].min() - ventana,
+                                               bloque["instante"].max() + ventana)]
+        cruce = bloque[["id", "vehiculo_id", "instante", "litros", "odometro"]].merge(
+            dentro, how="cross", suffixes=("", "_pedido"))
+        minutos = (cruce["instante"] - cruce["instante_pedido"]) / pd.Timedelta(minutes=1)
+        cruce = cruce[minutos.between(-MINUTOS_DESPUES_REGISTRO, MINUTOS_ANTES_REGISTRO)
+                      & ((cruce["litros"] - cruce["litros_cargados"]).abs() <= TOLERANCIA_REGISTRO_LITROS)
+                      & (cruce["ajeno"] == (cruce["vehiculo_id"] == cruce["vehiculo_id_pedido"]))]
+        if not cruce.empty:
+            cruce = cruce.assign(distancia=(cruce["instante"] - cruce["instante_pedido"]).abs())
+            partes.append(cruce)
+    cruce = pd.concat(partes, ignore_index=True) if partes else pd.DataFrame()
     causas = {}
-    for carga, opciones in cruce.sort_values(["ajeno", "distancia"], ascending=[False, True]).groupby("id", sort=False):
-        c = opciones.iloc[0]
-        otras = lecturas[lecturas["id"] != carga]
-        if c["ajeno"]:
-            causa = "proveedor_equivocado"
-        elif (_encaja(otras, c["vehiculo_id_pedido"], c["instante"], c["odometro"])
-              and not _encaja(otras, c["vehiculo_id"], c["instante"], c["odometro"])):
-            causa = "tarjeta_equivocada"
-            siguiente = otras[(otras["vehiculo_id"] == c["vehiculo_id"]) & (otras["instante"] > c["instante"])]
-            if len(siguiente):
-                causas[siguiente["id"].iloc[0]] = causa
-        else:
-            causa = "dominio_equivocado"
-        causas[carga] = causas[c["id_pedido"]] = causa
+    if not cruce.empty:
+        for carga, opciones in cruce.sort_values(["ajeno", "distancia"], ascending=[False, True]).groupby("id", sort=False):
+            c = opciones.iloc[0]
+            otras = lecturas[lecturas["id"] != carga]
+            if c["ajeno"]:
+                causa = "proveedor_equivocado"
+            elif (_encaja(otras, c["vehiculo_id_pedido"], c["instante"], c["odometro"])
+                  and not _encaja(otras, c["vehiculo_id"], c["instante"], c["odometro"])):
+                causa = "tarjeta_equivocada"
+                siguiente = otras[(otras["vehiculo_id"] == c["vehiculo_id"]) & (otras["instante"] > c["instante"])]
+                if len(siguiente):
+                    causas[siguiente["id"].iloc[0]] = causa
+            else:
+                causa = "dominio_equivocado"
+            causas[carga] = causas[c["id_pedido"]] = causa
     return causas
 
 
@@ -994,7 +1047,9 @@ def detectar_irregularidades_de_linea(consumo, facturacion_detalle):
     sin_consumo = lineas[~lineas["referencia_consumo"].isin(consumo["id"])]
     duplicadas = lineas[lineas.duplicated("referencia_consumo", keep="first")
                         & lineas["referencia_consumo"].isin(consumo["id"])]
-    precio = consumo.set_index("id")["precio_unitario"]
+    # Una carga sin remito queda con id nulo: no puede referenciarla ninguna línea y su índice
+    # repetido rompería el mapeo, así que se excluye (y se deduplica por las dudas)
+    precio = consumo.dropna(subset=["id"]).drop_duplicates("id").set_index("id")["precio_unitario"]
     con_precio = lineas.assign(precio_carga=lineas["referencia_consumo"].map(precio)).dropna(subset=["precio_carga"])
     sobreprecio = con_precio[con_precio["precio_unitario"] > con_precio["precio_carga"] * (1 + TOLERANCIA_PRECIO)]
     al_surtidor = con_precio[(con_precio["precio_unitario"] >= con_precio["precio_carga"] * (1 - MARGEN_PRECIO_SURTIDOR))
