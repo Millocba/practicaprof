@@ -289,6 +289,27 @@ def forma_de_los_retrocesos(secuencia):
     return forma[retroceso]
 
 
+def subforma_de_los_retrocesos(secuencia):
+    """Abre `otro` de `forma_de_los_retrocesos` para saber qué hay detrás de los retrocesos que no son un tipeo.
+
+    - `leve`: la lectura baja DESVIO_TIPEO_KM o menos.
+    - `sin_vecinos`: falta la lectura anterior a la anterior o la siguiente: no se puede comparar.
+    - `se_queda_abajo`: baja mucho y las lecturas siguientes continúan desde el nivel nuevo (puede ser un
+      odómetro reiniciado o reemplazado).
+    - `otro_patron`: ninguna de las anteriores.
+    Las formas `tras_un_salto` y `lectura_baja_aislada` se conservan tal cual.
+    """
+    s = _vecinos_de_odometro(secuencia)
+    forma = forma_de_los_retrocesos(secuencia)
+    s = s.loc[forma.index]
+    desvio = (s["anterior"] - s["odometro"]).abs() > DESVIO_TIPEO_KM
+    sin_vecinos = s["siguiente"].isna() | s["anterior2"].isna()
+    detalle = pd.Series("otro_patron", index=s.index)
+    detalle = detalle.mask(desvio & (s["siguiente"] < s["anterior"]), "se_queda_abajo")
+    detalle = detalle.mask(sin_vecinos, "sin_vecinos").mask(~desvio, "leve")
+    return forma.where(forma != "otro", detalle)
+
+
 def cargas_exceptuadas(consumo, flota, excepciones=None):
     """Ids de las cargas hechas con una excepción de odómetro vigente ese día.
 

@@ -20,7 +20,8 @@ from deteccion.hipotesis import hipotesis_del_escenario, reglas_de
 from deteccion.modelo import construir_variables, entrenar_isolation_forest, ids_con_anomalia_de_comportamiento
 from deteccion.priorizacion import REGLAS_CONTEXTO, entrenar_supervisado
 from deteccion.reglas import (ESTACION_AJENA, cargas_exceptuadas, cargas_fuera_del_reporte, cruzar_registro,
-                              forma_de_los_retrocesos, leer_fecha, reglas_del_dataset, secuencia_odometro)
+                              detectar_doble_cobro, detectar_duplicados, leer_fecha, reglas_del_dataset,
+                              secuencia_odometro, subforma_de_los_retrocesos)
 from perfilador.adaptador import adaptar
 from perfilador.controles import acotar
 from perfilador.perfil import MINIMO_GRUPO, VERSION, cuantil_publicable, dos_cifras
@@ -112,11 +113,31 @@ def _odometro(datos, alertas):
     }
 
 
-def _retrocesos(consumo):
-    """Retrocesos del odómetro según su forma (H2): cuántos son la otra cara de un salto mal tipeado."""
-    formas = forma_de_los_retrocesos(secuencia_odometro(consumo)).value_counts()
-    return {"total": acotar(int(formas.sum())),
-            **{forma: acotar(int(formas.get(forma, 0))) for forma in ("tras_un_salto", "lectura_baja_aislada", "otro")}}
+def _retrocesos(consumo, alertas):
+    """Retrocesos del odómetro según su forma (H2): cuántos son la otra cara de un salto mal tipeado.
+
+    Se miran con la misma secuencia de las reglas (sin duplicados ni dobles cobros) y se cuentan todos, los
+    que marca la regla ingenua y los que quedan con contexto, para ver qué hay detrás de los que quedan.
+    `otro` se abre en leve, sin vecinos, se queda abajo y otro patrón.
+    """
+    excluidas = pd.concat([detectar_duplicados(consumo)["id_registro"], detectar_doble_cobro(consumo)["id_registro"]])
+    secuencia = secuencia_odometro(consumo, excluir_ids=excluidas)
+    formas = subforma_de_los_retrocesos(secuencia)
+    ids = secuencia["id"].reindex(formas.index)
+    vehiculos = secuencia["vehiculo_id"].reindex(formas.index)
+    mismo_dia = (secuencia["dias"].reindex(formas.index) == 0)
+    nombres = ("tras_un_salto", "lectura_baja_aislada", "leve", "sin_vecinos", "se_queda_abajo", "otro_patron")
+
+    def contar(marca):
+        return {"total": acotar(int(marca.sum())),
+                **{n: acotar(int((marca & formas.eq(n)).sum())) for n in nombres},
+                "de_la_carga_del_mismo_dia": acotar(int((marca & mismo_dia).sum())),
+                "vehiculos": acotar(int(vehiculos[marca].nunique()))}
+
+    de_la_regla = lambda nombre: ids.isin(set(alertas.loc[alertas["regla"] == nombre, "id_registro"]))
+    return {"todos": contar(pd.Series(True, index=formas.index)),
+            "regla_ingenua": contar(de_la_regla("odometro_disminuye")),
+            "con_contexto": contar(de_la_regla("retroceso_con_contexto"))}
 
 
 # Qué hipótesis anticipa cada tipo de reclamo de la fuente
@@ -276,7 +297,7 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
 
     alertas = reglas_del_dataset(datos)
     diagnostico["odometro"] = _odometro(datos, alertas)
-    diagnostico["odometro"]["retrocesos"] = _retrocesos(datos["consumo"])
+    diagnostico["odometro"]["retrocesos"] = _retrocesos(datos["consumo"], alertas)
     diagnostico["cobertura"] = _cobertura(datos, alertas, registro_del_periodo if registro is not None else None)
     por_regla = {}
     for regla, grupo in alertas.groupby("regla"):

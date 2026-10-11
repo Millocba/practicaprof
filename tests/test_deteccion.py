@@ -403,3 +403,20 @@ def test_forma_de_los_retrocesos_distingue_el_rebote_tras_un_salto_de_la_lectura
     forma = forma_de_los_retrocesos(secuencia_odometro(consumo))
     assert forma.to_dict() == {forma.index[0]: "tras_un_salto", forma.index[1]: "lectura_baja_aislada",
                                forma.index[2]: "otro"}
+
+
+def test_subforma_abre_otro_en_leve_se_queda_abajo_y_sin_vecinos():
+    import pandas as pd
+
+    from deteccion.reglas import secuencia_odometro, subforma_de_los_retrocesos
+
+    def vehiculo(nombre, lecturas):
+        return [{"id": f"{nombre}-{i}", "vehiculo_id": nombre, "fecha": f"2026-01-{i + 1:02d}", "odometro": o}
+                for i, o in enumerate(lecturas)]
+
+    consumo = pd.DataFrame(
+        vehiculo("A", [30000, 30100, 30090, 30200, 30300])      # retroceso leve
+        + vehiculo("B", [40000, 40100, 5000, 5100, 5200])       # baja y se queda abajo
+        + vehiculo("C", [50000, 49000, 49100, 49200]))          # retroceso en la 2.ª carga: falta la anterior a la anterior
+    forma = subforma_de_los_retrocesos(secuencia_odometro(consumo))
+    assert forma.tolist() == ["leve", "se_queda_abajo", "sin_vecinos"]
