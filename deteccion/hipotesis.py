@@ -74,10 +74,13 @@ HIPOTESIS = [
     },
     {
         "codigo": "H5",
-        "titulo": "Rendimiento imposible",
-        "enunciado": "Cargar mucho combustible sin recorrido que lo justifique no se ve mirando solo "
-                     "los litros; el rendimiento km/L frente al habitual del vehículo lo revela.",
-        "tipos": ["RENDIMIENTO_IMPOSIBLE"],
+        "titulo": "Consumo atípico",
+        "enunciado": "Cargar mucho combustible para el recorrido del día no prueba nada por sí solo: los "
+                     "móviles pasan mucho tiempo en ralentí, que consume sin kilómetros, y la fuente no "
+                     "trae el horómetro por día como para descontarlo. Lo que hace visible el caso para "
+                     "analizarlo es el rendimiento km/L frente al habitual del propio vehículo: no afirma "
+                     "una irregularidad, marca un consumo atípico que hay que mirar.",
+        "tipos": ["CONSUMO_ATIPICO"],
         "reglas": [("litros_mayor_a_tanque", "control de litros"),
                    ("rendimiento_fuente", "criterio de la fuente: mediana del tipo, −30%, sin tramos de más de 2.000 km"),
                    ("rendimiento_bajo_odometro", "km/L según el odómetro"),

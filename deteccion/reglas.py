@@ -633,7 +633,7 @@ def detectar_rendimiento_fuente(dias, fuente="odometro", sin_odometro=(),
         sin_dato = set(sin_odometro)
         candidato &= ~dias["ids"].apply(lambda ids: bool(sin_dato.intersection(ids)))
     marcados = dias[candidato].assign(relativo=relativo[candidato], km_tramo=km[candidato])
-    return _explotar_dias(marcados, "RENDIMIENTO_IMPOSIBLE", "rendimiento_fuente",
+    return _explotar_dias(marcados, "CONSUMO_ATIPICO", "rendimiento_fuente",
                           lambda d: "rendimiento " + d["relativo"].round(2).astype(str)
                           + "× la mediana del tipo, tramo de "
                           + d["km_tramo"].round(0).astype(str) + " km")
@@ -677,7 +677,7 @@ def detectar_rendimiento_bajo(dias, fuente, sin_odometro=(), minimo=RENDIMIENTO_
         sin_dato = set(sin_odometro)
         candidato &= ~dias["ids"].apply(lambda ids: bool(sin_dato.intersection(ids)))
     marcados = dias[candidato].assign(relativo=relativo[candidato])
-    return _explotar_dias(marcados, "RENDIMIENTO_IMPOSIBLE", f"rendimiento_bajo_{fuente}",
+    return _explotar_dias(marcados, "CONSUMO_ATIPICO", f"rendimiento_bajo_{fuente}",
                           lambda d: "rendimiento " + d["relativo"].round(2).astype(str)
                           + "× el habitual según " + fuente)
 

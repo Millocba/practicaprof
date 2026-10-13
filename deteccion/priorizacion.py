@@ -28,7 +28,7 @@ from deteccion.modelo import (
     entrenar_isolation_forest,
     ids_con_anomalia_de_comportamiento,
 )
-from deteccion.reglas import SIN_EXPLICACION, reglas_del_dataset
+from deteccion.reglas import RENDIMIENTO_MINIMO, SIN_EXPLICACION, reglas_del_dataset
 
 REGLAS_INGENUAS = ["litros_mayor_a_tanque", "odometro_disminuye", "salto_historial_vehiculo",
                    "fraccionamiento_diario", "rendimiento_bajo_odometro", "carga_lejos_de_base",
@@ -202,9 +202,10 @@ def motivos(variables, alertas):
         agregar((v["cargas_en_el_dia"] >= 2) & (v["tanques_en_el_dia"] > 1.05),
                 v["cargas_en_el_dia"].astype(int).astype(str) + " cargas el mismo día ("
                 + v["tanques_en_el_dia"].round(1).astype(str) + " tanques)")
-        agregar(v["rendimiento_relativo"] < 0.4,
-                "rendimiento " + (v["rendimiento_relativo"] * 100).round().astype(int).astype(str)
-                + "% del habitual")
+        agregar(v["rendimiento_relativo"] < RENDIMIENTO_MINIMO,
+                "consumo atípico: para analizar (rendimiento "
+                + (v["rendimiento_relativo"] * 100).round().astype(int).astype(str)
+                + "% del habitual)")
         agregar(v["retroceso_km"] > 0, "odómetro retrocede " + v["retroceso_km"].round().astype(int).astype(str) + " km")
         agregar(v["vehiculo_inactivo"] == 1, "vehículo inactivo")
     if "sin_solicitud" in v:
