@@ -73,7 +73,7 @@ Cada migración declara su compatibilidad, el bloqueo esperado, cómo volver atr
 | `cargas_con_saldo_agotado` | Contratos-mes con días que empiezan sin saldo y tienen cargas | H10 |
 | `conciliacion_factura` | Conciliación triple: deuda contra líneas, PDF contra deuda y renglones que no son combustible | H9 |
 | `linea_sin_carga` | Líneas de combustible que facturan una carga que no está en el reporte | H9 |
-| `baja_con_dispositivo_activo` | Móviles de baja con el dispositivo fuera del depósito y transmitiendo | H11 |
+| `baja_con_dispositivo_activo` | Móviles de baja cuyo dispositivo transmitió en la última semana, esté en el grupo que esté | H11 |
 | `excepcion_vigente` | Excepciones activas: el estado de hoy que muestra el padrón (`ExcepcionOdometro` y `FechaHastaExcepcionOdometro`) | H12 |
 | `odometro_sin_avance_sin_excepcion` | Cargas con la misma lectura que la carga anterior del vehículo, en otro día, sin una excepción vigente ese día | H12 |
 

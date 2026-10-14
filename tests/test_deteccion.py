@@ -325,6 +325,63 @@ def test_un_dia_explicado_por_h6_no_produce_rendimiento_bajo():
     assert set(alertas.loc[alertas["regla"] == "carga_vehiculo_inactivo", "id_registro"]) == inactivas
     rend = set(alertas.loc[alertas["regla"].str.startswith("rendimiento_bajo_"), "id_registro"])
     assert not (rend & inactivas)
+
+
+# --- H11: el dispositivo de un móvil de baja importa si transmitió, no en qué grupo está ---
+
+def _flota_y_telemetria_de_baja(*filas, ahora_dias=0):
+    """(alias, grupo, días desde la última conexión) más un móvil en servicio que marca el "ahora".
+
+    La regla mide la antiquity de la conexión contra la más reciente de toda la flota, porque
+    los datos son una foto sin fecha actual. Sin alguien transmitiendo ahora, la referencia se
+    corre y el test no mide lo que dice medir.
+    """
+    filas = list(filas)
+    todos = filas + [{"alias": "DEV-EN-SERVICIO", "grupo": "GRUPO LOGISTICA", "dias": ahora_dias}]
+    n = len(todos)
+    dominios = [f"ZA{i:03d}AA" for i in range(1, n + 1)]
+    baja = [i < len(filas) for i in range(n)]        # el último es el que está en servicio
+    ahora = pd.Timestamp("2026-10-01")
+    flota = pd.DataFrame({
+        "Matricula": [f"V{i}" for i in range(1, len(todos) + 1)],
+        "Dominio": dominios,
+        "Estado": ["BAJA / DEPOSITO" if b else "EN SERVICIO" for b in baja],
+    })
+    telemetria = pd.DataFrame({
+        "Alias": [f["alias"] for f in todos],
+        "Placa": dominios,
+        "Grupo": [f["grupo"] for f in todos],
+        "UltimaConexion": [(ahora - pd.Timedelta(days=f["dias"])).isoformat() for f in todos],
+    })
+    return flota, telemetria
+
+
+def test_h11_marca_el_dispositivo_que_transmite_esté_en_el_grupo_que_esté():
+    """#53: el grupo del dispositivo a veces queda con el valor anterior; manda la última conexión."""
+    from deteccion.reglas import GRUPO_DEPOSITO, detectar_dispositivo_activo_en_baja
+
+    flota, telemetria = _flota_y_telemetria_de_baja(
+        {"alias": "DEV-1", "grupo": GRUPO_DEPOSITO, "dias": 1},      # grupo viejo: en depósito y transmitiendo
+        {"alias": "DEV-2", "grupo": "GRUPO LOGISTICA", "dias": 2},     # el caso de siempre
+        {"alias": "DEV-3", "grupo": GRUPO_DEPOSITO, "dias": 40},      # retirado de verdad: no alerta
+    )
+    alertas = detectar_dispositivo_activo_en_baja(flota, telemetria)
+    assert sorted(alertas["id_registro"]) == ["DEV-1", "DEV-2"]
+    # el detalle dice cuándo el grupo es el dato desactualizado
+    assert "valor anterior" in alertas.loc[alertas["id_registro"] == "DEV-1", "detalle"].iloc[0]
+    assert "valor anterior" not in alertas.loc[alertas["id_registro"] == "DEV-2", "detalle"].iloc[0]
+
+
+def test_h11_no_alerta_si_la_ultima_conexion_es_vieja_aunque_el_grupo_no_sea_el_deposito():
+    """La semana es la alarma: sin transmisión reciente el aparato puede estar apagado."""
+    from deteccion.reglas import detectar_dispositivo_activo_en_baja
+
+    flota, telemetria = _flota_y_telemetria_de_baja(
+        {"alias": "DEV-1", "grupo": "GRUPO LOGISTICA", "dias": 8},     # apenas fuera de la semana
+        {"alias": "DEV-2", "grupo": "GRUPO LOGISTICA", "dias": 7},     # en el borde exacto
+    )
+    alertas = detectar_dispositivo_activo_en_baja(flota, telemetria)
+    assert list(alertas["id_registro"]) == ["DEV-2"]
 def test_causa_probable_de_cada_error_de_carga():
     """#24: cada firma de error de carga se reconoce; una carga con su pedido no tiene causa."""
     from deteccion.reglas import ESTACION_AJENA, causas_probables

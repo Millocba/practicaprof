@@ -264,8 +264,13 @@ def test_telemetria_de_los_moviles_de_baja(dataset):
     activos = set(dataset["ground_truth"].query("tipo_anomalia == 'DISPOSITIVO_ACTIVO_EN_BAJA'")["id_registro"])
     en_deposito = de_baja[~de_baja["Alias"].isin(activos)]
     assert len(en_deposito) >= 3 and (en_deposito["Grupo"] == "BAJA / REEMPLAZOS").all()
+    # los que no son anomalia estan en deposito y apagados
     assert (en_deposito["Estado"] == "OFFLINE").all()
-    assert (telemetria.loc[telemetria["Alias"].isin(activos), "Grupo"] != "BAJA / REEMPLAZOS").all()
+    # los que si son anomalia transmiten, este en el grupo que este (#53)
+    assert (telemetria.loc[telemetria["Alias"].isin(activos), "Estado"] == "ONLINE").all()
+    grupo_viejo = telemetria[telemetria["Alias"].isin(activos)
+                             & (telemetria["Grupo"] == "BAJA / REEMPLAZOS")]
+    assert len(grupo_viejo) >= 1, "debe haber dispositivos con el grupo desactualizado"
     assert not (telemetria.loc[~estado.str.contains("BAJA", na=False), "Grupo"] == "BAJA / REEMPLAZOS").any()
 
 
