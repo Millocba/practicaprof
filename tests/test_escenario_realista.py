@@ -130,16 +130,47 @@ def test_doble_cobro_repite_una_carga_habitual_y_se_factura(dataset, alertas):
     dobles = gt[gt["tipo_anomalia"] == "DOBLE_COBRO"]
     assert len(dobles) >= 5 and (dobles["hipotesis"] == "H13").all()
     assert set(consumo.loc[dobles["id_registro"], "origen_transaccion"]) == {"CONTINGENCIA"}
-    # La regla con contexto encuentra exactamente esas transacciones, y las contingencias legítimas no se alertan
-    assert set(alertas.loc[alertas["regla"] == "doble_cobro", "id_registro"]) == set(dobles["id_registro"])
+    # La regla con contexto encuentra todas esas transacciones. Una contingencia legítima solo se confunde si,
+    # con el decimal corrido, sus litros coinciden por azar con los de una carga cercana: pocas y nunca con
+    # los mismos litros
+    doble_cobro = alertas[alertas["regla"] == "doble_cobro"].set_index("id_registro")
+    assert set(dobles["id_registro"]) <= set(doble_cobro.index)
     contingencias = set(consumo.index[consumo["origen_transaccion"] == "CONTINGENCIA"])
     legitimas = set(dataset["casos_legitimos"].query("tipo_caso == 'CONTINGENCIA'")["id_registro"])
     assert contingencias == set(dobles["id_registro"]) | legitimas
+    confundidas = set(doble_cobro.index) - set(dobles["id_registro"])
+    assert confundidas <= legitimas and len(confundidas) <= 0.05 * len(legitimas)
+    assert doble_cobro.loc[list(confundidas), "detalle"].str.contains("decimal mal colocado").all()
     # Se factura: cada transacción duplicada tiene su línea, y H9 no la cuenta como línea duplicada
     lineas = dataset["facturacion_detalle"]
     de_los_dobles = set(lineas.loc[lineas["referencia_consumo"].isin(dobles["id_registro"]), "numero_linea"])
     assert len(de_los_dobles) == len(dobles)
     assert not de_los_dobles & set(alertas.loc[alertas["regla"] == "linea_duplicada", "id_registro"])
+
+
+def test_el_doble_cobro_con_el_decimal_mal_colocado_se_detecta(dataset, alertas):
+    """La copia de la contingencia escrita a mano puede tener los litros ×10, ×100 o ÷10 (15,96 L como 1596 L)."""
+    consumo, gt = dataset["consumo"].set_index("id"), dataset["ground_truth"]
+    movidos = gt[(gt["tipo_anomalia"] == "DOBLE_COBRO") & gt["descripcion"].str.contains("decimal mal colocado")]
+    assert len(movidos) == 3
+    original = consumo.loc[movidos["descripcion"].str.extract(r"la carga (\S+) se cobró")[0], "litros"].to_numpy()
+    factores = sorted((consumo.loc[movidos["id_registro"], "litros"].to_numpy() / original).round(6))
+    assert factores == [0.1, 10, 100]
+    doble_cobro = alertas[alertas["regla"] == "doble_cobro"].set_index("id_registro")
+    assert doble_cobro.loc[movidos["id_registro"], "detalle"].str.contains("decimal mal colocado").all()
+    # No es una carga más del vehículo: la copia ×10 o ×100 no se alerta como exceso sin antecedente (H3b)
+    exceso = set(alertas.loc[alertas["regla"] == "exceso_sin_antecedente", "id_registro"])
+    assert not set(movidos["id_registro"]) & exceso
+
+
+def test_las_contingencias_con_un_par_parecido_no_son_doble_cobro(dataset, alertas):
+    """Con el decimal corrido, sus litros quedan a 5%-15% de una carga habitual cercana: fuera del ±2%."""
+    legitimos = dataset["casos_legitimos"]
+    parecidas = set(legitimos.loc[legitimos["descripcion"].str.contains("decimal corrido"), "id_registro"])
+    assert len(parecidas) == 2
+    assert not parecidas & set(alertas.loc[alertas["regla"] == "doble_cobro", "id_registro"])
+    # Los litros de la carga y de su pedido siguen coincidiendo: no aparece un desacuerdo de litros
+    assert not parecidas & set(alertas.loc[alertas["regla"] == "desacuerdo_de_litros", "id_registro"])
 
 
 def test_las_contingencias_legitimas_incluyen_casos_con_una_carga_cercana_de_otros_litros(dataset):
