@@ -42,7 +42,7 @@ DIRECTORIOS_ESCENARIO = {
 SEED = 42
 # Versión de los datos que produce el generador: cambiarla cuando cambie lo que genera, así la
 # aplicación regenera los datos que tenga en disco de una versión anterior
-VERSION_GENERADOR = "2.7"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md); 2.1: horas del día en el orden del odómetro; 2.2: forma de cargar calibrada; 2.3: excepciones de odómetro; 2.4: textos del diccionario; 2.5: origen de la transacción (H13); 2.6: errores de carga en el registro interno; 2.7: observaciones de las alertas
+VERSION_GENERADOR = "2.8"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md); 2.1: horas del día en el orden del odómetro; 2.2: forma de cargar calibrada; 2.3: excepciones de odómetro; 2.4: textos del diccionario; 2.5: origen de la transacción (H13); 2.6: errores de carga en el registro interno; 2.7: observaciones de las alertas; 2.8: decimal mal colocado en las contingencias (H13)
 
 # Ventana temporal de los datos: consumos y solicitudes entre FECHA_INICIO y
 # FECHA_INICIO + DIAS_VENTANA. FECHA_REFERENCIA hace de "ahora" para la telemetría.
@@ -247,15 +247,26 @@ EXCEPCIONES_ODOMETRO = {
 MOTIVOS_EXCEPCION = ["ODOMETRO SIN FUNCIONAR", "TABLERO EN REPARACION", "CAMBIO DE INSTRUMENTAL"]
 
 # Origen de la transacción en el reporte del proveedor (H13): el medio de pago electrónico habitual o una
-# contingencia, la carga registrada por una vía alternativa cuando el habitual no funciona. En la fuente,
-# el 1,2% de las transacciones es de contingencia; cuántas son doble cobro no se conoce: la proporción
-# (una de cada diez contingencias) es un supuesto del diseño.
+# contingencia, la carga registrada a mano cuando el habitual no funciona por un corte de servicio (de
+# internet o similar). En la fuente, el 1,2% de las transacciones es de contingencia; cuántas son doble
+# cobro no se conoce: la proporción (una de cada diez contingencias) es un supuesto del diseño. Según el
+# referente del dominio, el doble cobro ocurre por un retraso: se cree que el primer intento falló y la
+# carga se factura dos veces. Como la contingencia es manual, algunos datos coinciden y otros no.
 ORIGEN_HABITUAL = "POSNET"
 ORIGEN_CONTINGENCIA = "CONTINGENCIA"
 PROPORCION_CONTINGENCIA = 0.011      # cargas registradas por contingencia sin duplicarse (legítimas)
 CONTINGENCIAS_CERCANAS = 0.3         # de ellas, las que tienen otra carga del vehículo a menos de 12 horas
 DOBLE_COBRO_MAX_MINUTOS = 45         # la carga duplicada se registra hasta 45 minutos después de la original
 DOBLE_COBRO_VARIACION_LITROS = 0.015  # y con hasta 1,5% de diferencia de litros (el criterio es ±2%)
+# Copias con el decimal mal colocado en el remito manual (15,96 L escritos como 1596 L): una de cada factor
+# cada 200 vehículos, además de las de EVENTOS_REALISTA["DOBLE_COBRO"]
+DOBLE_COBRO_DECIMAL_MOVIDO = {10: 1, 100: 1, 0.1: 1}
+# Contingencias legítimas con una carga habitual cercana cuyos litros, con el decimal corrido, quedan cerca
+# pero fuera del ±2% (de 5% a 15%): un par parecido que no es la misma carga. Cada 200 vehículos
+CONTINGENCIAS_PAR_PARECIDO = 2
+DIFERENCIA_PAR_PARECIDO = (0.05, 0.15)
+DESCRIPCION_PAR_PARECIDO = ("la carga se registró por contingencia y no se duplicó; con el decimal corrido, sus litros "
+                            "quedan cerca (5% a 15%) de los de una carga habitual cercana")
 
 # Casos legítimos que en la fuente son una proporción de las cargas, no una cantidad por vehículo
 PROPORCION_DE_CARGAS = {
@@ -340,6 +351,15 @@ OBSERVACIONES = {
                                   "La diferencia proviene de la liquidación del proveedor."],
     "faltante": ["La carga no tiene respaldo y se pasa a revisión del área responsable.",
                  "El solicitante no pudo justificar la carga: queda como faltante."],
+}
+# Anomalías con una causa conocida: el doble cobro (H13) ocurre por un retraso del sistema, según el
+# referente del dominio. Se documenta como facturación del proveedor y la acción es reclamar el duplicado
+OBSERVACIONES_DE_ANOMALIA = {
+    "DOBLE_COBRO": ("facturacion_del_proveedor", [
+        "Causa probable: retraso del sistema, se creyó que el primer intento falló y la carga se cobró dos veces. "
+        "Se reclama el duplicado al proveedor.",
+        "Retraso del sistema: el primer intento se dio por fallido y se registró de nuevo por contingencia. "
+        "Se reclama el duplicado al proveedor."]),
 }
 TABLAS_DE_FACTURACION = ("facturacion", "facturacion_detalle")
 PROB_DESFASE_DE_CORTE = 0.5         # cargas del último día del mes facturadas al mes siguiente
@@ -1757,9 +1777,10 @@ class GeneradorMaestro:
         La corrección solo se documenta: ningún dato de origen cambia, el error de carga sigue en el
         registro y la alerta sigue existiendo. Se documenta una parte de los errores de carga
         (`error_humano`) y de las anomalías reales (`faltante`, o `facturacion_del_proveedor` si es de
-        facturación); el resto queda sin observación, porque todavía no se investigó. Solo se documentan
-        alertas que las reglas emiten: sin alerta no hay investigación. Se aplica al final y no modifica
-        ninguna fuente: lo único que cambia es la tabla nueva.
+        facturación o un doble cobro, este con su causa probable: ver OBSERVACIONES_DE_ANOMALIA); el resto
+        queda sin observación, porque todavía no se investigó. Solo se documentan alertas que las reglas
+        emiten: sin alerta no hay investigación. Se aplica al final y no modifica ninguna fuente: lo único
+        que cambia es la tabla nueva.
         """
         from deteccion.reglas import reglas_del_dataset   # importación tardía: deteccion usa este módulo
 
@@ -1769,10 +1790,10 @@ class GeneradorMaestro:
         reglas_de_id = alertas.groupby("id_registro")["regla"].agg(set).to_dict()
         filas = []
 
-        def documentar(tabla, id_registro, regla, resultado):
+        def documentar(tabla, id_registro, regla, resultado, textos=None):
             fecha = (FECHA_REFERENCIA - timedelta(days=rng.randint(1, 30))).strftime("%Y-%m-%d")
             filas.append({"tabla": tabla, "id_registro": id_registro, "regla": regla, "resultado": resultado,
-                          "fecha": fecha, "observacion": rng.choice(OBSERVACIONES[resultado])})
+                          "fecha": fecha, "observacion": rng.choice(textos or OBSERVACIONES[resultado])})
 
         # Un error de carga se investiga completo: la carga y, si alertó, su pedido (van seguidos en la lista)
         errores = {}
@@ -1794,7 +1815,8 @@ class GeneradorMaestro:
                 continue
             preferida = REGLA_DE_ANOMALIA.get(a["tipo_anomalia"])
             resultado = "facturacion_del_proveedor" if a["tabla"] in TABLAS_DE_FACTURACION else "faltante"
-            documentar(a["tabla"], a["id_registro"], preferida if preferida in reglas else reglas[0], resultado)
+            resultado, textos = OBSERVACIONES_DE_ANOMALIA.get(a["tipo_anomalia"], (resultado, None))
+            documentar(a["tabla"], a["id_registro"], preferida if preferida in reglas else reglas[0], resultado, textos)
 
         df = pd.DataFrame(filas, columns=[c for c in COLUMNAS_OBSERVACIONES if c != "id"])
         df.insert(0, "id", [f"OBS-{i:08d}" for i in range(1, len(df) + 1)])
@@ -2333,8 +2355,13 @@ class GeneradorMaestro:
         vehículo cercana, pero con otros litros. La anomalía DOBLE_COBRO es la misma carga cobrada
         por las dos vías: una segunda transacción de contingencia con los mismos litros (hasta
         1,5% de diferencia) y la misma hora aproximada de una carga por POSNET, sin pedido propio
-        en el registro interno. Se factura, así que la conciliación de facturas la ve como una
-        línea más con su carga. Usa un generador aleatorio propio y se aplica antes de facturar.
+        en el registro interno. Como la contingencia se escribe a mano, algunas copias tienen el
+        decimal mal colocado (×10, ×100 o ÷10: los mismos dígitos). Entre las legítimas cercanas,
+        algunas tienen un par parecido: con el decimal corrido, sus litros quedan a 5%-15% de los de
+        la carga habitual, fuera del criterio. Se factura, así que la conciliación de facturas la ve
+        como una línea más con su carga. Usa generadores aleatorios propios (el de las copias con el
+        decimal corrido y los pares parecidos es aparte, para no cambiar los demás casos) y se
+        aplica antes de facturar.
         """
         rng = random.Random(self.seed + 5_000_003)
         consumo = self.datasets["consumo"]
@@ -2370,6 +2397,31 @@ class GeneradorMaestro:
                 "consumo", copia["id"], original["vehiculo_id"], "DOBLE_COBRO", "origen_transaccion",
                 f"la carga {original['id']} se cobró también por contingencia")
 
+        # Copias con el decimal mal colocado: otro generador propio, para no cambiar las copias anteriores
+        rng_manual = random.Random(self.seed + 8_000_003)
+        disponibles = sorted(set(limpias.index) - set(originales))
+        factores = [f for f, n in DOBLE_COBRO_DECIMAL_MOVIDO.items()
+                    for _ in range(max(1, round(n * self.n_flota / 200)))]
+        movidas = sorted(rng_manual.sample(disponibles, len(factores)))
+        for k, (i, factor) in enumerate(zip(movidas, factores), start=len(copias)):
+            original = consumo.loc[i]
+            registro = instante[i] + timedelta(minutes=rng_manual.randint(1, DOBLE_COBRO_MAX_MINUTOS))
+            if registro.date() != instante[i].date():
+                registro = instante[i]
+            litros = round(original["litros"] * factor, 4)          # los mismos dígitos, con el decimal corrido
+            copia = original.copy()
+            copia["id"] = f"CONS-{siguiente + k:08d}"
+            copia["hora"] = registro.strftime("%H:%M:%S")
+            copia["litros"] = litros
+            copia["importe_total"] = round(litros * original["precio_unitario"], 2)
+            copia["origen_transaccion"] = ORIGEN_CONTINGENCIA
+            copias.append(copia)
+            self._registrar_anomalia(
+                "consumo", copia["id"], original["vehiculo_id"], "DOBLE_COBRO", "origen_transaccion",
+                f"la carga {original['id']} se cobró también por contingencia, con el decimal mal colocado "
+                f"({original['litros']:.2f} L escritos como {litros:g} L)")
+        originales = sorted(set(originales) | set(movidas))
+
         # Contingencias legítimas: una proporción de las cargas; una parte con otra carga del vehículo
         # a menos de 12 horas (pero con otros litros), que la regla ingenua confunde con un doble cobro
         candidatas = limpias[~limpias.index.isin(originales)]
@@ -2388,10 +2440,46 @@ class GeneradorMaestro:
             self._registrar_legitimo(consumo.at[i, "id"], consumo.at[i, "vehiculo_id"], "CONTINGENCIA",
                                      CATALOGO_LEGITIMOS["CONTINGENCIA"])
 
+        # Contingencias legítimas con un par parecido: los litros de la contingencia, con el decimal corrido,
+        # quedan a 5%-15% de los de una carga habitual cercana. No es la misma carga: se corrige también el
+        # pedido del registro interno, que declara los mismos litros que la carga
+        habitual = consumo["origen_transaccion"] != ORIGEN_CONTINGENCIA
+        pedido_de = (self.datasets["solicitudes"]
+                     .query("anulado == 'NO' and estacion_servicio != @ESTACION_AJENA")
+                     .assign(litros=lambda d: d["litros_cargados"].round(2),
+                             odometro=lambda d: d["odometro"].astype("Int64"))
+                     .drop_duplicates(["vehiculo_id", "odometro", "litros"], keep=False)
+                     .set_index(["vehiculo_id", "odometro", "litros"])["id"])
+        fila_pedido = pd.Series(self.datasets["solicitudes"].index, index=self.datasets["solicitudes"]["id"])
+        parecidas = 0
+        for i in rng_manual.sample(sorted(set(elegidas) & set(cercanas)), len(set(elegidas) & set(cercanas))):
+            if parecidas >= max(1, round(CONTINGENCIAS_PAR_PARECIDO * self.n_flota / 200)):
+                break
+            v = consumo.at[i, "vehiculo_id"]
+            distancia = (instante - instante[i]).abs()
+            vecinas = consumo[(consumo["vehiculo_id"] == v) & habitual & (distancia > pd.Timedelta(0))
+                              & (distancia < doce_horas)]
+            clave = (v, int(consumo.at[i, "odometro"]), round(consumo.at[i, "litros"], 2))
+            if vecinas.empty or clave not in pedido_de.index:
+                continue
+            par = vecinas.loc[distancia[vecinas.index].idxmin(), "litros"]
+            signo = rng_manual.choice([-1, 1])
+            litros = round(par / 10 * (1 + signo * rng_manual.uniform(*DIFERENCIA_PAR_PARECIDO)), 2)
+            # Con ningún factor (ni sin correr el decimal) queda a ±2% de una carga habitual cercana
+            if any(abs(litros / f - l) <= 0.02 * l for l in vecinas["litros"] for f in (1, 10, 100, 0.1, 0.01)):
+                continue
+            consumo.at[i, "litros"] = litros
+            consumo.at[i, "importe_total"] = round(litros * consumo.at[i, "precio_unitario"], 2)
+            self.datasets["solicitudes"].at[fila_pedido[pedido_de[clave]], "litros_cargados"] = litros
+            caso = next(c for c in self.casos_legitimos if c["id_registro"] == consumo.at[i, "id"])
+            caso["descripcion"] = DESCRIPCION_PAR_PARECIDO
+            parecidas += 1
+
         consumo = pd.concat([consumo, pd.DataFrame(copias)], ignore_index=True)
         consumo["odometro"] = consumo["odometro"].astype("Int64")
         self.datasets["consumo"] = consumo
-        logger.info(f"✓ Contingencias: {len(elegidas)} legítimas, {len(copias)} dobles cobros")
+        logger.info(f"✓ Contingencias: {len(elegidas)} legítimas ({parecidas} con un par parecido), "
+                    f"{len(copias)} dobles cobros ({len(movidas)} con el decimal mal colocado)")
 
     def aplicar_telemetria_de_bajas(self):
         """Realista: grupo de cada dispositivo y dispositivos de los móviles de baja.
