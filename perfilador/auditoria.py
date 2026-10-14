@@ -19,10 +19,11 @@ from deteccion.datos import cargar_dataset
 from deteccion.hipotesis import hipotesis_del_escenario, reglas_de
 from deteccion.modelo import construir_variables, entrenar_isolation_forest, ids_con_anomalia_de_comportamiento
 from deteccion.priorizacion import REGLAS_CONTEXTO, entrenar_supervisado
-from deteccion.reglas import (ESTACION_AJENA, _vecinos_de_odometro, cargas_exceptuadas, cargas_fuera_del_reporte,
-                              cruzar_registro, detectar_doble_cobro, detectar_duplicados, distancia_uno, leer_fecha,
-                              moviles_por_sufijo_de_motor, normalizar_dominio, reglas_del_dataset, secuencia_odometro,
-                              subforma_de_los_retrocesos, vinculos_de_la_carga)
+from deteccion.reglas import (ESTACION_AJENA, GRUPO_DEPOSITO, _vecinos_de_odometro, cargas_exceptuadas,
+                              cargas_fuera_del_reporte, cruzar_registro, detectar_doble_cobro, detectar_duplicados,
+                              distancia_uno, leer_fecha, moviles_por_sufijo_de_motor, normalizar_dominio,
+                              reglas_del_dataset, secuencia_odometro, subforma_de_los_retrocesos, vinculos_de_la_carga,
+                              vinculos_del_pedido, vinculos_por_identificador)
 from perfilador.adaptador import adaptar
 from perfilador.controles import acotar
 from perfilador.perfil import MINIMO_GRUPO, VERSION, cuantil_publicable, dos_cifras
@@ -192,8 +193,10 @@ def _retrocesos_estudio(datos, alertas):
     }
 
 
-CAUSAS_SIN_VINCULO = ("tarjeta_del_padron", "ultimos_8_del_motor", "distancia_1_de_un_dominio", "otra_fuente",
-                      "forma_del_identificador", "sin_explicacion")
+CAUSAS_SIN_VINCULO = ("ultimos_8_del_motor", "distancia_1_de_un_dominio", "otra_fuente", "forma_del_identificador",
+                      "sin_explicacion")
+EDICIONES = ("confusion_visual", "letra_cambiada", "transposicion", "letra_de_mas_o_de_menos")
+FORMAS = ("vacio", "solo_digitos", "solo_letras", "largo_distinto", "forma_de_dominio")
 
 
 def _forma(identificador, largos):
@@ -208,35 +211,28 @@ def _forma(identificador, largos):
     return "largo_distinto" if len(identificador) not in largos else "forma_de_dominio"
 
 
-def _vinculacion(consumo, flota, telemetria=None, registro=None):
-    """Por qué las cargas sin vínculo normalizado (H1) no se vinculan con la flota, solo en agregado.
+def _dominios(serie):
+    """Dominios normalizados de una fuente, sin vacíos."""
+    return set(normalizar_dominio(serie).dropna()) - {""} if serie is not None else set()
 
-    Cada carga se explica por la primera causa que corresponde, en este orden: su tarjeta es de un
-    móvil del padrón; el identificador coincide con los últimos 8 dígitos (o caracteres) del número de
-    motor de un móvil; está a distancia de edición 1 de un dominio de la flota; el dominio está en la
-    placa de la telemetría o en el registro interno pero no en el padrón; el identificador no tiene
-    forma de dominio. Lo que queda es `sin_explicacion`: un dominio bien formado que no está en
-    ninguna fuente, a investigar aparte. Las tarjetas personales no se cuentan: traen la persona.
+
+def _sin_vinculo(identificador, flota, otras, clave=None, nombre_clave=None):
+    """Por qué los identificadores sin vínculo normalizado no se vinculan con la flota, solo en agregado.
+
+    Cada uno se explica por la primera causa que corresponde, en este orden: la clave propia de la
+    fuente (`clave`, serie booleana: la tarjeta o la matrícula es de un móvil del padrón); los últimos
+    8 dígitos (o caracteres) del número de motor de un móvil; la distancia de edición 1 de un dominio
+    de la flota; el dominio está en otra fuente (`otras`) pero no en el padrón; el identificador no
+    tiene forma de dominio. Lo que queda es `sin_explicacion`: un dominio bien formado que no está en
+    ninguna fuente, a investigar aparte.
     """
-    personal = consumo.get("tipo_identificacion", pd.Series("PATENTE", index=consumo.index)).eq("DNI")
-    evaluadas = consumo[~personal]
-    dominios = normalizar_dominio(flota["Dominio"]).dropna()
-    dominios = set(dominios[dominios != ""])
-    exacta = evaluadas["dominio"].isin(set(flota["Dominio"].dropna()))
-    identificador = normalizar_dominio(evaluadas["dominio"])
-    sin_vinculo = evaluadas[~identificador.isin(dominios)]
-    identificador = identificador[sin_vinculo.index]
-    tarjeta = sin_vinculo.get("numero_tarjeta", pd.Series(pd.NA, index=sin_vinculo.index)).dropna()
-
-    tarjetas = set(flota["NumeroTarjeta"].dropna()) if "NumeroTarjeta" in flota.columns else set()
+    dominios = _dominios(flota["Dominio"])
+    normalizado = normalizar_dominio(identificador)
+    sin_vinculo = normalizado[~normalizado.isin(dominios)]
+    explicada = clave.reindex(sin_vinculo.index).fillna(False) if clave is not None \
+        else pd.Series(False, index=sin_vinculo.index)
     # Un sufijo que comparten dos motores de móviles distintos no identifica a ninguno: se cuenta aparte
     moviles_por_sufijo = moviles_por_sufijo_de_motor(flota)
-    otras = set()
-    if telemetria is not None and "Placa" in telemetria.columns:
-        otras |= set(normalizar_dominio(telemetria["Placa"]).dropna())
-    if registro is not None and "dominio" in registro.columns:
-        otras |= set(normalizar_dominio(registro["dominio"]).dropna())
-    otras -= {""}
     por_largo = {}
     for d in dominios:
         por_largo.setdefault(len(d), []).append(d)
@@ -244,11 +240,11 @@ def _vinculacion(consumo, flota, telemetria=None, registro=None):
 
     causas, ediciones, formas = [], [], []
     motor_ambiguo = dist_ambigua = 0
-    for i, ident in identificador.items():
+    for i, ident in sin_vinculo.items():
         forma = _forma(ident, largos)
         formas.append(forma)
-        if tarjeta.get(i) in tarjetas:
-            causas.append("tarjeta_del_padron")
+        if explicada[i]:
+            causas.append(nombre_clave)
             continue
         if forma != "vacio" and ident in moviles_por_sufijo:
             causas.append("ultimos_8_del_motor")
@@ -268,25 +264,63 @@ def _vinculacion(consumo, flota, telemetria=None, registro=None):
 
     causas, formas = pd.Series(causas, dtype="string"), pd.Series(formas, dtype="string")
     sin_forma = formas[causas.eq("forma_del_identificador").values]
-    niveles = vinculos_de_la_carga(evaluadas, flota)
+    nombres = ((nombre_clave,) if nombre_clave else ()) + CAUSAS_SIN_VINCULO
     return {
+        "sin_vinculo_exacto": acotar(int((~identificador.isin(set(flota["Dominio"].dropna()))).sum())),
+        "sin_vinculo_normalizado": acotar(len(sin_vinculo)),
+        "por_causa": {c: acotar(int(causas.eq(c).sum())) for c in nombres},
+        "distancia_1_por_edicion": {e: acotar(ediciones.count(e)) for e in EDICIONES},
+        "distancia_1_con_mas_de_un_dominio": acotar(dist_ambigua),
+        "motor_con_mas_de_un_movil": acotar(motor_ambiguo),
+        "forma_del_identificador": {f: acotar(int(sin_forma.eq(f).sum())) for f in FORMAS[:-1]},
+        "forma_de_todas_las_sin_vinculo": {f: acotar(int(formas.eq(f).sum())) for f in FORMAS},
+    }
+
+
+def _vinculacion(consumo, flota, telemetria=None, registro=None):
+    """Vinculación con la flota de las cargas, la placa de la telemetría y el registro interno (H1, #41).
+
+    Por fuente: cuántos registros se evalúan, qué porcentaje se vincula en cada nivel (acumulado) y
+    por qué no se vinculan los que quedan sin vínculo normalizado (`_sin_vinculo`). Las cargas se
+    explican primero por la tarjeta y los pedidos por la matrícula; la telemetría no tiene otra clave.
+    Las tarjetas personales no se cuentan (traen la persona) y los dispositivos del grupo de depósito
+    tampoco (están retirados). Solo conteos, sin ningún identificador.
+    """
+    placas = telemetria["Placa"] if telemetria is not None and "Placa" in telemetria.columns else None
+    del_registro = registro["dominio"] if registro is not None and "dominio" in registro.columns else None
+
+    personal = consumo.get("tipo_identificacion", pd.Series("PATENTE", index=consumo.index)).eq("DNI")
+    evaluadas = consumo[~personal]
+    niveles = vinculos_de_la_carga(evaluadas, flota)
+    vinculacion = {
         "cargas_evaluadas": acotar(len(evaluadas)),
         # Niveles de H1, acumulados: cuánto sube la vinculación con cada camino
         "vinculadas_pct": {n: _pct(int(niveles[n].sum()), len(evaluadas))
                            for n in ("exacto", "normalizado", "motor", "tarjeta")},
-        "sin_vinculo_exacto": acotar(int((~exacta).sum())),
-        "sin_vinculo_normalizado": acotar(len(sin_vinculo)),
-        "por_causa": {c: acotar(int(causas.eq(c).sum())) for c in CAUSAS_SIN_VINCULO},
-        "distancia_1_por_edicion": {e: acotar(ediciones.count(e)) for e in
-                                    ("confusion_visual", "letra_cambiada", "transposicion", "letra_de_mas_o_de_menos")},
-        "distancia_1_con_mas_de_un_dominio": acotar(dist_ambigua),
-        "motor_con_mas_de_un_movil": acotar(motor_ambiguo),
-        "forma_del_identificador": {f: acotar(int(sin_forma.eq(f).sum()))
-                                    for f in ("vacio", "solo_digitos", "solo_letras", "largo_distinto")},
-        "forma_de_todas_las_sin_vinculo": {f: acotar(int(formas.eq(f).sum()))
-                                           for f in ("vacio", "solo_digitos", "solo_letras", "largo_distinto",
-                                                     "forma_de_dominio")},
+        **_sin_vinculo(evaluadas["dominio"], flota, _dominios(placas) | _dominios(del_registro),
+                       evaluadas.get("numero_tarjeta", pd.Series(pd.NA, index=evaluadas.index)).isin(
+                           set(flota["NumeroTarjeta"].dropna()) if "NumeroTarjeta" in flota.columns else set()),
+                       "tarjeta_del_padron"),
     }
+    if placas is not None:
+        instalados = telemetria[telemetria.get("Grupo", pd.Series(pd.NA, index=telemetria.index)) != GRUPO_DEPOSITO]
+        niveles = vinculos_por_identificador(instalados["Placa"], flota)
+        vinculacion["telemetria"] = {
+            "dispositivos_evaluados": acotar(len(instalados)),
+            "vinculados_pct": {n: _pct(int(niveles[n].sum()), len(instalados)) for n in ("exacto", "normalizado", "motor")},
+            **_sin_vinculo(instalados["Placa"], flota, _dominios(consumo["dominio"]) | _dominios(del_registro)),
+        }
+    if del_registro is not None:
+        niveles = vinculos_del_pedido(registro, flota)
+        vinculacion["registro"] = {
+            "pedidos_evaluados": acotar(len(registro)),
+            "vinculados_pct": {n: _pct(int(niveles[n].sum()), len(registro))
+                               for n in ("exacto", "normalizado", "motor", "matricula")},
+            **_sin_vinculo(registro["dominio"], flota, _dominios(consumo["dominio"]) | _dominios(placas),
+                           registro.get("vehiculo_id", pd.Series(pd.NA, index=registro.index)).isin(
+                               set(flota["Matricula"].dropna())), "matricula_del_padron"),
+        }
+    return vinculacion
 
 
 # Qué hipótesis anticipa cada tipo de reclamo de la fuente
