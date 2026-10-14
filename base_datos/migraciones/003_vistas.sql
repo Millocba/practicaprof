@@ -68,8 +68,11 @@ FROM factura_linea l
 LEFT JOIN carga c ON c.id = l.referencia_carga
 WHERE l.concepto = 'COMBUSTIBLE' AND c.id IS NULL;
 
--- Móviles de baja con el dispositivo fuera del grupo de depósito y con transmisión en la última
--- semana: irían a desguace con el aparato funcionando (H11)
+-- Móviles de baja cuyo dispositivo transmitió en la última semana: irían a desguace con el
+-- aparato funcionando (H11). No filtra por grupo a propósito: el grupo del dispositivo a
+-- veces queda con el valor anterior aunque el aparato ya no esté instalado, así que lo que
+-- dice si dejó de trabajar es la última conexión. Da el mismo conjunto que la regla
+-- `detectar_dispositivo_activo_en_baja` de `deteccion/reglas.py`, y un test lo comprueba.
 CREATE VIEW baja_con_dispositivo_activo AS
 SELECT v.matricula, v.dominio, e.estado, d.alias AS dispositivo, d.grupo, d.ultima_conexion
 FROM vehiculo v
@@ -77,5 +80,4 @@ JOIN estado_vehiculo e ON e.matricula = v.matricula AND e.hasta IS NULL
 JOIN asignacion_dispositivo a ON a.matricula = v.matricula AND a.hasta IS NULL
 JOIN dispositivo d ON d.alias = a.dispositivo
 WHERE e.estado LIKE '%BAJA%'
-  AND d.grupo <> 'BAJA / REEMPLAZOS'
   AND julianday((SELECT MAX(ultima_conexion) FROM dispositivo)) - julianday(d.ultima_conexion) <= 7;
