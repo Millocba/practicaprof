@@ -6,7 +6,7 @@ Uso:
         Crea la base si no existe, aplica las migraciones pendientes y carga el dataset (repetible:
         no duplica filas). Con --hasta carga los datos operativos solo hasta esa fecha.
     python -m base_datos verificar [--base ...]
-        Integridad referencial y filas por tabla.
+        Integridad referencial (incluidas las excepciones de odómetro contra el padrón) y filas por tabla.
 
 La base es un archivo local que no se versiona (datasets/ está fuera de Git).
 """

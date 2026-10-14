@@ -43,5 +43,11 @@ def verificar(conexion):
     """Integridad referencial y de la base: devuelve una lista de problemas (vacía si está bien)."""
     problemas = [f"{tabla}: fila {fila} rompe la clave hacia {padre}"
                  for tabla, fila, padre, _ in conexion.execute("PRAGMA foreign_key_check")]
+    # Excepciones de odómetro: cada una de un vehículo del padrón (lo cubre la clave foránea) y, como el
+    # padrón guarda una sola fecha hasta, a lo sumo una activa por vehículo
+    problemas += [f"excepcion_odometro: el vehículo {matricula} tiene {n} excepciones activas"
+                  for matricula, n in conexion.execute(
+                      "SELECT matricula, COUNT(*) FROM excepcion_odometro WHERE activo = 'SI' "
+                      "GROUP BY matricula HAVING COUNT(*) > 1")]
     problemas += [r for (r,) in conexion.execute("PRAGMA integrity_check") if r != "ok"]
     return problemas
