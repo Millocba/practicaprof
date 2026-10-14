@@ -50,8 +50,10 @@ MARGEN_PROYECCION = 1.05        # una transferencia se justifica si la proyecci�
 HOLGURA_TRANSFERENCIA = 0.9     # es injustificada si la proyección con margen no llega a este tanto de lo disponible
 DIAS_PESO_HISTORICO = 7         # la proyección combina el mes con 7 días del promedio histórico del contrato
 ORIGEN_CONTINGENCIA = "CONTINGENCIA"  # origen de la transacción cargada por la vía alternativa
-HORAS_DOBLE_COBRO = 12          # una contingencia es un doble cobro si hay una carga habitual a menos de estas horas...
-TOLERANCIA_LITROS_DOBLE_COBRO = 0.02  # ...con una diferencia de litros de hasta este porcentaje
+HORAS_DOBLE_COBRO = 12          # una contingencia es un doble cobro si hay una carga habitual a menos de estas horas
+                                # (la contingencia se debe a un corte de servicio, de internet o similar)...
+TOLERANCIA_LITROS_DOBLE_COBRO = 0.02  # ...con una diferencia de litros de hasta este porcentaje...
+DECIMAL_MOVIDO_DOBLE_COBRO = (10, 100, 0.1, 0.01)  # ...o con el decimal corrido, como en un remito escrito a mano
 
 
 def _alertas(df, tipo, regla, detalle):
@@ -371,26 +373,53 @@ def detectar_contingencia(consumo):
     return _alertas(contingencias, "DOBLE_COBRO", "contingencia", "transacción de contingencia")
 
 
-def detectar_doble_cobro(consumo):
-    """H13: una contingencia con una carga del mismo vehículo por el medio habitual cercana y con los mismos litros.
+def pares_de_contingencia(consumo):
+    """Cada contingencia con cada carga del mismo vehículo por el medio habitual a menos de HORAS_DOBLE_COBRO horas.
 
-    La misma carga cobrada por las dos vías: a menos de HORAS_DOBLE_COBRO horas y con hasta
-    TOLERANCIA_LITROS_DOBLE_COBRO de diferencia de litros (respecto de la carga habitual).
+    Agrega `mismos_litros` (hasta TOLERANCIA_LITROS_DOBLE_COBRO de diferencia respecto de la carga habitual)
+    y `decimal_movido` (no tiene los mismos litros, pero sí con el decimal corrido: los litros de la
+    contingencia multiplicados o divididos por 10 o por 100, con la misma tolerancia). Devuelve None si el
+    reporte no trae el origen ni la hora de cada transacción.
     """
     if not {"origen_transaccion", "hora"} <= set(consumo.columns):
-        return pd.DataFrame(columns=COLUMNAS_ALERTA)
+        return None
     c = consumo.assign(instante=_instantes(consumo["fecha"], consumo["hora"]),
                        contingencia=consumo["origen_transaccion"].astype("string").str.upper() == ORIGEN_CONTINGENCIA)
     c = c.dropna(subset=["vehiculo_id", "instante", "litros"])
     habituales = c.loc[~c["contingencia"], ["vehiculo_id", "instante", "litros"]]
     pares = c.loc[c["contingencia"], ["id", "vehiculo_id", "instante", "litros"]].merge(
         habituales, on="vehiculo_id", suffixes=("", "_habitual"))
-    horas = (pares["instante"] - pares["instante_habitual"]).abs() / pd.Timedelta(hours=1)
-    diferencia = (pares["litros"] - pares["litros_habitual"]).abs().round(6)
-    cerca = diferencia <= (TOLERANCIA_LITROS_DOBLE_COBRO * pares["litros_habitual"]).round(6)
-    dobles = pares[(horas < HORAS_DOBLE_COBRO) & cerca].drop_duplicates("id")
+    pares = pares[(pares["instante"] - pares["instante_habitual"]).abs() < pd.Timedelta(hours=HORAS_DOBLE_COBRO)]
+    tolerancia = (TOLERANCIA_LITROS_DOBLE_COBRO * pares["litros_habitual"]).round(6)
+    mismos = (pares["litros"] - pares["litros_habitual"]).abs().round(6) <= tolerancia
+    corrido = pd.Series(False, index=pares.index)
+    for factor in DECIMAL_MOVIDO_DOBLE_COBRO:
+        corrido |= (pares["litros"] / factor - pares["litros_habitual"]).abs().round(6) <= tolerancia
+    return pares.assign(mismos_litros=mismos, decimal_movido=corrido & ~mismos)
+
+
+def detectar_doble_cobro(consumo):
+    """H13: una contingencia con una carga del mismo vehículo por el medio habitual cercana y con los mismos litros.
+
+    La misma carga cobrada por las dos vías: a menos de HORAS_DOBLE_COBRO horas y con hasta
+    TOLERANCIA_LITROS_DOBLE_COBRO de diferencia de litros (respecto de la carga habitual). La contingencia
+    se carga a mano: los litros pueden tener el decimal mal colocado (15,96 L escritos como 1596 L). Un par
+    con los mismos dígitos significativos es el mismo litraje: los litros de la contingencia multiplicados o
+    divididos por 10 o por 100 (DECIMAL_MOVIDO_DOBLE_COBRO) se comparan con la misma tolerancia. Una
+    contingencia sin par no es una alerta. Ver `pares_de_contingencia`.
+    """
+    pares = pares_de_contingencia(consumo)
+    if pares is None:
+        return pd.DataFrame(columns=COLUMNAS_ALERTA)
+    # Si una contingencia tiene más de un par, el de los mismos litros va antes que el del decimal corrido
+    dobles = (pares[pares["mismos_litros"] | pares["decimal_movido"]]
+              .sort_values("decimal_movido", kind="mergesort").drop_duplicates("id").sort_index())
+    detalle = "contingencia con una carga del mismo vehículo por el medio habitual cercana y con los mismos litros"
     return _alertas(dobles, "DOBLE_COBRO", "doble_cobro",
-                    "contingencia con una carga del mismo vehículo por el medio habitual cercana y con los mismos litros")
+                    lambda d: pd.Series(detalle, index=d.index).where(
+                        ~d["decimal_movido"],
+                        detalle + " con el decimal mal colocado (" + d["litros"].round(4).astype(str) + " L contra "
+                        + d["litros_habitual"].round(2).astype(str) + " L)"))
 
 
 def _exceptuadas_y_siguientes(s, exceptuadas):
@@ -1243,7 +1272,9 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
         # antecedente (H3b), a un vehículo inactivo (H6), dentro de un día fraccionado (H4) o
         # lejos del GPS (H7) carga sin recorrido por su propio motivo, y el bajo rendimiento
         # es consecuencia. Se calculan antes para poder pasarle los ids a H5.
-        exceso = detectar_exceso_sin_antecedente(consumo, flota)
+        # Un doble cobro tampoco es una carga más para H3b: una copia con el decimal mal colocado (×10, ×100)
+        # supera el tanque sin que el vehículo haya cargado de más
+        exceso = detectar_exceso_sin_antecedente(consumo[~consumo["id"].isin(set(dobles["id_registro"]))], flota)
         inactivo = detectar_carga_vehiculo_inactivo(consumo, flota)
         fraccionado = detectar_fraccionamiento(dias, con_rendimiento=True)
         lejos_del_gps = (detectar_carga_lejos_del_gps(consumo, flota, estaciones, telemetria_diaria)
