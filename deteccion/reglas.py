@@ -157,6 +157,40 @@ def moviles_por_sufijo_de_motor(flota):
         .groupby(level=0).agg(set).to_dict()
 
 
+def movil_del_identificador(identificador, flota):
+    """(matrícula, nivel) del móvil que identifica cada valor: un dominio, una placa o los últimos 8 del motor.
+
+    El nivel es `exacto` (el dominio tal como llega), `normalizado` o `motor` (los últimos 8 del motor
+    de un solo móvil), el primero que identifica al móvil; vacío si ninguno lo hace.
+    """
+    def indice(claves):
+        m = pd.Series(flota["Matricula"].values, index=claves.values)
+        return m[m.index.notna() & (m.index != "") & ~m.index.duplicated()]
+
+    escrito = identificador.astype("string")
+    exacto = escrito.map(indice(flota["Dominio"].astype("string")))
+    normalizado = normalizar_dominio(escrito).map(indice(normalizar_dominio(flota["Dominio"])))
+    unicos = pd.Series({s: next(iter(m)) for s, m in moviles_por_sufijo_de_motor(flota).items() if len(m) == 1},
+                       dtype=object)
+    motor = normalizar_dominio(escrito).map(unicos)
+    nivel = pd.Series(np.select([exacto.notna(), normalizado.notna(), motor.notna()], ["exacto", "normalizado", "motor"],
+                                default=""), index=identificador.index).replace({"": pd.NA})
+    return exacto.fillna(normalizado).fillna(motor), nivel
+
+
+def vinculos_por_identificador(identificador, flota, por_clave=None):
+    """Niveles acumulados de vinculación (H1): `exacto`, `normalizado`, `motor` y, si se pasa `por_clave`
+    (una serie booleana: la tarjeta o la matrícula de la fuente es de un móvil del padrón), `clave`."""
+    _, nivel = movil_del_identificador(identificador, flota)
+    exacto = nivel.eq("exacto").fillna(False)
+    normalizado = exacto | nivel.eq("normalizado").fillna(False)
+    motor = nivel.notna()
+    vinculos = pd.DataFrame({"exacto": exacto, "normalizado": normalizado, "motor": motor}, index=identificador.index)
+    if por_clave is not None:
+        vinculos["clave"] = motor | por_clave.fillna(False).astype(bool)
+    return vinculos
+
+
 def vinculos_de_la_carga(consumo, flota):
     """Por qué camino se vincula cada carga con la flota, en niveles acumulados (H1).
 
@@ -164,16 +198,36 @@ def vinculos_de_la_carga(consumo, flota):
     identificador son los últimos 8 del motor de un solo móvil) y `tarjeta` (además, la tarjeta es de
     un móvil del padrón). `personal` marca las tarjetas personales, que traen la persona y no el móvil.
     """
-    dominio = normalizar_dominio(consumo["dominio"])
-    exacto = consumo["dominio"].isin(set(flota["Dominio"].dropna()))
-    normalizado = exacto | dominio.isin(set(normalizar_dominio(flota["Dominio"]).dropna()))
-    unicos = {s for s, m in moviles_por_sufijo_de_motor(flota).items() if len(m) == 1}
-    motor = normalizado | dominio.isin(unicos)
     tarjetas = set(flota["NumeroTarjeta"].dropna()) if "NumeroTarjeta" in flota.columns else set()
-    tarjeta = motor | consumo["numero_tarjeta"].isin(tarjetas) if "numero_tarjeta" in consumo.columns else motor
+    tarjeta = consumo["numero_tarjeta"].isin(tarjetas) if "numero_tarjeta" in consumo.columns \
+        else pd.Series(False, index=consumo.index)
     personal = consumo.get("tipo_identificacion", pd.Series("PATENTE", index=consumo.index)).eq("DNI")
-    return pd.DataFrame({"exacto": exacto, "normalizado": normalizado.fillna(False), "motor": motor.fillna(False),
-                         "tarjeta": tarjeta.fillna(False), "personal": personal}, index=consumo.index)
+    return vinculos_por_identificador(consumo["dominio"], flota, tarjeta).rename(columns={"clave": "tarjeta"}) \
+        .assign(personal=personal)
+
+
+def vinculos_del_pedido(registro, flota):
+    """Niveles de vinculación de cada pedido del registro interno: por su dominio y, además, por su matrícula."""
+    matricula = registro["vehiculo_id"].isin(set(flota["Matricula"].dropna())) if "vehiculo_id" in registro.columns \
+        else pd.Series(False, index=registro.index)
+    return vinculos_por_identificador(registro["dominio"], flota, matricula).rename(columns={"clave": "matricula"})
+
+
+def detectar_pedido_sin_movil(registro, flota):
+    """H1 en el registro interno (#41): ni el dominio normalizado, ni los últimos 8 del motor, ni la matrícula
+    del pedido corresponden a un móvil de la flota."""
+    sin_movil = registro[~vinculos_del_pedido(registro, flota)["matricula"]]
+    return _alertas(sin_movil, "DOMINIO_INVALIDO", "pedido_sin_movil_identificado",
+                    "ni el dominio, ni el motor, ni la matrícula corresponden a un móvil de la flota")
+
+
+def detectar_dispositivo_sin_movil(telemetria, flota):
+    """H1 en la telemetría (#41): la placa del dispositivo no identifica a ningún móvil, ni normalizada ni por
+    los últimos 8 del motor. Los dispositivos del grupo de depósito no se cuentan: están retirados."""
+    instalados = telemetria[telemetria.get("Grupo", pd.Series(pd.NA, index=telemetria.index)) != GRUPO_DEPOSITO]
+    sin_movil = instalados[~vinculos_por_identificador(instalados["Placa"], flota)["motor"]]
+    return _alertas(sin_movil.rename(columns={"Alias": "id"}), "DOMINIO_INVALIDO", "dispositivo_sin_movil_identificado",
+                    "la placa no corresponde a ningún móvil de la flota")
 
 
 def detectar_carga_sin_movil(consumo, flota):
@@ -1273,9 +1327,10 @@ DIAS_TRANSMISION_RECIENTE = 7   # transmitió en la última semana
 
 
 def _dispositivos_de_baja(flota, telemetria):
-    """Dispositivos instalados en móviles cuyo estado es de baja (por dominio normalizado)."""
-    de_baja = set(normalizar_dominio(flota.loc[flota["Estado"].astype(str).str.contains("BAJA"), "Dominio"]))
-    return telemetria[normalizar_dominio(telemetria["Placa"]).isin(de_baja)].rename(columns={"Alias": "id"})
+    """Dispositivos instalados en móviles cuyo estado es de baja (por la placa normalizada o los últimos 8 del motor)."""
+    de_baja = set(flota.loc[flota["Estado"].astype(str).str.contains("BAJA"), "Matricula"])
+    matricula, _ = movil_del_identificador(telemetria["Placa"], flota)
+    return telemetria[matricula.isin(de_baja)].rename(columns={"Alias": "id"})
 
 
 def detectar_baja_con_dispositivo(flota, telemetria):
@@ -1394,6 +1449,7 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
             partes += [
                 detectar_cruce_ingenuo(consumo, solicitudes, excluir),
                 detectar_cruce_con_contexto(consumo, solicitudes, excluir, flota),
+                detectar_pedido_sin_movil(solicitudes, flota),
             ]
         if facturacion is not None and facturacion_detalle is not None:
             partes += [
@@ -1406,7 +1462,8 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
                            detectar_pdf_no_concilia(facturacion)]
         if telemetria is not None and "Grupo" in telemetria.columns:
             partes += [detectar_baja_con_dispositivo(flota, telemetria),
-                       detectar_dispositivo_activo_en_baja(flota, telemetria)]
+                       detectar_dispositivo_activo_en_baja(flota, telemetria),
+                       detectar_dispositivo_sin_movil(telemetria, flota)]
         if contratos is not None and transferencias is not None and "contrato" in consumo.columns:
             partes += [
                 detectar_ejecucion_supera_tope(consumo, contratos),
