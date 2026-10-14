@@ -60,8 +60,12 @@ def tablas_de_la_base(datos):
         tipo="VEHICULO")
     personales = (consumo[consumo["tipo_identificacion"] == "DNI"].drop_duplicates("numero_tarjeta")
                   .rename(columns={"numero_tarjeta": "numero"}).assign(tipo="PERSONAL"))
+    # Una tarjeta del contrato que no está asignada a ningún móvil del padrón (H1, #41): se registra sin asignación
+    sin_asignar = (consumo[(consumo["tipo_identificacion"] != "DNI") & ~consumo["numero_tarjeta"].isin(de_vehiculo["numero"])]
+                   .drop_duplicates("numero_tarjeta").rename(columns={"numero_tarjeta": "numero"}).assign(tipo="VEHICULO"))
     t["tarjeta"] = pd.concat([de_vehiculo[["numero", "tipo", "contrato", "cupo_litros", "limite_litros", "limite_saldo"]],
-                              personales[["numero", "tipo", "contrato"]]], ignore_index=True)
+                              personales[["numero", "tipo", "contrato"]], sin_asignar[["numero", "tipo", "contrato"]]],
+                             ignore_index=True)
     t["asignacion_tarjeta"] = pd.concat([
         de_vehiculo.assign(tarjeta=de_vehiculo["numero"], matricula=de_vehiculo["Matricula"], persona=None),
         personales.assign(tarjeta=personales["numero"], matricula=None, persona=personales["conductor"]),
