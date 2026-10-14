@@ -35,7 +35,7 @@ def con_forma_real(s):
         "Matricula": flota["Matricula"], "Dominio": flota["Dominio"], "Estado": flota["Estado"].str.title(),
         "SubEstado": flota["SubEstado"], "TipoVehiculo": flota["TipoVehiculo"], "TipoCombustible": flota["TipoCombustible"],
         "CapacidadTanque": flota["CapacidadTanque"], "NumeroTarjeta": flota["NumeroTarjeta"],
-        "NumeroContrato": flota["NumeroContrato"], "Cupo": flota["Cupo"], "Dependencia": flota["Dependencia"],
+        "NumeroMotor": flota["NumeroMotor"], "NumeroContrato": flota["NumeroContrato"], "Cupo": flota["Cupo"], "Dependencia": flota["Dependencia"],
         "DireccionGral": flota["DireccionGral"], "ExcepcionOdometro": flota["ExcepcionOdometro"],
         "FechaHastaExcepcionOdometro": flota["FechaHastaExcepcionOdometro"]})
     excepciones = s["excepciones_odometro"]
@@ -171,10 +171,83 @@ def test_la_salida_no_tiene_identificadores(resultado, sintetico):
     for valor in [sintetico["consumo"]["id"].iloc[0], sintetico["solicitudes"]["id"].iloc[0],
                   sintetico["flota"]["Dominio"].iloc[0], sintetico["flota"]["Matricula"].iloc[0],
                   sintetico["telemetria"]["Alias"].iloc[0], sintetico["facturacion"]["numero_factura"].iloc[0],
+                  sintetico["flota"]["NumeroMotor"].dropna().iloc[0], sintetico["flota"]["NumeroTarjeta"].iloc[0],
                   "proveedor zeta", "PROVEEDOR ZETA"]:
         assert str(valor) not in texto
     for regla in resultado["reglas"].values():
         assert isinstance(regla["alertas"], str) or regla["alertas"] == 0 or regla["alertas"] >= 20
+
+
+def test_la_auditoria_explica_las_cargas_sin_vinculo(resultado):
+    vinculacion = resultado["diagnostico"]["vinculacion"]
+    assert vinculacion["sin_vinculo_normalizado"] != 0
+    # En el sintético, la tarjeta de una carga con el dominio mal escrito es la del vehículo
+    assert vinculacion["por_causa"]["tarjeta_del_padron"] != 0
+    assert vinculacion["por_causa"]["sin_explicacion"] == 0
+
+
+def _flota_y_cargas_sin_vinculo():
+    """Flota y cargas inventadas, una por cada causa de una carga sin vínculo."""
+    flota = pd.DataFrame({"Matricula": ["S1", "S2", "S3", "S4"], "Dominio": ["AAA001", "AAA002", "AB123CD", "CCC333"],
+                          "NumeroTarjeta": ["T1", "T2", "T3", "T4"],
+                          "NumeroMotor": ["XX99A999A12345678", "999999987654321", None, "ZZ12345678"]})
+    filas = [("ZZZ999", "T1"),        # la tarjeta es de un móvil del padrón
+             ("12345678", "TX"),      # últimos 8 del motor, compartidos por dos móviles
+             ("87654321", "TX"),      # últimos 8 dígitos del motor
+             ("AAA0O1", "TX"),        # confusión de 0 con O
+             ("AAA010", "TX"),        # transposición
+             ("AB123CDX", "TX"),      # letra de más
+             ("QQQ111", "TX"),        # solo en la telemetría
+             (None, "TX"),            # sin identificador
+             ("123", "TX"),           # solo dígitos
+             ("ZZZ888", "TX"),        # bien formado y en ninguna fuente
+             ("aaa-001", "T1"),       # se vincula normalizado
+             ("AAA001", "T1")]        # se vincula tal como llega
+    consumo = pd.DataFrame(filas, columns=["dominio", "numero_tarjeta"]).assign(tipo_identificacion="PATENTE")
+    personal = pd.DataFrame({"dominio": [None], "numero_tarjeta": ["TX"], "tipo_identificacion": ["DNI"]})
+    return flota, pd.concat([consumo, personal], ignore_index=True), pd.DataFrame({"Placa": ["QQQ-111"]})
+
+
+def test_vinculacion_explica_cada_carga_sin_vinculo_por_una_causa(monkeypatch):
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _vinculacion
+
+    flota, consumo, telemetria = _flota_y_cargas_sin_vinculo()
+    vinculacion = _vinculacion(consumo, flota, telemetria)
+    assert vinculacion["cargas_evaluadas"] == 12
+    assert vinculacion["sin_vinculo_exacto"] == 11
+    assert vinculacion["sin_vinculo_normalizado"] == 10
+    assert vinculacion["por_causa"] == {"tarjeta_del_padron": 1, "ultimos_8_del_motor": 2,
+                                        "distancia_1_de_un_dominio": 3, "otra_fuente": 1,
+                                        "forma_del_identificador": 2, "sin_explicacion": 1}
+    assert vinculacion["distancia_1_por_edicion"] == {"confusion_visual": 1, "letra_cambiada": 0,
+                                                      "transposicion": 1, "letra_de_mas_o_de_menos": 1}
+    assert vinculacion["motor_con_mas_de_un_movil"] == 1
+    assert vinculacion["forma_del_identificador"] == {"vacio": 1, "solo_digitos": 1, "solo_letras": 0,
+                                                      "largo_distinto": 0}
+
+
+def test_vinculacion_suprime_los_grupos_pequenos_y_no_tiene_identificadores():
+    from perfilador.auditoria import _vinculacion
+
+    flota, consumo, telemetria = _flota_y_cargas_sin_vinculo()
+    vinculacion = _vinculacion(consumo, flota, telemetria)
+    assert vinculacion["sin_vinculo_normalizado"] == "1–19"
+    texto = json.dumps(vinculacion, ensure_ascii=False)
+    for valor in ["ZZZ", "AAA", "1234", "8765", "QQQ", "T1", "S1"]:
+        assert valor not in texto
+
+
+def test_distancia_uno():
+    from perfilador.auditoria import _distancia_uno
+
+    assert _distancia_uno("AB1C", "AB1C") is None
+    assert _distancia_uno("AAB8", "AAB9") == "letra_cambiada"
+    assert _distancia_uno("AI23", "A123") == "confusion_visual"
+    assert _distancia_uno("AB12", "BA12") == "transposicion"
+    assert _distancia_uno("AB12", "AB123") == "letra_de_mas_o_de_menos"
+    assert _distancia_uno("AB12", "BA21") is None
+    assert _distancia_uno("AB12", "AB1234") is None
 
 
 def test_los_reclamos_se_vinculan_y_se_comparan_con_las_reglas(resultado):
