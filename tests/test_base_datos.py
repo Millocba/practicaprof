@@ -149,7 +149,7 @@ def test_una_patente_fuera_del_padron_hace_fallar_la_carga(directorio, tmp_path)
     for archivo in Path(directorio).iterdir():
         (copia / archivo.name).write_bytes(archivo.read_bytes())
     excepciones = pd.read_csv(copia / "excepciones_odometro.csv")
-    excepciones.loc[0, "patente"] = "ZZ999ZZ"
+    excepciones.loc[0, "patente"] = "SINTETICO-SIN-PADRON"
     excepciones.to_csv(copia / "excepciones_odometro.csv", index=False)
     conexion = conectar(tmp_path / "patente.db")
     migrar(conexion)
