@@ -146,6 +146,28 @@ def test_un_dominio_a_distancia_1_del_de_su_tarjeta_es_un_error_de_tipeo():
     assert causas_de_dominio(consumo, flota) == {"C5": "dominio_equivocado"}
 
 
+def test_dispositivos_y_pedidos_sin_movil_identificado():
+    from deteccion.reglas import (GRUPO_DEPOSITO, detectar_baja_con_dispositivo, detectar_dispositivo_sin_movil,
+                                  detectar_pedido_sin_movil)
+
+    flota, _ = _flota_y_cargas_de_vinculacion()
+    flota = flota.assign(Estado=["EN SERVICIO", "BAJA", "EN SERVICIO"])
+    telemetria = pd.DataFrame({"Alias": ["D1", "D2", "D3", "D4", "D5"],
+                               "Placa": ["za 001 aa", "00000001", "ZZ999ZZ", None, "ZZ999ZZ"],
+                               "Grupo": ["G1", "G1", "G1", "G1", GRUPO_DEPOSITO]})
+    # La placa normalizada y el motor vinculan; el depósito no se cuenta
+    assert set(detectar_dispositivo_sin_movil(telemetria, flota)["id_registro"]) == {"D3", "D4"}
+    # H11 identifica al móvil de baja también por el motor
+    flota.loc[1, "NumeroMotor"] = "QQ87654321"
+    telemetria.loc[1, "Placa"] = "87654321"
+    assert set(detectar_baja_con_dispositivo(flota, telemetria)["id_registro"]) == {"D2"}
+
+    registro = pd.DataFrame({"id": ["P1", "P2", "P3"], "vehiculo_id": ["S1", "SX", "SX"],
+                             "dominio": ["ZZ999ZZ", "ZA-002-AA", "ZZ999ZZ"]})
+    # P1 lo vincula la matrícula; P2, el dominio normalizado
+    assert set(detectar_pedido_sin_movil(registro, flota)["id_registro"]) == {"P3"}
+
+
 def test_una_carga_sin_movil_cruza_con_el_unico_pedido_de_su_horario_y_litros():
     from deteccion.reglas import cruzar_registro
 

@@ -229,6 +229,28 @@ def test_vinculacion_explica_cada_carga_sin_vinculo_por_una_causa(monkeypatch):
                                                       "largo_distinto": 0}
 
 
+def test_vinculacion_de_la_telemetria_y_del_registro(monkeypatch):
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _vinculacion
+
+    flota, consumo, _ = _flota_y_cargas_sin_vinculo()
+    telemetria = pd.DataFrame({"Alias": ["D1", "D2", "D3", "D4"], "Placa": ["aaa-001", "AAA0O2", "ZZZ999", "QQQ777"],
+                               "Grupo": ["G1", "G1", "G1", "BAJA / REEMPLAZOS"]})
+    registro = pd.DataFrame({"id": ["P1", "P2", "P3"], "vehiculo_id": ["S1", "SX", "SX"],
+                             "dominio": ["ZZZ777", "AAA002", "4567"]})
+    vinculacion = _vinculacion(consumo, flota, telemetria, registro)
+    t = vinculacion["telemetria"]
+    assert t["dispositivos_evaluados"] == 3     # el del depósito no se cuenta
+    assert t["vinculados_pct"] is not None and t["sin_vinculo_normalizado"] == 2
+    # AAA0O2 está a distancia 1 de AAA002; ZZZ999 es una carga sin vínculo: está en otra fuente
+    assert t["por_causa"] == {"ultimos_8_del_motor": 0, "distancia_1_de_un_dominio": 1, "otra_fuente": 1,
+                              "forma_del_identificador": 0, "sin_explicacion": 0}
+    r = vinculacion["registro"]
+    assert r["pedidos_evaluados"] == 3 and r["sin_vinculo_normalizado"] == 2
+    assert r["por_causa"] == {"matricula_del_padron": 1, "ultimos_8_del_motor": 0, "distancia_1_de_un_dominio": 0,
+                              "otra_fuente": 0, "forma_del_identificador": 1, "sin_explicacion": 0}
+
+
 def test_vinculacion_suprime_los_grupos_pequenos_y_no_tiene_identificadores():
     from perfilador.auditoria import _vinculacion
 
