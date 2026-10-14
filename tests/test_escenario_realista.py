@@ -271,6 +271,32 @@ def test_dominios_con_otro_formato_corresponden_a_su_vehiculo(dataset):
     assert not set(con_formato["id_registro"]) & set(dataset["ground_truth"]["id_registro"])
 
 
+def test_la_identificacion_de_las_cargas(dataset, alertas):
+    """Cargas sin móvil, identificadas por el motor y con el dominio mal tipeado (#41)."""
+    from deteccion.reglas import distancia_uno
+
+    flota, consumo, gt = dataset["flota"], dataset["consumo"].set_index("id"), dataset["ground_truth"]
+    legitimos = dataset["casos_legitimos"]
+    sin_movil = gt.loc[gt["tipo_anomalia"] == "DOMINIO_INVALIDO", "id_registro"]
+    assert len(sin_movil) and not consumo.loc[sin_movil, "numero_tarjeta"].isin(flota["NumeroTarjeta"]).any()
+
+    por_motor = legitimos.loc[legitimos["tipo_caso"] == "IDENTIFICADA_POR_MOTOR", "id_registro"]
+    motor = flota.set_index("Matricula")["NumeroMotor"]
+    assert len(por_motor)
+    assert (consumo.loc[por_motor, "dominio"].astype(str).values
+            == consumo.loc[por_motor, "vehiculo_id"].map(motor).str[-8:].values).all()
+
+    tipeados = gt.loc[gt["tipo_anomalia"] == "DOMINIO_MAL_TIPEADO", "id_registro"]
+    dominio = flota.set_index("Matricula")["Dominio"]
+    assert len(tipeados)
+    assert all(distancia_uno(d, dominio[v]) for d, v in consumo.loc[tipeados, ["dominio", "vehiculo_id"]].values)
+    normalizada = alertas[alertas["regla"] == "dominio_sin_vinculo_normalizado"].set_index("id_registro")
+    assert (normalizada.loc[tipeados, "causa_probable"] == "dominio_equivocado").all()
+    # Con contexto, H1 alerta exactamente las cargas sin móvil
+    con_contexto = set(alertas.loc[alertas["regla"] == "carga_sin_movil_identificado", "id_registro"])
+    assert con_contexto == set(sin_movil)
+
+
 # --- Reglas e hipótesis -----------------------------------------------------
 
 def test_todas_las_reglas_con_contexto_emiten_alertas(alertas):

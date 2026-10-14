@@ -181,9 +181,11 @@ def test_la_salida_no_tiene_identificadores(resultado, sintetico):
 def test_la_auditoria_explica_las_cargas_sin_vinculo(resultado):
     vinculacion = resultado["diagnostico"]["vinculacion"]
     assert vinculacion["sin_vinculo_normalizado"] != 0
-    # En el sintético, la tarjeta de una carga con el dominio mal escrito es la del vehículo
+    # En el sintético, la tarjeta de una carga identificada por el motor o con el dominio mal tipeado es
+    # la del vehículo; las cargas sin móvil traen un dominio bien formado y una tarjeta fuera del padrón
     assert vinculacion["por_causa"]["tarjeta_del_padron"] != 0
-    assert vinculacion["por_causa"]["sin_explicacion"] == 0
+    assert vinculacion["por_causa"]["sin_explicacion"] != 0
+    assert vinculacion["vinculadas_pct"]["tarjeta"] > vinculacion["vinculadas_pct"]["normalizado"]
 
 
 def _flota_y_cargas_sin_vinculo():
@@ -239,7 +241,7 @@ def test_vinculacion_suprime_los_grupos_pequenos_y_no_tiene_identificadores():
 
 
 def test_distancia_uno():
-    from perfilador.auditoria import _distancia_uno
+    from deteccion.reglas import distancia_uno as _distancia_uno
 
     assert _distancia_uno("AB1C", "AB1C") is None
     assert _distancia_uno("AAB8", "AAB9") == "letra_cambiada"
