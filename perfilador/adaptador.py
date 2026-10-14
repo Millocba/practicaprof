@@ -149,6 +149,8 @@ def adaptar(tablas, proveedor=None):
         "TipoCombustible": padron.get("TipoCombustible"),
         "CapacidadTanque": _numero(padron["CapacidadTanque"]).where(lambda s: s > 0),
         "NumeroTarjeta": _texto(padron["NumeroTarjeta"]), "NumeroContrato": _numero(padron.get("NumeroContrato")),
+        # Sin dominio, a veces se identifica al móvil por los últimos 8 dígitos del motor (#41)
+        "NumeroMotor": _texto(padron.get("NumeroMotor", pd.Series(pd.NA, index=padron.index))),
         "Dependencia": padron.get("Dependencia"), "DireccionGral": padron.get("DireccionGral"),
         "FechaEstado": pd.NaT,     # la fuente no trae la fecha del cambio de estado
         "ExcepcionOdometro": padron.get("ExcepcionOdometro"),
