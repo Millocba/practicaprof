@@ -118,6 +118,94 @@ def detectar_dominio_invalido(consumo, flota, normalizado=False):
                     lambda d: "dominio " + d["dominio"].astype(str) + " no existe en la flota")
 
 
+DIGITOS_DEL_MOTOR = 8    # sin dominio, a veces se identifica al móvil por los últimos 8 dígitos del motor (#41)
+CONFUSIONES_VISUALES = {frozenset("O0"), frozenset("I1"), frozenset("B8")}
+
+
+def distancia_uno(a, b):
+    """Tipo de edición que lleva `a` a `b` si están a distancia 1, o None.
+
+    Una letra cambiada (`confusion_visual` si es O/0, I/1 o B/8), dos letras vecinas transpuestas o
+    una letra de más o de menos.
+    """
+    if a == b:
+        return None
+    if len(a) == len(b):
+        distintas = [i for i, (x, y) in enumerate(zip(a, b)) if x != y]
+        if len(distintas) == 1:
+            i = distintas[0]
+            return "confusion_visual" if frozenset(a[i] + b[i]) in CONFUSIONES_VISUALES else "letra_cambiada"
+        if len(distintas) == 2 and distintas[1] == distintas[0] + 1 and a[distintas[0]] == b[distintas[1]] \
+                and a[distintas[1]] == b[distintas[0]]:
+            return "transposicion"
+        return None
+    corto, largo = sorted((a, b), key=len)
+    if len(largo) - len(corto) != 1:
+        return None
+    return "letra_de_mas_o_de_menos" if any(largo[:i] + largo[i + 1:] == corto for i in range(len(largo))) else None
+
+
+def moviles_por_sufijo_de_motor(flota):
+    """{últimos 8 caracteres o últimos 8 dígitos del motor normalizado: matrículas que lo tienen}."""
+    if "NumeroMotor" not in flota.columns:
+        return {}
+    motor = normalizar_dominio(flota["NumeroMotor"])
+    digitos = motor.str.replace(r"\D", "", regex=True)
+    sufijos = pd.concat([motor[motor.str.len() >= DIGITOS_DEL_MOTOR].str[-DIGITOS_DEL_MOTOR:],
+                         digitos[digitos.str.len() >= DIGITOS_DEL_MOTOR].str[-DIGITOS_DEL_MOTOR:]])
+    return pd.Series(flota["Matricula"].reindex(sufijos.index).values, index=sufijos.values) \
+        .groupby(level=0).agg(set).to_dict()
+
+
+def vinculos_de_la_carga(consumo, flota):
+    """Por qué camino se vincula cada carga con la flota, en niveles acumulados (H1).
+
+    Columnas booleanas: `exacto` (el dominio tal como llega), `normalizado`, `motor` (además, el
+    identificador son los últimos 8 del motor de un solo móvil) y `tarjeta` (además, la tarjeta es de
+    un móvil del padrón). `personal` marca las tarjetas personales, que traen la persona y no el móvil.
+    """
+    dominio = normalizar_dominio(consumo["dominio"])
+    exacto = consumo["dominio"].isin(set(flota["Dominio"].dropna()))
+    normalizado = exacto | dominio.isin(set(normalizar_dominio(flota["Dominio"]).dropna()))
+    unicos = {s for s, m in moviles_por_sufijo_de_motor(flota).items() if len(m) == 1}
+    motor = normalizado | dominio.isin(unicos)
+    tarjetas = set(flota["NumeroTarjeta"].dropna()) if "NumeroTarjeta" in flota.columns else set()
+    tarjeta = motor | consumo["numero_tarjeta"].isin(tarjetas) if "numero_tarjeta" in consumo.columns else motor
+    personal = consumo.get("tipo_identificacion", pd.Series("PATENTE", index=consumo.index)).eq("DNI")
+    return pd.DataFrame({"exacto": exacto, "normalizado": normalizado.fillna(False), "motor": motor.fillna(False),
+                         "tarjeta": tarjeta.fillna(False), "personal": personal}, index=consumo.index)
+
+
+def detectar_carga_sin_movil(consumo, flota):
+    """H1 con contexto: ni el dominio normalizado, ni los últimos 8 del motor, ni la tarjeta vinculan la carga.
+
+    Según el referente del dominio, todo el que carga es un móvil: una carga que no se vincula por
+    ningún camino no puede pasar y se analiza aparte. Las tarjetas personales no se cuentan.
+    """
+    vinculos = vinculos_de_la_carga(consumo, flota)
+    sin_movil = consumo[~vinculos["tarjeta"] & ~vinculos["personal"]]
+    return _alertas(sin_movil, "DOMINIO_INVALIDO", "carga_sin_movil_identificado",
+                    "ni el dominio, ni el motor, ni la tarjeta corresponden a un móvil de la flota")
+
+
+def causas_de_dominio(consumo, flota):
+    """{id de carga: "dominio_equivocado"} para las cargas cuyo dominio está a distancia 1 del vehículo de su tarjeta.
+
+    Es la firma de un error de tipeo del dominio: la tarjeta identifica al móvil y el dominio escrito
+    difiere del suyo en una letra cambiada, transpuesta, de más o de menos.
+    """
+    if "numero_tarjeta" not in consumo.columns or "NumeroTarjeta" not in flota.columns:
+        return {}
+    vinculos = vinculos_de_la_carga(consumo, flota)
+    candidatas = consumo[~vinculos["normalizado"] & ~vinculos["personal"]]
+    dominio_de = flota.dropna(subset=["NumeroTarjeta"]).drop_duplicates("NumeroTarjeta") \
+        .set_index("NumeroTarjeta")["Dominio"]
+    propio = normalizar_dominio(candidatas["numero_tarjeta"].map(dominio_de))
+    escrito = normalizar_dominio(candidatas["dominio"])
+    return {i: "dominio_equivocado" for i, a, b in zip(candidatas["id"], escrito, propio)
+            if pd.notna(a) and pd.notna(b) and distancia_uno(a, b)}
+
+
 def detectar_exceso_volumetrico(consumo, flota):
     """H3a: se cargaron más litros que la capacidad del tanque del vehículo."""
     capacidad = flota.set_index("Matricula")["CapacidadTanque"]
@@ -760,6 +848,28 @@ def _instantes(fechas, horas):
     return leer_fecha(fechas) + pd.to_timedelta(horas.astype("string").fillna("00:00:00"))
 
 
+def _cruce_de_cargas_sin_movil(cargas, pedidos, flota, pares):
+    """Último pase del cruce con contexto (#41): una carga sin móvil identificado y su pedido.
+
+    Ni el dominio, ni el motor, ni la tarjeta identifican al móvil de la carga, así que no tiene
+    clave. Se cruza con los pedidos que quedaron sin carga solo por el horario y los litros, y solo
+    si es el único candidato de la carga y la carga es la única candidata del pedido. Así el
+    registro interno identifica al móvil; la carga sigue alertada en H1.
+    """
+    cruzadas, usados = {i for i, _ in pares}, {j for _, j in pares}
+    sin_movil = cargas[~vinculos_de_la_carga(cargas, flota)["tarjeta"] & ~cargas.index.isin(cruzadas)]
+    libres = pedidos[~pedidos.index.isin(usados)].dropna(subset=["instante", "litros_cargados"])
+    if sin_movil.empty or libres.empty:
+        return []
+    minutos = ((sin_movil["instante"].to_numpy()[:, None] - libres["instante"].to_numpy()[None, :])
+               / np.timedelta64(1, "m"))
+    litros = np.abs(sin_movil["litros"].to_numpy()[:, None] - libres["litros_cargados"].to_numpy()[None, :])
+    posible = ((minutos <= MINUTOS_ANTES_REGISTRO) & (minutos >= -MINUTOS_DESPUES_REGISTRO)
+               & (litros <= TOLERANCIA_REGISTRO_LITROS))
+    return [(sin_movil.index[i], libres.index[j]) for i, j in zip(*np.nonzero(posible))
+            if posible[i].sum() == 1 and posible[:, j].sum() == 1]
+
+
 def cruzar_registro(consumo, registro, excluir_ids=(), voraz=False, flota=None):
     """Cruza cada carga del reporte con, como mucho, un pedido del registro interno.
 
@@ -770,7 +880,8 @@ def cruzar_registro(consumo, registro, excluir_ids=(), voraz=False, flota=None):
     esté entre 3 horas antes y media hora después de la carga y resuelve con una asignación
     óptima (método húngaro) que prefiere pedidos no anulados y con los mismos litros. Si se pasa
     `flota`, toma el dominio del vehículo dueño de la tarjeta: la tarjeta lo identifica aunque el
-    dominio del reporte venga mal.
+    dominio del reporte venga mal; y una carga sin móvil identificado se cruza al final solo por
+    horario y litros, con un único candidato (`_cruce_de_cargas_sin_movil`).
 
     Devuelve las cargas con su pedido (NaN si no tiene) y el conjunto de pedidos sin carga.
     Los pedidos en estaciones de otra red no se cruzan: no están en el reporte.
@@ -826,6 +937,8 @@ def cruzar_registro(consumo, registro, excluir_ids=(), voraz=False, flota=None):
             filas, columnas = linear_sum_assignment(completo)
             pares += [(propias.index[i], candidatos.index[j]) for i, j in zip(filas, columnas)
                       if j < len(candidatos) and np.isfinite(costo[i, j])]
+        if flota is not None:
+            pares += _cruce_de_cargas_sin_movil(cargas[~personal_c], pedidos[~personal_p], flota, pares)
 
     unidos = pd.DataFrame(pares, columns=["carga", "pedido"])
     resultado = cargas[["id", "litros"]].assign(registro_id=pd.Series(None, index=cargas.index, dtype=object),
@@ -895,6 +1008,8 @@ REGLAS_CON_CAUSA = [
     "fraccionamiento_diario", "fraccionamiento_sin_recorrido",
     # H3: con la tarjeta de otro vehículo, la carga se compara con el tanque del dueño de la tarjeta
     "litros_mayor_a_tanque", "exceso_sin_antecedente",
+    # H1: un dominio a distancia 1 del vehículo de la tarjeta es un error de tipeo (#41)
+    "dominio_sin_vinculo_normalizado",
 ]
 
 
@@ -1253,6 +1368,7 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
         sin_datos = exceptuadas | set(sin_avance["id_registro"])
         partes += [
             detectar_dominio_invalido(consumo, flota, normalizado=True),
+            detectar_carga_sin_movil(consumo, flota),
             detectar_retroceso_con_contexto(completa, exceptuadas),
             detectar_salto_con_contexto(completa, intervalos, exceptuadas),
             exceso,
@@ -1300,5 +1416,6 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
     alertas = pd.concat([p for p in partes if not p.empty], ignore_index=True)[COLUMNAS_ALERTA]
     if "FechaEstado" in flota.columns and solicitudes is not None and "hora" in consumo.columns \
             and "rendido" in solicitudes.columns:
-        alertas = asignar_causa_probable(alertas, causas_probables(consumo, solicitudes, flota))
+        alertas = asignar_causa_probable(alertas, causas_de_dominio(consumo, flota)
+                                         | causas_probables(consumo, solicitudes, flota))
     return asignar_observacion(alertas, observaciones)

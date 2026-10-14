@@ -20,8 +20,9 @@ from deteccion.hipotesis import hipotesis_del_escenario, reglas_de
 from deteccion.modelo import construir_variables, entrenar_isolation_forest, ids_con_anomalia_de_comportamiento
 from deteccion.priorizacion import REGLAS_CONTEXTO, entrenar_supervisado
 from deteccion.reglas import (ESTACION_AJENA, _vecinos_de_odometro, cargas_exceptuadas, cargas_fuera_del_reporte,
-                              cruzar_registro, detectar_doble_cobro, detectar_duplicados, leer_fecha, normalizar_dominio,
-                              reglas_del_dataset, secuencia_odometro, subforma_de_los_retrocesos)
+                              cruzar_registro, detectar_doble_cobro, detectar_duplicados, distancia_uno, leer_fecha,
+                              moviles_por_sufijo_de_motor, normalizar_dominio, reglas_del_dataset, secuencia_odometro,
+                              subforma_de_los_retrocesos, vinculos_de_la_carga)
 from perfilador.adaptador import adaptar
 from perfilador.controles import acotar
 from perfilador.perfil import MINIMO_GRUPO, VERSION, cuantil_publicable, dos_cifras
@@ -191,33 +192,8 @@ def _retrocesos_estudio(datos, alertas):
     }
 
 
-DIGITOS_DEL_MOTOR = 8    # sin dominio, a veces se identifica al móvil por los últimos 8 dígitos del motor (#41)
-CONFUSIONES_VISUALES = {frozenset("O0"), frozenset("I1"), frozenset("B8")}
 CAUSAS_SIN_VINCULO = ("tarjeta_del_padron", "ultimos_8_del_motor", "distancia_1_de_un_dominio", "otra_fuente",
                       "forma_del_identificador", "sin_explicacion")
-
-
-def _distancia_uno(a, b):
-    """Tipo de edición que lleva `a` a `b` si están a distancia 1, o None.
-
-    Una letra cambiada (`confusion_visual` si es O/0, I/1 o B/8), dos letras vecinas transpuestas o
-    una letra de más o de menos.
-    """
-    if a == b:
-        return None
-    if len(a) == len(b):
-        distintas = [i for i, (x, y) in enumerate(zip(a, b)) if x != y]
-        if len(distintas) == 1:
-            i = distintas[0]
-            return "confusion_visual" if frozenset(a[i] + b[i]) in CONFUSIONES_VISUALES else "letra_cambiada"
-        if len(distintas) == 2 and distintas[1] == distintas[0] + 1 and a[distintas[0]] == b[distintas[1]] \
-                and a[distintas[1]] == b[distintas[0]]:
-            return "transposicion"
-        return None
-    corto, largo = sorted((a, b), key=len)
-    if len(largo) - len(corto) != 1:
-        return None
-    return "letra_de_mas_o_de_menos" if any(largo[:i] + largo[i + 1:] == corto for i in range(len(largo))) else None
 
 
 def _forma(identificador, largos):
@@ -253,14 +229,8 @@ def _vinculacion(consumo, flota, telemetria=None, registro=None):
     tarjeta = sin_vinculo.get("numero_tarjeta", pd.Series(pd.NA, index=sin_vinculo.index)).dropna()
 
     tarjetas = set(flota["NumeroTarjeta"].dropna()) if "NumeroTarjeta" in flota.columns else set()
-    motor = normalizar_dominio(flota["NumeroMotor"]) if "NumeroMotor" in flota.columns \
-        else pd.Series(pd.NA, index=flota.index, dtype="string")
-    digitos = motor.str.replace(r"\D", "", regex=True)
-    sufijos = pd.concat([motor[motor.str.len() >= DIGITOS_DEL_MOTOR].str[-DIGITOS_DEL_MOTOR:],
-                         digitos[digitos.str.len() >= DIGITOS_DEL_MOTOR].str[-DIGITOS_DEL_MOTOR:]])
-    # Un sufijo que comparten dos motores de móviles distintos no identifica a ninguno
-    moviles_por_sufijo = pd.Series(flota["Matricula"].reindex(sufijos.index).values, index=sufijos.values) \
-        .groupby(level=0).nunique()
+    # Un sufijo que comparten dos motores de móviles distintos no identifica a ninguno: se cuenta aparte
+    moviles_por_sufijo = moviles_por_sufijo_de_motor(flota)
     otras = set()
     if telemetria is not None and "Placa" in telemetria.columns:
         otras |= set(normalizar_dominio(telemetria["Placa"]).dropna())
@@ -280,12 +250,12 @@ def _vinculacion(consumo, flota, telemetria=None, registro=None):
         if tarjeta.get(i) in tarjetas:
             causas.append("tarjeta_del_padron")
             continue
-        if forma != "vacio" and ident in moviles_por_sufijo.index:
+        if forma != "vacio" and ident in moviles_por_sufijo:
             causas.append("ultimos_8_del_motor")
-            motor_ambiguo += int(moviles_por_sufijo[ident] > 1)
+            motor_ambiguo += int(len(moviles_por_sufijo[ident]) > 1)
             continue
         cerca = [] if forma == "vacio" else [t for n in (len(ident) - 1, len(ident), len(ident) + 1)
-                                             for d in por_largo.get(n, []) if (t := _distancia_uno(ident, d))]
+                                             for d in por_largo.get(n, []) if (t := distancia_uno(ident, d))]
         if cerca:
             causas.append("distancia_1_de_un_dominio")
             ediciones.append(cerca[0])
@@ -298,8 +268,12 @@ def _vinculacion(consumo, flota, telemetria=None, registro=None):
 
     causas, formas = pd.Series(causas, dtype="string"), pd.Series(formas, dtype="string")
     sin_forma = formas[causas.eq("forma_del_identificador").values]
+    niveles = vinculos_de_la_carga(evaluadas, flota)
     return {
         "cargas_evaluadas": acotar(len(evaluadas)),
+        # Niveles de H1, acumulados: cuánto sube la vinculación con cada camino
+        "vinculadas_pct": {n: _pct(int(niveles[n].sum()), len(evaluadas))
+                           for n in ("exacto", "normalizado", "motor", "tarjeta")},
         "sin_vinculo_exacto": acotar(int((~exacta).sum())),
         "sin_vinculo_normalizado": acotar(len(sin_vinculo)),
         "por_causa": {c: acotar(int(causas.eq(c).sum())) for c in CAUSAS_SIN_VINCULO},

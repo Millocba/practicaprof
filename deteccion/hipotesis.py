@@ -21,12 +21,14 @@ HIPOTESIS = [
         "codigo": "H1",
         "titulo": "Vinculación con la flota",
         "enunciado": "Buscar el dominio tal como llega confunde un dominio escrito con espacios, guiones o "
-                     "minúsculas con uno inexistente; normalizarlo antes de vincular deja solo los "
-                     "dominios que no corresponden a ningún vehículo.",
+                     "minúsculas con uno inexistente; normalizarlo y vincular además por los últimos 8 "
+                     "dígitos del motor y por la tarjeta deja solo las cargas que no corresponden a "
+                     "ningún móvil, que no pueden pasar.",
         "tipos": ["DOMINIO_INVALIDO"],
         "reglas": [("dominio_sin_vinculo", "dominio tal como llega"),
-                   ("dominio_sin_vinculo_normalizado", "dominio normalizado")],
-        "contexto": "normalización del dominio",
+                   ("dominio_sin_vinculo_normalizado", "dominio normalizado"),
+                   ("carga_sin_movil_identificado", "ni dominio normalizado, ni motor, ni tarjeta")],
+        "contexto": "normalización del dominio, número de motor y tarjeta del padrón",
     },
     {
         "codigo": "H2b",
