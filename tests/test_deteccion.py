@@ -107,6 +107,26 @@ def test_normalizar_dominio_y_leer_fecha():
     assert list(fechas.dt.strftime("%Y-%m-%d")) == ["2024-03-05", "2024-03-05", "2024-12-31"]
 
 
+def test_h3b_aplica_tolerancia_y_clasifica_segun_el_historial():
+    """Hasta 2% no alerta; un exceso inicial es calidad y uno posterior, posible uso indebido."""
+    from deteccion.reglas import detectar_exceso_sin_antecedente
+
+    flota = pd.DataFrame({"Matricula": ["V1", "V2", "V3"], "CapacidadTanque": [50.0, 50.0, 50.0]})
+    consumo = pd.DataFrame({
+        "id": ["A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4", "T1"],
+        "vehiculo_id": ["V1"] * 4 + ["V2"] * 4 + ["V3"],
+        "fecha": [f"2024-01-{d:02d}" for d in range(1, 5)] * 2 + ["2024-01-01"],
+        "litros": [55.0, 54.0, 40.0, 42.0, 40.0, 42.0, 44.0, 55.0, 51.0],
+    })
+
+    alertas = detectar_exceso_sin_antecedente(consumo, flota).set_index("id_registro")
+    assert "T1" not in alertas.index  # borde exacto del 2%
+    assert alertas.loc["A1", "tipo_anomalia"] == "CAPACIDAD_MAL_REGISTRADA"
+    assert alertas.loc["A1", "causa_probable"] == "capacidad_tanque_mal_registrada"
+    assert alertas.loc["B4", "tipo_anomalia"] == "EXCESO_VOLUMETRICO"
+    assert alertas.loc["B4", "causa_probable"] == "sin_explicacion"
+
+
 def test_las_cargas_de_otra_red_cierran_el_tramo_del_odometro():
     """El reporte es de un proveedor: una carga en otra red, anotada en el registro interno, parte el tramo."""
     from deteccion.reglas import cargas_fuera_del_reporte

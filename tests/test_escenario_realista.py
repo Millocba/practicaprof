@@ -80,12 +80,12 @@ def test_prevalencia_de_anomalias_de_comportamiento_es_baja(dataset):
     assert 0.003 < tasa < 0.03
 
 
-def test_cargas_limpias_no_superan_el_tanque(dataset):
+def test_cargas_limpias_no_superan_la_tolerancia_del_tanque(dataset):
     consumo = dataset["consumo"]
     capacidad = consumo["vehiculo_id"].map(dataset["flota"].set_index("Matricula")["CapacidadTanque"])
     etiquetadas = set(dataset["ground_truth"]["id_registro"]) | set(dataset["casos_legitimos"]["id_registro"])
     limpias = ~consumo["id"].isin(etiquetadas)
-    assert (consumo.loc[limpias, "litros"] <= capacidad[limpias]).all()
+    assert (consumo.loc[limpias, "litros"] <= capacidad[limpias] * 1.02).all()
 
 
 def test_rendimiento_de_cargas_limpias_coincide_con_el_perfil_del_vehiculo(dataset):

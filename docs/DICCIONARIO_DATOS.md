@@ -315,7 +315,7 @@ Cargas que una regla ingenua marcaría como anomalía pero no lo son. No están 
 
 | Tipo de caso | Casos por cada 200 vehículos | Qué ocurre |
 |---|---|---|
-| `TANQUE_AUXILIAR` | 3 vehículos (todas sus cargas) | El vehículo tiene un 30% a 60% más de capacidad que la registrada y carga por encima del tanque desde el principio |
+| `TOLERANCIA_TANQUE` | 20 cargas | La carga supera la capacidad registrada hasta un 2%; se conserva como caso legítimo para medir las falsas alarmas de la regla estricta |
 | `VIAJE_LARGO` | 4 vehículos | Un viaje de ida y vuelta por una ruta; carga en estaciones de ruta, lejos de su zona |
 | `CAMBIO_ODOMETRO` | 2 vehículos | El odómetro se reemplaza y vuelve a contar desde 0 a 3.000 km |
 | `ERROR_TIPEO_ODOMETRO` | 5 vehículos | Una lectura con dos dígitos intercambiados (difiere ≥1.000 km); las siguientes son correctas |
@@ -366,6 +366,7 @@ Incluye las del escenario didáctico, con otra forma de inyección, y cinco tipo
 | Tipo | Hipótesis | Casos por cada 200 vehículos | Cómo se inyecta |
 |---|---|---|---|
 | `EXCESO_VOLUMETRICO` | H3a / H3b | 2 vehículos | Desde un día entre el 90 y el 200, el 30% de sus cargas supera el tanque (105% a 140%) |
+| `CAPACIDAD_MAL_REGISTRADA` | H3b | 3 vehículos | La capacidad observada supera desde las primeras cargas a la registrada. Es un error de calidad que se documenta sin modificar el padrón de origen |
 | `FRACCIONAMIENTO` | H4 | 6 vehículos, un día cada uno | 1 o 2 cargas extra el mismo día en otras estaciones (40% a 70% del tanque); entre todas superan el tanque. Se etiquetan todas las cargas de ese día |
 | `CONSUMO_ATIPICO` | H5 | 2 vehículos | De 3 a 6 cargas del 80% al 95% del tanque cuando el tanque está casi lleno y el rendimiento del día queda muy por debajo del habitual del vehículo. No afirma una irregularidad: es un consumo atípico para analizar |
 | `CARGA_VEHICULO_INACTIVO` | H6 | 3 vehículos | De 1 a 3 cargas posteriores a su `FechaEstado` |

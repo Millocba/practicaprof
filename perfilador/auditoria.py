@@ -19,7 +19,8 @@ from deteccion.datos import cargar_dataset
 from deteccion.hipotesis import hipotesis_del_escenario, reglas_de
 from deteccion.modelo import construir_variables, entrenar_isolation_forest, ids_con_anomalia_de_comportamiento
 from deteccion.priorizacion import REGLAS_CONTEXTO, entrenar_supervisado
-from deteccion.reglas import (ESTACION_AJENA, ORIGEN_CONTINGENCIA, _vecinos_de_odometro, cargas_exceptuadas,
+from deteccion.reglas import (ESTACION_AJENA, FRACCION_INICIAL, ORIGEN_CONTINGENCIA, _vecinos_de_odometro,
+                              cargas_exceptuadas,
                               cargas_fuera_del_reporte, cruzar_registro, detectar_doble_cobro, detectar_duplicados,
                               leer_fecha, pares_de_contingencia, reglas_del_dataset, secuencia_odometro,
                               subforma_de_los_retrocesos)
@@ -228,6 +229,32 @@ def _contingencias(consumo):
             "por_mes": {m: contar((mes == m).sum(), mejor[mejor["mes"] == m]) for m in sorted(mes.unique())}}
 
 
+def _exceso_volumetrico(consumo, flota):
+    """Diagnóstico agregado de H3b: ratios, cobertura y momento en que aparece el exceso."""
+    capacidad = pd.to_numeric(consumo["vehiculo_id"].map(
+        flota.set_index("Matricula")["CapacidadTanque"]), errors="coerce")
+    litros = pd.to_numeric(consumo["litros"], errors="coerce")
+    evaluable = capacidad.notna() & capacidad.gt(0) & litros.notna()
+    datos = consumo.loc[evaluable, ["id", "vehiculo_id", "fecha"]].copy()
+    datos["ratio"] = (litros[evaluable] / capacidad[evaluable]).values
+    datos = datos.sort_values(["vehiculo_id", "fecha", "id"])
+    posicion = datos.groupby("vehiculo_id").cumcount()
+    total = datos.groupby("vehiculo_id")["id"].transform("count")
+    datos["inicial"] = posicion < (total * FRACCION_INICIAL).clip(lower=1)
+    supera = datos[datos["ratio"] > 1.02]
+    iniciales = set(supera.loc[supera["inicial"], "vehiculo_id"])
+    posteriores = set(supera["vehiculo_id"]) - iniciales
+    return {
+        "cargas_evaluables": acotar(int(evaluable.sum())),
+        "cargas_sin_capacidad_registrada": acotar(int((~capacidad.notna() | capacidad.le(0)).sum())),
+        "cargas_sobre_umbral": {f"mas_de_{str(t).replace('.', '_')}": acotar(int((datos["ratio"] > t).sum()))
+                                 for t in (1.00, 1.02, 1.05, 1.10)},
+        "vehiculos_con_exceso_mayor_al_2_pct": acotar(int(supera["vehiculo_id"].nunique())),
+        "vehiculos_con_exceso_desde_las_primeras_cargas": acotar(len(iniciales)),
+        "vehiculos_con_exceso_despues_de_un_historial_normal": acotar(len(posteriores)),
+    }
+
+
 # Qué hipótesis anticipa cada tipo de reclamo de la fuente
 HIPOTESIS_DEL_RECLAMO = {"doble_cobro": "H13", "cargas_multiples": "H4", "odometro_estancado": "H12"}
 RESUELTOS = {"nota_de_credito", "rechazado"}
@@ -388,6 +415,7 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
     diagnostico["odometro"]["retrocesos"] = _retrocesos(datos["consumo"], alertas)
     diagnostico["odometro"]["retrocesos_estudio"] = _retrocesos_estudio(datos, alertas)
     diagnostico["contingencias"] = _contingencias(datos["consumo"])
+    diagnostico["exceso_volumetrico"] = _exceso_volumetrico(datos["consumo"], datos["flota"])
     diagnostico["cobertura"] = _cobertura(datos, alertas, registro_del_periodo if registro is not None else None)
     por_regla = {}
     for regla, grupo in alertas.groupby("regla"):

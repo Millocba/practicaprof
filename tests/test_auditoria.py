@@ -191,6 +191,14 @@ def test_las_contingencias_se_informan_por_mes_y_en_bandas_de_litros(resultado):
     assert all(h == 0 or h == "1–19" or (isinstance(h, int) and h >= 20) for h in hojas(c))
 
 
+def test_el_exceso_volumetrico_se_informa_solo_en_agregado(resultado):
+    h3b = resultado["diagnostico"]["exceso_volumetrico"]
+    assert list(h3b["cargas_sobre_umbral"]) == ["mas_de_1_0", "mas_de_1_02", "mas_de_1_05", "mas_de_1_1"]
+    assert h3b["cargas_evaluables"] != 0
+    assert h3b["vehiculos_con_exceso_mayor_al_2_pct"] != 0
+    assert "vehiculo_id" not in json.dumps(h3b)
+
+
 def test_las_contingencias_se_clasifican_por_la_carga_mas_parecida():
     """Cada contingencia se clasifica por su carga habitual cercana más parecida: iguales, ±2%, decimal o banda."""
     litros_contingencia = {"iguales": 40.0, "hasta_2_pct": 40.5, "decimal_movido": 4000.0, "de_2_a_10_pct": 42.0,
