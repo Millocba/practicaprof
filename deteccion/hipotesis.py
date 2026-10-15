@@ -53,11 +53,12 @@ HIPOTESIS = [
     {
         "codigo": "H3b",
         "titulo": "Exceso volumétrico",
-        "enunciado": "Un vehículo que supera su tanque desde el principio tiene más capacidad que la "
-                     "registrada; solo el exceso que aparece después indica un problema.",
-        "tipos": ["EXCESO_VOLUMETRICO"],
+        "enunciado": "Superar en más de 2% la capacidad siempre requiere revisión: desde las primeras "
+                     "cargas sugiere una capacidad mal registrada; después de un historial normal, "
+                     "un posible uso indebido de la tarjeta.",
+        "tipos": ["EXCESO_VOLUMETRICO", "CAPACIDAD_MAL_REGISTRADA"],
         "reglas": [("litros_mayor_a_tanque", "litros > tanque registrado"),
-                   ("exceso_sin_antecedente", "además: al principio no lo superaba")],
+                   ("exceso_sin_antecedente", "tolerancia 2% y causa según historial")],
         "contexto": "historial de cargas del vehículo",
     },
     {

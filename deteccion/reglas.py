@@ -31,6 +31,7 @@ REINICIO_ODOMETRO_KM = 10000   # una lectura menor tras un retroceso sugiere un 
 DESVIO_TIPEO_KM = 500          # desvío mínimo de una lectura que queda por debajo (hueco, o rebote tras un pico)
                                # para suponer un error de tipeo; un pico no lo necesita: la siguiente vuelve a bajar
 FRACCION_INICIAL = 0.25        # primeras cargas del vehículo que definen su comportamiento habitual
+TOLERANCIA_EXCESO_TANQUE = 0.02  # el referente admite hasta 2% sobre la capacidad registrada (H3b)
 FRACCIONAMIENTO_TANQUES = 1.05  # litros del día, en tanques, a partir de los que se sospecha
 HORAS_CARGAS_MULTIPLES = 6     # criterio de la fuente (H4): más de una carga del mismo vehículo en menos de 6 h
 KM_SIN_AVANCE_FUENTE = 5       # criterio de la fuente (H12): el odómetro avanza menos de 5 km
@@ -470,25 +471,32 @@ def detectar_salto_con_contexto(secuencia, gps_por_intervalo=None, exceptuadas=(
 
 
 def detectar_exceso_sin_antecedente(consumo, flota):
-    """H3b: exceso volumétrico en un vehículo que al principio no superaba su tanque.
+    """H3b: exceso superior al 2%, clasificado mediante el historial del vehículo.
 
-    Un vehículo que supera el tanque desde sus primeras cargas probablemente tiene más
-    capacidad que la registrada (tanque auxiliar); uno que empieza a superarlo después
-    cambió de comportamiento.
+    La alerta nunca se descarta. Si el vehículo ya excedía el tanque en sus primeras cargas,
+    la causa probable es una capacidad mal registrada. Si el exceso aparece después de un
+    historial normal, se prioriza como posible uso indebido de la tarjeta.
     """
     capacidad = flota.set_index("Matricula")["CapacidadTanque"]
     datos = consumo.assign(capacidad=consumo["vehiculo_id"].map(capacidad),
                            fecha=pd.to_datetime(consumo["fecha"]))
     datos = datos.sort_values(["vehiculo_id", "fecha", "id"])
-    datos["exceso"] = datos["litros"] > datos["capacidad"]
+    datos["exceso"] = datos["litros"] > datos["capacidad"] * (1 + TOLERANCIA_EXCESO_TANQUE)
     posicion = datos.groupby("vehiculo_id").cumcount()
     total = datos.groupby("vehiculo_id")["id"].transform("count")
     iniciales = datos[posicion < (total * FRACCION_INICIAL).clip(lower=1)]
     con_antecedente = set(iniciales.loc[iniciales["exceso"], "vehiculo_id"])
-    exceso = datos[datos["exceso"] & ~datos["vehiculo_id"].isin(con_antecedente)]
-    return _alertas(exceso, "EXCESO_VOLUMETRICO", "exceso_sin_antecedente",
-                    lambda d: d["litros"].round(2).astype(str) + " L con tanque de "
-                    + d["capacidad"].round(1).astype(str) + " L; antes no lo superaba")
+    exceso = datos[datos["exceso"]].copy()
+    desde_el_inicio = exceso["vehiculo_id"].isin(con_antecedente)
+    exceso["tipo_anomalia"] = np.where(desde_el_inicio, "CAPACIDAD_MAL_REGISTRADA", "EXCESO_VOLUMETRICO")
+    exceso["causa_probable"] = np.where(desde_el_inicio, "capacidad_tanque_mal_registrada", SIN_EXPLICACION)
+    exceso["detalle"] = (exceso["litros"].round(2).astype(str) + " L con tanque de "
+                         + exceso["capacidad"].round(1).astype(str) + "; "
+                         + np.where(desde_el_inicio, "el exceso aparece desde las primeras cargas",
+                                    "aparece después de un historial normal; posible uso indebido de la tarjeta"))
+    return pd.DataFrame({"id_registro": exceso["id"], "tipo_anomalia": exceso["tipo_anomalia"],
+                         "regla": "exceso_sin_antecedente", "detalle": exceso["detalle"],
+                         "causa_probable": exceso["causa_probable"]})
 
 
 def detectar_carga_vehiculo_inactivo(consumo, flota):
@@ -996,7 +1004,8 @@ def causas_probables(consumo, registro, flota=None):
 def asignar_causa_probable(alertas, causas):
     """Agrega la columna causa_probable: la de la firma, SIN_EXPLICACION o vacía si la regla no tiene causa."""
     con_causa = alertas["regla"].isin(REGLAS_CON_CAUSA)
-    causa = alertas["id_registro"].map(causas).where(con_causa)
+    propia = alertas.get("causa_probable", pd.Series(index=alertas.index, dtype="object"))
+    causa = propia.fillna(alertas["id_registro"].map(causas)).where(con_causa)
     causa = causa.where(~con_causa | causa.notna(), SIN_EXPLICACION)
     explicada = causa.notna() & (causa != SIN_EXPLICACION)
     detalle = alertas["detalle"].astype(str).where(~explicada, alertas["detalle"].astype(str) + " · causa probable: "
@@ -1328,7 +1337,8 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
                 detectar_irregularidades_de_cupo(consumo, contratos, transferencias),
             ]
 
-    alertas = pd.concat([p for p in partes if not p.empty], ignore_index=True)[COLUMNAS_ALERTA]
+    alertas = pd.concat([p for p in partes if not p.empty], ignore_index=True)
+    alertas = alertas[COLUMNAS_ALERTA + (["causa_probable"] if "causa_probable" in alertas.columns else [])]
     if "FechaEstado" in flota.columns and solicitudes is not None and "hora" in consumo.columns \
             and "rendido" in solicitudes.columns:
         alertas = asignar_causa_probable(alertas, causas_probables(consumo, solicitudes, flota))
