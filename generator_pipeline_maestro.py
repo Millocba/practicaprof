@@ -42,7 +42,7 @@ DIRECTORIOS_ESCENARIO = {
 SEED = 42
 # Versión de los datos que produce el generador: cambiarla cuando cambie lo que genera, así la
 # aplicación regenera los datos que tenga en disco de una versión anterior
-VERSION_GENERADOR = "3.1"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md); 2.1: horas del día en el orden del odómetro; 2.2: forma de cargar calibrada; 2.3: excepciones de odómetro; 2.4: textos del diccionario; 2.5: origen de la transacción (H13); 2.6: errores de carga en el registro interno; 2.7: observaciones de las alertas; 2.8: H5 pasa de rendimiento imposible a consumo atípico; 2.9: decimal mal colocado en las contingencias (H13); 3.0: H3b con tolerancia e historial (capacidad mal registrada visible desde la primera carga); 3.1: H11 decide por la última conexión del dispositivo
+VERSION_GENERADOR = "3.2"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md); 2.1: horas del día en el orden del odómetro; 2.2: forma de cargar calibrada; 2.3: excepciones de odómetro; 2.4: textos del diccionario; 2.5: origen de la transacción (H13); 2.6: errores de carga en el registro interno; 2.7: observaciones de las alertas; 2.8: H5 pasa de rendimiento imposible a consumo atípico; 2.9: decimal mal colocado en las contingencias (H13); 3.0: H3b con tolerancia e historial (capacidad mal registrada visible desde la primera carga); 3.1: H11 decide por la última conexión del dispositivo; 3.2: H1 vincula por motor y tarjeta (identificación de las cargas)
 
 # Ventana temporal de los datos: consumos y solicitudes entre FECHA_INICIO y
 # FECHA_INICIO + DIAS_VENTANA. FECHA_REFERENCIA hace de "ahora" para la telemetría.
@@ -96,6 +96,8 @@ CATALOGO_ANOMALIAS = {
     "ERROR_PROVEEDOR": ("CALIDAD", "BAJA"),
     "ERROR_DOMINIO": ("CALIDAD", "BAJA"),
     "ERROR_TARJETA": ("CALIDAD", "BAJA"),
+    # Un dominio mal tipeado a distancia 1 del propio; la tarjeta identifica al móvil (#41)
+    "DOMINIO_MAL_TIPEADO": ("CALIDAD", "BAJA"),
 }
 
 ESCENARIOS = ("didactico", "realista")
@@ -125,6 +127,7 @@ CATALOGO_LEGITIMOS = {
     "DISPOSITIVO_EN_DEPOSITO": "el móvil está de baja y su dispositivo quedó en el grupo de depósito, sin transmitir",
     "ODOMETRO_EXCEPTUADO": "el vehículo tiene una excepción de odómetro vigente ese día: la lectura se repite",
     "CONTINGENCIA": "la carga se registró por contingencia (vía alternativa) y no se duplicó",
+    "IDENTIFICADA_POR_MOTOR": "sin dominio, la carga se identificó con los últimos 8 dígitos del número de motor",
 }
 
 COLUMNAS_CASOS_LEGITIMOS = ["tabla", "id_registro", "vehiculo_id", "tipo_caso", "descripcion"]
@@ -335,7 +338,7 @@ REGLA_DE_ANOMALIA = {
     "CARGA_SUPERA_AUTORIZADO": "supera_autorizado_con_tolerancia", "CARGA_VEHICULO_INACTIVO": "carga_vehiculo_inactivo",
     "DESACUERDO_DE_LITROS": "desacuerdo_de_litros", "DIFERENCIA_DEUDA_PDF": "pdf_no_concilia",
     "DISPOSITIVO_ACTIVO_EN_BAJA": "dispositivo_activo_en_baja", "DOBLE_COBRO": "doble_cobro",
-    "DOMINIO_INVALIDO": "dominio_sin_vinculo_normalizado", "DUPLICADO": "duplicado_exacto",
+    "DOMINIO_INVALIDO": "carga_sin_movil_identificado", "DUPLICADO": "duplicado_exacto",
     "EXCESO_VOLUMETRICO": "exceso_sin_antecedente", "CAPACIDAD_MAL_REGISTRADA": "exceso_sin_antecedente",
     "FACTURADA_A_PRECIO_DE_SURTIDOR": "precio_de_surtidor",
     "FRACCIONAMIENTO": "fraccionamiento_sin_recorrido", "LINEA_DUPLICADA": "linea_duplicada",
@@ -376,6 +379,10 @@ TASAS_CALIDAD_REALISTA = {"DOMINIO_INVALIDO": 0.003, "VALOR_NULO": 0.005, "DUPLI
 # Se aplican al final con un generador aleatorio propio, para no alterar el resto del escenario.
 TASA_DOMINIO_CON_FORMATO = 0.005    # cargas con el dominio escrito de otra forma (H1): la fuente gana
                                     # alrededor de medio punto de vinculación al normalizar
+# Identificación de las cargas (realista, #41). Proporciones provisorias, a medir con la auditoría
+TASA_IDENTIFICADA_POR_MOTOR = 0.001  # sin dominio, se usan los últimos 8 dígitos del motor
+TASA_DOMINIO_MAL_TIPEADO = 0.001     # el dominio difiere del propio en una letra cambiada o transpuesta
+CONFUSIONES_DE_TIPEO = {"0": "O", "1": "I", "8": "B"}
 # Registro interno (escenario realista), calibrado con el perfil de la fuente
 NIVELES_TANQUE = {"TANQUE LLENO": 0.74, "1/2 TANQUE": 0.09, "3/4 TANQUE": 0.085, "1/4 TANQUE": 0.075, "RESERVA": 0.01}
 BANDERAS_RENDICION = {"Amarillo": 0.64, "Verde": 0.359, "Rojo": 0.001}
@@ -2101,6 +2108,65 @@ class GeneradorMaestro:
 
         logger.info(f"✓ Formatos de origen: {len(elegidas)} dominios con otro formato")
 
+    def aplicar_identificacion_de_cargas(self):
+        """Realista: cómo se identifica el móvil de cada carga (#41), con un generador aleatorio propio.
+
+        Según el referente del dominio, todo el que carga es un móvil:
+        - DOMINIO_INVALIDO: la carga trae además una tarjeta que no está en el padrón, así que no se
+          vincula por ningún camino (H1). Es la carga que no puede pasar.
+        - IDENTIFICADA_POR_MOTOR (legítimo): el dominio llega vacío y en su lugar vienen los últimos 8
+          dígitos del número de motor.
+        - DOMINIO_MAL_TIPEADO (calidad de datos): el dominio difiere del propio en una letra confundida
+          (0/O, 1/I, 8/B) o en dos vecinas transpuestas; la tarjeta identifica al móvil.
+        Se aplica al final, antes de las observaciones, así el resto del escenario queda igual.
+        """
+        rng = random.Random(self.seed + 8_000_003)
+        consumo, flota = self.datasets["consumo"], self.datasets["flota"]
+        tarjetas = set(flota["NumeroTarjeta"])
+        dominios = set(flota["Dominio"])
+        invalidas = {a["id_registro"]: a for a in self.anomalias
+                     if a["tipo_anomalia"] == "DOMINIO_INVALIDO" and a["tabla"] == "consumo"}
+        for i in consumo.index[consumo["id"].isin(invalidas)]:
+            ajena = f"TARJ9{rng.randint(0, 9_999_999):07d}"
+            while ajena in tarjetas:
+                ajena = f"TARJ9{rng.randint(0, 9_999_999):07d}"
+            consumo.at[i, "numero_tarjeta"] = ajena
+            invalidas[consumo.at[i, "id"]]["descripcion"] += ", con una tarjeta que no está en el padrón"
+
+        etiquetadas = {a["id_registro"] for a in self.anomalias} | {c["id_registro"] for c in self.casos_legitimos}
+        repetidas = consumo.duplicated(subset=[c for c in consumo.columns if c != "id"], keep=False)
+        candidatas = [i for i, id_, rep, tipo in zip(consumo.index, consumo["id"], repetidas,
+                                                     consumo["tipo_identificacion"])
+                      if id_ not in etiquetadas and not rep and tipo == "PATENTE"]
+        motor_de = flota.set_index("Matricula")["NumeroMotor"]
+        n_motor = round(len(consumo) * TASA_IDENTIFICADA_POR_MOTOR)
+        n_tipeo = round(len(consumo) * TASA_DOMINIO_MAL_TIPEADO)
+        elegidas = rng.sample(candidatas, min(len(candidatas), n_motor + n_tipeo))
+        for i in sorted(elegidas[:n_motor]):
+            sufijo = str(motor_de[consumo.at[i, "vehiculo_id"]])[-8:]
+            consumo.at[i, "dominio"] = sufijo
+            self._registrar_legitimo(consumo.at[i, "id"], consumo.at[i, "vehiculo_id"], "IDENTIFICADA_POR_MOTOR",
+                                     CATALOGO_LEGITIMOS["IDENTIFICADA_POR_MOTOR"])
+        tipeadas = 0
+        for i in sorted(elegidas[n_motor:]):
+            original = consumo.at[i, "dominio"]
+            confundibles = [k for k, letra in enumerate(original) if letra in CONFUSIONES_DE_TIPEO]
+            vecinas = [k for k in range(len(original) - 1) if original[k] != original[k + 1]]
+            if confundibles and rng.random() < 0.5 or not vecinas:
+                k = rng.choice(confundibles)
+                tipeado = original[:k] + CONFUSIONES_DE_TIPEO[original[k]] + original[k + 1:]
+            else:
+                k = rng.choice(vecinas)
+                tipeado = original[:k] + original[k + 1] + original[k] + original[k + 2:]
+            if tipeado in dominios:
+                continue
+            consumo.at[i, "dominio"] = tipeado
+            tipeadas += 1
+            self._registrar_anomalia("consumo", consumo.at[i, "id"], consumo.at[i, "vehiculo_id"],
+                                     "DOMINIO_MAL_TIPEADO", "dominio", f"{original} registrado como {tipeado}")
+        logger.info(f"✓ Identificación de cargas: {len(invalidas)} sin móvil, {n_motor} por motor, "
+                    f"{tipeadas} dominios mal tipeados")
+
     def generar_contratos_realista(self):
         """CONTRATOS y TRANSFERENCIAS: cupo mensual por contrato y transferencias preventivas.
 
@@ -2624,6 +2690,7 @@ class GeneradorMaestro:
                 self.aplicar_formatos_de_origen()
                 self.generar_contratos_realista()
                 self.aplicar_telemetria_de_bajas()
+                self.aplicar_identificacion_de_cargas()
                 self.aplicar_observaciones()
             else:
                 self.generar_solicitudes()
