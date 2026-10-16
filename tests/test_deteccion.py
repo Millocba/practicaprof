@@ -460,3 +460,28 @@ def test_las_lineas_se_comparan_con_el_precio_aunque_el_consumo_tenga_ids_nulos(
                             "referencia_consumo": ["c1"], "precio_unitario": [150.0]})
     alertas = detectar_irregularidades_de_linea(consumo, detalle)
     assert "SOBREPRECIO" in set(alertas["tipo_anomalia"])
+
+
+def test_la_cola_explica_el_consumo_atipico_para_analizar_y_no_como_imposible():
+    """H5 (#47): el motivo de la cola no afirma una irregularidad y usa el umbral de la regla."""
+    import pandas as pd
+
+    from deteccion.priorizacion import motivos
+    from deteccion.reglas import RENDIMIENTO_MINIMO
+
+    columnas = {"ratio_litros_tanque": 0.5, "litros_vs_habitual": 1.0, "cargas_en_el_dia": 1, "tanques_en_el_dia": 0.5,
+                "retroceso_km": 0, "vehiculo_inactivo": 0, "exceso_km": 0}
+    v = pd.DataFrame([{**columnas, "rendimiento_relativo": RENDIMIENTO_MINIMO - 0.01},
+                      {**columnas, "rendimiento_relativo": RENDIMIENTO_MINIMO + 0.01}], index=["bajo", "justo"])
+    texto = motivos(v, pd.DataFrame(columns=["id_registro", "regla"]))
+    assert "consumo atípico: para analizar" in texto.loc["bajo"].iloc[0]
+    assert "imposible" not in texto.loc["bajo"].iloc[0]
+    assert "consumo atípico" not in texto.loc["justo"].iloc[0]
+
+
+def test_el_catalogo_llama_consumo_atipico_a_la_anomalia_de_h5_con_severidad_media():
+    from generator_pipeline_maestro import CATALOGO_ANOMALIAS
+
+    assert CATALOGO_ANOMALIAS["CONSUMO_ATIPICO"] == ("H5", "MEDIA")
+    assert "RENDIMIENTO_IMPOSIBLE" not in CATALOGO_ANOMALIAS
+

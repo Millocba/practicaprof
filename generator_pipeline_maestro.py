@@ -42,7 +42,7 @@ DIRECTORIOS_ESCENARIO = {
 SEED = 42
 # Versión de los datos que produce el generador: cambiarla cuando cambie lo que genera, así la
 # aplicación regenera los datos que tenga en disco de una versión anterior
-VERSION_GENERADOR = "2.7"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md); 2.1: horas del día en el orden del odómetro; 2.2: forma de cargar calibrada; 2.3: excepciones de odómetro; 2.4: textos del diccionario; 2.5: origen de la transacción (H13); 2.6: errores de carga en el registro interno; 2.7: observaciones de las alertas
+VERSION_GENERADOR = "2.8"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md); 2.1: horas del día en el orden del odómetro; 2.2: forma de cargar calibrada; 2.3: excepciones de odómetro; 2.4: textos del diccionario; 2.5: origen de la transacción (H13); 2.6: errores de carga en el registro interno; 2.7: observaciones de las alertas; 2.8: H5 pasa de rendimiento imposible a consumo atípico
 
 # Ventana temporal de los datos: consumos y solicitudes entre FECHA_INICIO y
 # FECHA_INICIO + DIAS_VENTANA. FECHA_REFERENCIA hace de "ahora" para la telemetría.
@@ -69,7 +69,7 @@ CATALOGO_ANOMALIAS = {
     # Solo en el escenario realista
     "ODOMETRO_REGRESIVO_LEVE": ("H2", "MEDIA"),
     "FRACCIONAMIENTO": ("H4", "ALTA"),
-    "RENDIMIENTO_IMPOSIBLE": ("H5", "ALTA"),
+    "CONSUMO_ATIPICO": ("H5", "MEDIA"),
     "CARGA_VEHICULO_INACTIVO": ("H6", "ALTA"),
     "CARGA_FUERA_DE_ZONA": ("H7", "ALTA"),
     # Circuito solicitud -> carga -> factura (escenario realista)
@@ -226,7 +226,7 @@ PROB_DIA_SIN_USO = 0.25
 # Forma de cargar, calibrada con la auditoría agregada de las fuentes (docs/BITACORA.md, 2026-09-29):
 # la flota carga seguido y completa el tanque (unas 7 cargas por mes por vehículo en servicio,
 # 59% del tanque y 35 L por carga en la mediana y un rendimiento estable entre cargas)
-PROB_CARGA_PARCIAL = 0.0        # la fuente casi no muestra cargas parciales: la siguiente parecería un rendimiento imposible
+PROB_CARGA_PARCIAL = 0.0        # la fuente casi no muestra cargas parciales: la siguiente deja el resto para otro día
 CARGA_PARCIAL = (0.6, 0.9)      # nivel del tanque, en fracción, al que llega una carga parcial
 RESERVA_TANQUE = 0.05           # fracción del tanque en la que el vehículo obliga a cargar
 UMBRAL_CARGA = (0.25, 0.7)      # nivel por debajo del cual cada vehículo carga al final del día
@@ -266,7 +266,7 @@ PROPORCION_DE_CARGAS = {
 # Cantidad de casos por cada 200 vehículos (escala con n_flota)
 EVENTOS_REALISTA = {
     "EXCESO_VOLUMETRICO": 2,        # vehículos que empiezan a cargar más que su tanque
-    "RENDIMIENTO_IMPOSIBLE": 2,     # vehículos con cargas que no se corresponden con su uso
+    "CONSUMO_ATIPICO": 2,          # vehículos con consumos atípicos respecto de su uso
     "FRACCIONAMIENTO": 6,           # vehículos con un día de cargas repartidas
     "CARGA_VEHICULO_INACTIVO": 3,   # vehículos fuera de servicio o de baja con cargas
     "CARGA_FUERA_DE_ZONA": 6,       # vehículos con una carga lejos de donde está el vehículo
@@ -327,7 +327,7 @@ REGLA_DE_ANOMALIA = {
     "LINEA_SIN_CONSUMO": "linea_sin_consumo", "ODOMETRO_REGRESIVO": "retroceso_con_contexto",
     "ODOMETRO_REGRESIVO_LEVE": "retroceso_con_contexto", "ODOMETRO_SALTO": "salto_con_contexto",
     "ODOMETRO_SIN_AVANCE": "odometro_sin_avance", "PRODUCTO_NO_COMBUSTIBLE": "producto_no_combustible",
-    "RENDIDA_SIN_CARGA": "rendida_sin_carga", "RENDIMIENTO_IMPOSIBLE": "rendimiento_bajo_gps",
+    "RENDIDA_SIN_CARGA": "rendida_sin_carga", "CONSUMO_ATIPICO": "rendimiento_bajo_gps",
     "SOBREPRECIO": "sobreprecio", "TOTAL_INFLADO": "factura_no_concilia",
     "TRANSFERENCIA_SIN_NECESIDAD": "transferencia_no_justificada",
 }
@@ -1213,7 +1213,7 @@ class GeneradorMaestro:
         asignar("TANQUE_AUXILIAR", [m for m in en_servicio
                                     if tipo[m] in ("CAMION", "BOMBERO", "PICK-UP", "CAMIONETA")])
         asignar("EXCESO_VOLUMETRICO", en_servicio)
-        asignar("RENDIMIENTO_IMPOSIBLE", en_servicio)
+        asignar("CONSUMO_ATIPICO", en_servicio)
         asignar("VIAJE_LARGO", en_servicio)
         asignar("FRACCIONAMIENTO", en_servicio)
         asignar("CARGA_FUERA_DE_ZONA", [m for m in en_servicio if m in con_gps])
@@ -1234,7 +1234,7 @@ class GeneradorMaestro:
         productos = PRODUCTOS_REALISTA[v["TipoCombustible"]]
         odo = float(rng.randint(10000, 250000))
         combustible = cap_real * rng.uniform(0.4, 0.9)
-        dia_inicio_fraude = rng.randint(90, 200)
+        dia_inicio_inyectado = rng.randint(90, 200)
 
         viaje = (rng.randint(30, DIAS_VENTANA - 10), rng.choice(self._destinos)) if rol == "VIAJE_LARGO" else None
         dias_inactivo = set()
@@ -1242,7 +1242,7 @@ class GeneradorMaestro:
             desde = max(5, (fin_activo - FECHA_INICIO).days + 5)
             dias_inactivo = set(rng.sample(range(desde, DIAS_VENTANA + 1), rng.randint(1, 3)))
         dia_fuera_de_zona = rng.randint(30, DIAS_VENTANA) if rol == "CARGA_FUERA_DE_ZONA" else None
-        cargas_sin_uso = rng.randint(3, 6) if rol == "RENDIMIENTO_IMPOSIBLE" else 0
+        cargas_sin_uso = rng.randint(3, 6) if rol == "CONSUMO_ATIPICO" else 0
         fraccionado = False
 
         def registrar(fecha, estacion, litros, odometro, etiqueta=None, legitimo=None):
@@ -1268,7 +1268,7 @@ class GeneradorMaestro:
                 legitimo = "TANQUE_AUXILIAR"
             elif rol == "VIAJE_LARGO" and self._ubicacion_estacion[estacion] == "RUTA":
                 legitimo = "VIAJE_LARGO"
-            elif rol == "EXCESO_VOLUMETRICO" and dia >= dia_inicio_fraude and rng.random() < 0.3:
+            elif rol == "EXCESO_VOLUMETRICO" and dia >= dia_inicio_inyectado and rng.random() < 0.3:
                 # Se factura más de lo que entra en el tanque; el excedente no llega al vehículo
                 litros = max(litros, cap_reg * rng.uniform(1.05, 1.4))
                 etiqueta = "EXCESO_VOLUMETRICO"
@@ -1334,10 +1334,10 @@ class GeneradorMaestro:
             hubo_carga = len(cargas) > cargas_previas
 
             # Cargas que no llegan al tanque del vehículo: el combustible no cambia
-            if (cargas_sin_uso and activo and dia >= dia_inicio_fraude and not hubo_carga
+            if (cargas_sin_uso and activo and dia >= dia_inicio_inyectado and not hubo_carga
                     and combustible > 0.7 * cap_real and rng.random() < 0.15):
                 registrar(fecha, self._estacion_cercana(base, solo="LOCAL"),
-                          cap_reg * rng.uniform(0.8, 0.95), odo, "RENDIMIENTO_IMPOSIBLE")
+                          cap_reg * rng.uniform(0.8, 0.95), odo, "CONSUMO_ATIPICO")
                 cargas_sin_uso -= 1
             if dia in dias_inactivo:
                 registrar(fecha, self._estacion_cercana(base, solo="LOCAL"),
@@ -1454,7 +1454,7 @@ class GeneradorMaestro:
         self._alterar_odometros(por_vehiculo, roles)
 
         columnas_etiqueta = {
-            "EXCESO_VOLUMETRICO": "litros", "FRACCIONAMIENTO": "litros", "RENDIMIENTO_IMPOSIBLE": "litros",
+            "EXCESO_VOLUMETRICO": "litros", "FRACCIONAMIENTO": "litros", "CONSUMO_ATIPICO": "litros",
             "CARGA_VEHICULO_INACTIVO": "fecha", "CARGA_FUERA_DE_ZONA": "estacion",
         }
         for c in cargas:
@@ -1467,7 +1467,7 @@ class GeneradorMaestro:
                 detalle = c.get("_detalle") or {
                     "EXCESO_VOLUMETRICO": f"{c['litros']:.2f} L con tanque de {c['_capacidad']:.1f} L",
                     "FRACCIONAMIENTO": "carga repartida en el mismo día",
-                    "RENDIMIENTO_IMPOSIBLE": f"{c['litros']:.2f} L sin recorrido que los justifique",
+                    "CONSUMO_ATIPICO": f"{c['litros']:.2f} L para el recorrido del día",
                     "CARGA_VEHICULO_INACTIVO": "carga posterior a la baja o salida de servicio",
                     "CARGA_FUERA_DE_ZONA": f"carga en {c['estacion']}, lejos de la ubicación del vehículo",
                 }[tipo]
