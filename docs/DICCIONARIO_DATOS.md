@@ -325,7 +325,7 @@ Cargas que una regla ingenua marcaría como anomalía pero no lo son. No están 
 | `DOMINIO_CON_FORMATO` | 0,5% de las cargas | El dominio llega en minúsculas, con espacios o guiones, o con un espacio al final (`za123bc`, `ZA 123 BC`, `ZA-123-BC`); normalizado es el del vehículo |
 | `TRANSFERENCIA_DE_SALDO` | ~25 contratos-mes (`tabla` = contrato_mes) | El contrato recibió saldo porque la proyección del mes no alcanzaba |
 | `ODOMETRO_EXCEPTUADO` | ~100 cargas de 6 vehículos | La carga repite la lectura del odómetro con una excepción vigente ese día |
-| `CONTINGENCIA` | ~1,1% de las cargas | La carga se registró por contingencia y no se duplicó; en el 30% hay otra carga del vehículo a menos de 12 horas, pero con otros litros |
+| `CONTINGENCIA` | ~1,1% de las cargas | La carga se registró por contingencia y no se duplicó; en el 30% hay otra carga del vehículo a menos de 12 horas, pero con otros litros. En 2 cada 200 vehículos (desde la 2.8), un **par parecido**: con el decimal corrido, sus litros quedan a 5%-15% de los de una carga habitual cercana (la descripción lo indica) |
 
 La columna `tabla` indica a qué tabla pertenece `id_registro`: `consumo`, `facturacion` o `facturacion_detalle`.
 
@@ -342,7 +342,7 @@ Desde la versión 2.7. Ante una alerta se cita a quien hizo la solicitud, se inv
 | `fecha` | Fecha en que se documentó |
 | `observacion` | Texto libre y sintético. El perfilador y la auditoría no lo sacan |
 
-El generador (generador aleatorio propio, `seed + 7.000.003`) documenta el 50% de los errores de carga (`ERROR_PROVEEDOR`, `ERROR_DOMINIO` y `ERROR_TARJETA`) como `error_humano`, la carga y su pedido si alertó, y el 30% de las anomalías reales como `faltante` o, si son de facturación, `facturacion_del_proveedor`. Solo se documentan alertas que las reglas emiten. El resto queda sin observación, porque todavía no se investigó; el generador no produce filas `pendiente` ni `sin_irregularidad`. Las proporciones son provisorias: se ajustan con lo que muestre la fuente cuando haya observaciones, igual que la de errores de carga.
+El generador (generador aleatorio propio, `seed + 7.000.003`) documenta el 50% de los errores de carga (`ERROR_PROVEEDOR`, `ERROR_DOMINIO` y `ERROR_TARJETA`) como `error_humano`, la carga y su pedido si alertó, y el 30% de las anomalías reales como `faltante` o, si son de facturación, `facturacion_del_proveedor`. Un doble cobro (H13) se documenta como `facturacion_del_proveedor` con su causa probable: "retraso del sistema, se creyó que el primer intento falló", y la acción de reclamar el duplicado al proveedor (desde la 2.8). Solo se documentan alertas que las reglas emiten. El resto queda sin observación, porque todavía no se investigó; el generador no produce filas `pendiente` ni `sin_irregularidad`. Las proporciones son provisorias: se ajustan con lo que muestre la fuente cuando haya observaciones, igual que la de errores de carga.
 
 En la detección, una alerta con observación se muestra como **documentada**, con su resultado, pero no sale de la cola ni de los conteos; en la cola de revisión van primero las no investigadas. La auditoría agregada, si la fuente trae una tabla equivalente, informa por regla solo qué parte de las alertas tiene resultado y su distribución, sin el texto.
 
@@ -383,7 +383,7 @@ Incluye las del escenario didáctico, con otra forma de inyección, y cinco tipo
 | `TRANSFERENCIA_SIN_NECESIDAD` | H10 | 2 contratos-mes | Transferencia a principio de mes a un contrato con holgura, que la proyección no justificaba |
 | `ODOMETRO_SIN_AVANCE` | H12 | 3 vehículos, de 3 a 6 cargas cada uno | La lectura se repite sin excepción vigente ese día; en uno de ellos, porque la excepción venció y la lectura se siguió repitiendo |
 | `ERROR_PROVEEDOR` / `ERROR_DOMINIO` / `ERROR_TARJETA` | CALIDAD | 6 / 6 / 4 cargas, con su pedido (provisorio, a definir con el referente) | Errores de carga en el registro interno, que se citan y se corrigen: el pedido se registra como de otra red; el pedido lleva el dominio de otro vehículo; o se carga con la tarjeta de otro vehículo y el reporte atribuye la carga, con el odómetro del que cargó, al dueño de la tarjeta. Se etiquetan la carga y su pedido. Disparan alertas correctas de H8 (que las cuenta como aciertos) y, según el caso, de H2, H3, H4, H5 o H12; la causa probable de cada alerta los reconoce (#24) |
-| `DOBLE_COBRO` | H13 | 8 cargas | La misma carga aparece por las dos vías: una segunda transacción de `CONTINGENCIA` unos minutos después de una carga por `POSNET`, con hasta 1,5% de diferencia de litros y la misma lectura de odómetro |
+| `DOBLE_COBRO` | H13 | 8 + 3 cargas | La misma carga aparece por las dos vías: una segunda transacción de `CONTINGENCIA` unos minutos después de una carga por `POSNET`, con hasta 1,5% de diferencia de litros y la misma lectura de odómetro. Desde la 2.8, 3 más con el decimal mal colocado (×10, ×100 y ÷10: los mismos dígitos), como en un remito escrito a mano |
 
 ### Registro interno (escenario realista)
 
@@ -404,12 +404,14 @@ En el escenario realista `solicitudes.csv` es el registro interno, como en la fu
 
 ### Origen de la transacción (escenario realista)
 
-El reporte del proveedor indica el origen de cada transacción (`origen_transaccion`): el medio de pago electrónico habitual (`POSNET`) o una contingencia, la carga registrada por una vía alternativa cuando el habitual no funciona. En la fuente, el 1,2% es de contingencia. Casi todas son legítimas (caso `CONTINGENCIA`); la anomalía `DOBLE_COBRO` (H13) es la misma carga cobrada por las dos vías: la copia es una transacción de contingencia con la misma hora aproximada (hasta 45 minutos después) y los mismos litros (hasta 1,5% de diferencia), y solo ella se etiqueta. Cuántas contingencias son un doble cobro no se conoce: es un supuesto del diseño (8 por cada 200 vehículos, una de cada diez contingencias).
+El reporte del proveedor indica el origen de cada transacción (`origen_transaccion`): el medio de pago electrónico habitual (`POSNET`) o una contingencia, la carga registrada a mano cuando el habitual no funciona por un corte de servicio (de internet o similar). En la fuente, el 1,2% es de contingencia. Casi todas son legítimas (caso `CONTINGENCIA`); la anomalía `DOBLE_COBRO` (H13) es la misma carga cobrada por las dos vías: la copia es una transacción de contingencia con la misma hora aproximada (hasta 45 minutos después) y los mismos litros (hasta 1,5% de diferencia), y solo ella se etiqueta. Cuántas contingencias son un doble cobro no se conoce: es un supuesto del diseño (8 por cada 200 vehículos, una de cada diez contingencias).
 
 - **Registro interno:** la copia no tiene pedido propio, porque la carga fue una sola.
 - **Facturación:** la copia se factura como cualquier carga, con su línea. H9 no la ve como `LINEA_DUPLICADA`, que es una carga facturada dos veces: acá son dos transacciones distintas, cada una con su línea.
 - **Otras reglas:** un doble cobro no es una carga más del vehículo, así que las reglas de odómetro, de cargas del día y del cruce con el registro no lo cuentan (como los duplicados de nuestro registro).
-- **Generador:** usa un generador aleatorio propio, por lo que no altera el resto del escenario; el escenario didáctico no trae la columna.
+- **Decimal mal colocado (desde la 2.9, #55):** como la contingencia se escribe a mano, algunos datos coinciden y otros no. 3 copias cada 200 vehículos tienen los litros ×10, ×100 o ÷10 respecto de la carga original (15,96 L escritos como 1596 L). La regla `doble_cobro` acepta, además del ±2%, los litros de la contingencia ×10, ×100, ÷10 o ÷100 con la misma tolerancia. El precio: una contingencia legítima cuyos litros coinciden por azar con el decimal corrido también se marca (5 de las 381 en las 5 semillas). 2 contingencias legítimas cada 200 vehículos tienen un par parecido (5%-15% de diferencia con el decimal corrido) que la regla no debe confundir; su pedido declara los mismos litros que la carga.
+- **Causa probable:** según el referente, el doble cobro ocurre por un retraso del sistema: se creyó que el primer intento falló. Se documenta en la observación de la alerta (ver *observaciones_alertas.csv*), sin alterar el dato de origen.
+- **Generador:** usa generadores aleatorios propios (`seed + 5.000.003`; las copias con el decimal mal colocado y los pares parecidos, `seed + 8.000.003`), por lo que no altera las copias anteriores; el escenario didáctico no trae la columna.
 
 ### Relación de consumo (códigos del padrón)
 

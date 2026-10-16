@@ -19,9 +19,10 @@ from deteccion.datos import cargar_dataset
 from deteccion.hipotesis import hipotesis_del_escenario, reglas_de
 from deteccion.modelo import construir_variables, entrenar_isolation_forest, ids_con_anomalia_de_comportamiento
 from deteccion.priorizacion import REGLAS_CONTEXTO, entrenar_supervisado
-from deteccion.reglas import (ESTACION_AJENA, _vecinos_de_odometro, cargas_exceptuadas, cargas_fuera_del_reporte,
-                              cruzar_registro, detectar_doble_cobro, detectar_duplicados, leer_fecha,
-                              reglas_del_dataset, secuencia_odometro, subforma_de_los_retrocesos)
+from deteccion.reglas import (ESTACION_AJENA, ORIGEN_CONTINGENCIA, _vecinos_de_odometro, cargas_exceptuadas,
+                              cargas_fuera_del_reporte, cruzar_registro, detectar_doble_cobro, detectar_duplicados,
+                              leer_fecha, pares_de_contingencia, reglas_del_dataset, secuencia_odometro,
+                              subforma_de_los_retrocesos)
 from perfilador.adaptador import adaptar
 from perfilador.controles import acotar
 from perfilador.perfil import MINIMO_GRUPO, VERSION, cuantil_publicable, dos_cifras
@@ -191,6 +192,42 @@ def _retrocesos_estudio(datos, alertas):
     }
 
 
+# Cómo coinciden los litros de cada contingencia con su carga habitual cercana más parecida (H13), en orden:
+# la contingencia se clasifica por el primero que cumple con alguna de sus cargas cercanas
+LITROS_DE_CONTINGENCIA = ("iguales", "hasta_2_pct", "decimal_movido", "de_2_a_10_pct", "de_10_a_50_pct",
+                          "mas_de_50_pct")
+
+
+def _contingencias(consumo):
+    """Contingencias por mes (H13), solo en cantidades: cuántas hay, cuántas tienen una carga habitual del
+    mismo vehículo a menos de 12 horas y, de esas, cómo coinciden los litros con la más parecida: iguales,
+    hasta 2% de diferencia, con el decimal movido (×10, ×100, ÷10, ÷100) u otra diferencia, en bandas.
+    """
+    pares = pares_de_contingencia(consumo)
+    if pares is None:
+        return None
+    es = consumo["origen_transaccion"].astype("string").str.upper() == ORIGEN_CONTINGENCIA
+    mes = leer_fecha(consumo.loc[es, "fecha"].astype("string")).dt.strftime("%Y-%m")
+    diferencia = (pares["litros"] - pares["litros_habitual"]).abs() / pares["litros_habitual"]
+    clase = np.select(
+        [pares["litros"].round(2) == pares["litros_habitual"].round(2), pares["mismos_litros"], pares["decimal_movido"],
+         diferencia <= 0.10, diferencia <= 0.50],
+        list(range(5)), default=5)
+    mejor = pd.Series(clase, index=pares.index).groupby(pares["id"]).min()
+    mes_de = pd.Series(mes.values, index=consumo.loc[es, "id"].values)
+    mejor = pd.DataFrame({"mes": mes_de.reindex(mejor.index).values,
+                          "clase": [LITROS_DE_CONTINGENCIA[c] for c in mejor.values]})
+
+    def contar(contingencias, con_par):
+        return {"contingencias": acotar(int(contingencias)),
+                "con_carga_habitual_a_menos_de_12_horas": acotar(len(con_par)),
+                "litros_con_la_carga_mas_parecida": {c: acotar(int((con_par["clase"] == c).sum()))
+                                                     for c in LITROS_DE_CONTINGENCIA}}
+
+    return {"total": contar(es.sum(), mejor),
+            "por_mes": {m: contar((mes == m).sum(), mejor[mejor["mes"] == m]) for m in sorted(mes.unique())}}
+
+
 # Qué hipótesis anticipa cada tipo de reclamo de la fuente
 HIPOTESIS_DEL_RECLAMO = {"doble_cobro": "H13", "cargas_multiples": "H4", "odometro_estancado": "H12"}
 RESUELTOS = {"nota_de_credito", "rechazado"}
@@ -350,6 +387,7 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
     diagnostico["odometro"] = _odometro(datos, alertas)
     diagnostico["odometro"]["retrocesos"] = _retrocesos(datos["consumo"], alertas)
     diagnostico["odometro"]["retrocesos_estudio"] = _retrocesos_estudio(datos, alertas)
+    diagnostico["contingencias"] = _contingencias(datos["consumo"])
     diagnostico["cobertura"] = _cobertura(datos, alertas, registro_del_periodo if registro is not None else None)
     por_regla = {}
     for regla, grupo in alertas.groupby("regla"):

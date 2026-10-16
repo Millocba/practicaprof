@@ -85,6 +85,10 @@ def test_resultados_segun_el_tipo_de_registro(dataset):
         tipo = tipos[(fila.tabla, fila.id_registro)]
         if tipo & set(ERRORES_DE_CARGA):
             assert fila.resultado == "error_humano"
+        elif "DOBLE_COBRO" in tipo:
+            # Causa probable según el referente: un retraso del sistema; la acción es reclamar el duplicado
+            assert fila.resultado == "facturacion_del_proveedor"
+            assert "etraso del sistema" in fila.observacion and "reclama el duplicado" in fila.observacion
         elif fila.tabla in TABLAS_DE_FACTURACION:
             assert fila.resultado == "facturacion_del_proveedor"
         else:

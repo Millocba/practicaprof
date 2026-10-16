@@ -16,7 +16,7 @@ from deteccion.datos import cargar_dataset  # noqa: E402
 from deteccion.reglas import leer_fecha  # noqa: E402
 from generator_pipeline_maestro import GeneradorMaestro  # noqa: E402
 from perfilador.adaptador import adaptar  # noqa: E402
-from perfilador.auditoria import auditar  # noqa: E402
+from perfilador.auditoria import _contingencias, auditar  # noqa: E402
 
 MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre",
          "noviembre", "diciembre"]
@@ -175,6 +175,46 @@ def test_la_salida_no_tiene_identificadores(resultado, sintetico):
         assert str(valor) not in texto
     for regla in resultado["reglas"].values():
         assert isinstance(regla["alertas"], str) or regla["alertas"] == 0 or regla["alertas"] >= 20
+
+
+def test_las_contingencias_se_informan_por_mes_y_en_bandas_de_litros(resultado):
+    """H13 en la auditoría: contingencias por mes, con carga habitual cercana y cómo coinciden los litros."""
+    c = resultado["diagnostico"]["contingencias"]
+    assert c["total"]["contingencias"] != 0 and c["total"]["con_carga_habitual_a_menos_de_12_horas"] != 0
+    assert list(c["total"]["litros_con_la_carga_mas_parecida"]) == [
+        "iguales", "hasta_2_pct", "decimal_movido", "de_2_a_10_pct", "de_10_a_50_pct", "mas_de_50_pct"]
+    assert c["por_mes"] and all(len(m) == 7 and m[4] == "-" for m in c["por_mes"])     # solo el mes, AAAA-MM
+
+    def hojas(d):
+        return [h for v in d.values() for h in (hojas(v) if isinstance(v, dict) else [v])]
+    # Solo cantidades acotadas: 0, 20 o más, o "1–19"
+    assert all(h == 0 or h == "1–19" or (isinstance(h, int) and h >= 20) for h in hojas(c))
+
+
+def test_las_contingencias_se_clasifican_por_la_carga_mas_parecida():
+    """Cada contingencia se clasifica por su carga habitual cercana más parecida: iguales, ±2%, decimal o banda."""
+    litros_contingencia = {"iguales": 40.0, "hasta_2_pct": 40.5, "decimal_movido": 4000.0, "de_2_a_10_pct": 42.0,
+                           "de_10_a_50_pct": 50.0, "mas_de_50_pct": 90.0}
+    filas = []
+    for k, (clase, litros) in enumerate(litros_contingencia.items()):
+        for v in range(20):
+            vehiculo = f"VEH-{k}-{v}"
+            filas += [{"id": f"H-{k}-{v}", "vehiculo_id": vehiculo, "fecha": "2024-03-05", "hora": "10:00:00",
+                       "litros": 40.0, "origen_transaccion": "POSNET"},
+                      {"id": f"C-{k}-{v}", "vehiculo_id": vehiculo, "fecha": "2024-03-05", "hora": "10:30:00",
+                       "litros": litros, "origen_transaccion": "CONTINGENCIA"}]
+    # Contingencias sin carga habitual cercana (la habitual está a más de 12 horas)
+    for v in range(20):
+        filas += [{"id": f"H-x-{v}", "vehiculo_id": f"VEH-x-{v}", "fecha": "2024-04-01", "hora": "06:00:00",
+                   "litros": 40.0, "origen_transaccion": "POSNET"},
+                  {"id": f"C-x-{v}", "vehiculo_id": f"VEH-x-{v}", "fecha": "2024-04-01", "hora": "20:00:00",
+                   "litros": 40.0, "origen_transaccion": "CONTINGENCIA"}]
+    r = _contingencias(pd.DataFrame(filas))
+    assert r["total"]["contingencias"] == 140 and r["total"]["con_carga_habitual_a_menos_de_12_horas"] == 120
+    assert r["total"]["litros_con_la_carga_mas_parecida"] == {clase: 20 for clase in litros_contingencia}
+    assert r["por_mes"]["2024-04"] == {"contingencias": 20, "con_carga_habitual_a_menos_de_12_horas": 0,
+                                       "litros_con_la_carga_mas_parecida": {c: 0 for c in litros_contingencia}}
+    assert _contingencias(pd.DataFrame(filas).drop(columns="origen_transaccion")) is None
 
 
 def test_los_reclamos_se_vinculan_y_se_comparan_con_las_reglas(resultado):
