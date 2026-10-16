@@ -1005,6 +1005,8 @@ def asignar_causa_probable(alertas, causas):
     """Agrega la columna causa_probable: la de la firma, SIN_EXPLICACION o vacía si la regla no tiene causa."""
     con_causa = alertas["regla"].isin(REGLAS_CON_CAUSA)
     propia = alertas.get("causa_probable", pd.Series(index=alertas.index, dtype="object"))
+    # Una causa propia SIN_EXPLICACION (el exceso posterior de H3b) no tapa la causa de una firma de error de carga
+    propia = propia.where(propia != SIN_EXPLICACION)
     causa = propia.fillna(alertas["id_registro"].map(causas)).where(con_causa)
     causa = causa.where(~con_causa | causa.notna(), SIN_EXPLICACION)
     explicada = causa.notna() & (causa != SIN_EXPLICACION)

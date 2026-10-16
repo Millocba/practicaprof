@@ -1993,7 +1993,7 @@ class GeneradorMaestro:
         # El PDF repite la deuda (también la inflada); el 15% no se cargó y en algunas no coincide
         for factura in facturas:
             factura["total_pdf"] = factura["total_monto"] if rng.random() < PROB_PDF_CARGADO else None
-        con_pdf = [f for f in facturas if f["total_pdf"] is not None and f["numero_factura"] not in con_ajuste and
+        con_pdf = [f for f in facturas if f["total_pdf"] is not None and
                    not any(a["id_registro"] == f["numero_factura"] for a in self.anomalias)]
         for factura in rng.sample(con_pdf, min(self._cantidad("DIFERENCIA_DEUDA_PDF"), len(con_pdf))):
             factura["total_pdf"] = round(factura["total_monto"] * rng.choice([-1, 1]) * rng.uniform(0.02, 0.08)

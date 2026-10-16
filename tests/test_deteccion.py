@@ -532,3 +532,20 @@ def test_doble_cobro_con_el_decimal_mal_colocado_y_prioridad_de_los_mismos_litro
     assert "decimal mal colocado" in detalle["C1"] and "decimal mal colocado" in detalle["C2"]
     assert "decimal mal colocado" not in detalle["C4"]     # el par de los mismos litros va antes
 
+
+def test_la_causa_propia_sin_explicacion_no_tapa_la_causa_de_un_error_de_carga():
+    """H3b (#45): el exceso posterior lleva SIN_EXPLICACION, pero si la carga tiene la firma de un error de carga
+    (tarjeta de otro vehículo) esa causa debe llegar a la alerta; la de capacidad mal registrada se conserva."""
+    import pandas as pd
+
+    from deteccion.reglas import SIN_EXPLICACION, asignar_causa_probable
+
+    alertas = pd.DataFrame({
+        "id_registro": ["X1", "X2", "X3"],
+        "regla": ["exceso_sin_antecedente"] * 3,
+        "detalle": ["exceso"] * 3,
+        "causa_probable": [SIN_EXPLICACION, "capacidad_tanque_mal_registrada", SIN_EXPLICACION],
+    })
+    resultado = asignar_causa_probable(alertas, {"X1": "tarjeta_equivocada", "X2": "tarjeta_equivocada"})
+    assert resultado["causa_probable"].tolist() == ["tarjeta_equivocada", "capacidad_tanque_mal_registrada", SIN_EXPLICACION]
+
