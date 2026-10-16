@@ -326,6 +326,7 @@ Cargas que una regla ingenua marcaría como anomalía pero no lo son. No están 
 | `TRANSFERENCIA_DE_SALDO` | ~25 contratos-mes (`tabla` = contrato_mes) | El contrato recibió saldo porque la proyección del mes no alcanzaba |
 | `ODOMETRO_EXCEPTUADO` | ~100 cargas de 6 vehículos | La carga repite la lectura del odómetro con una excepción vigente ese día |
 | `CONTINGENCIA` | ~1,1% de las cargas | La carga se registró por contingencia y no se duplicó; en el 30% hay otra carga del vehículo a menos de 12 horas, pero con otros litros. En 2 cada 200 vehículos (desde la 2.8), un **par parecido**: con el decimal corrido, sus litros quedan a 5%-15% de los de una carga habitual cercana (la descripción lo indica) |
+| `IDENTIFICADA_POR_MOTOR` | 0,1% de las cargas | Sin dominio, la carga trae los últimos 8 dígitos del número de motor del vehículo. Desde la versión 3.2 |
 
 La columna `tabla` indica a qué tabla pertenece `id_registro`: `consumo`, `facturacion` o `facturacion_detalle`.
 
@@ -374,7 +375,8 @@ Incluye las del escenario didáctico, con otra forma de inyección, y cinco tipo
 | `ODOMETRO_REGRESIVO` | H2 | 3 vehículos | La lectura queda de 3.000 a 40.000 km por debajo de la anterior; las siguientes continúan desde ahí |
 | `ODOMETRO_REGRESIVO_LEVE` | H2 | 4 vehículos | Igual, pero de 50 a 200 km |
 | `ODOMETRO_SALTO` | H2 | 3 vehículos | La lectura suma de 1.500 a 9.000 km que el GPS no registra; las siguientes continúan desde ahí |
-| `DOMINIO_INVALIDO` / `VALOR_NULO` / `DUPLICADO` | H1 / CALIDAD | 0,3% / 0,5% / 0,3% de las cargas | Como en el escenario didáctico, solo sobre cargas sin otra anomalía ni caso legítimo |
+| `DOMINIO_INVALIDO` / `VALOR_NULO` / `DUPLICADO` | H1 / CALIDAD | 0,3% / 0,5% / 0,3% de las cargas | Como en el escenario didáctico, solo sobre cargas sin otra anomalía ni caso legítimo. Desde la versión 3.2, la carga con `DOMINIO_INVALIDO` trae además una tarjeta que no está en el padrón: no se vincula con ningún móvil |
+| `DOMINIO_MAL_TIPEADO` | CALIDAD | 0,1% de las cargas | El dominio difiere del propio en una letra confundida (0/O, 1/I, 8/B) o en dos vecinas transpuestas; la tarjeta es la del vehículo. Desde la versión 3.2 |
 | `CARGA_SIN_REGISTRO` / `ANULADA_CON_CARGA` / `RENDIDA_SIN_CARGA` / `DESACUERDO_DE_LITROS` / `CARGA_SUPERA_AUTORIZADO` | H8 | 6 / 4 / 5 / 6 / 6 | Ver *Registro interno* |
 | `TOTAL_INFLADO` | H9 | 2 facturas (`tabla` = facturacion) | El total supera en 3% a 10% la suma de sus líneas |
 | `LINEA_SIN_CONSUMO` | H9 | 6 líneas (`tabla` = facturacion_detalle) | Se factura una carga que no existe en el registro |

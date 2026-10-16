@@ -127,6 +127,85 @@ def test_h3b_aplica_tolerancia_y_clasifica_segun_el_historial():
     assert alertas.loc["B4", "causa_probable"] == "sin_explicacion"
 
 
+def _flota_y_cargas_de_vinculacion():
+    """Flota y cargas inventadas: una por cada nivel de vinculación de H1."""
+    flota = pd.DataFrame({"Matricula": ["S1", "S2", "S3"], "Dominio": ["ZA001AA", "ZA002AA", "ZA003AA"],
+                          "NumeroTarjeta": ["T1", "T2", "T3"],
+                          "NumeroMotor": ["M00000001", "XX12345678", "YY12345678"]})
+    consumo = pd.DataFrame({
+        "id": ["C1", "C2", "C3", "C4", "C5", "C6", "C7"],
+        "dominio": ["ZA001AA", "za-001 aa", "00000001", "12345678", "ZA00IAA", "ZZ999ZZ", None],
+        "numero_tarjeta": ["T1", "T1", "TX", "TX", "T1", "TX", "TX"],
+        "tipo_identificacion": ["PATENTE"] * 6 + ["DNI"]})
+    return flota, consumo
+
+
+def test_los_niveles_de_vinculacion_se_acumulan():
+    from deteccion.reglas import vinculos_de_la_carga
+
+    flota, consumo = _flota_y_cargas_de_vinculacion()
+    v = vinculos_de_la_carga(consumo, flota).set_index(consumo["id"])
+    assert list(v.loc[~v["personal"]].sum()[["exacto", "normalizado", "motor", "tarjeta"]]) == [1, 2, 3, 4]
+    # El sufijo 12345678 lo comparten dos motores: no identifica a ningún móvil
+    assert not v.loc["C4", "motor"] and not v.loc["C4", "tarjeta"]
+
+
+def test_carga_sin_movil_es_la_que_no_vincula_por_ningun_camino():
+    from deteccion.reglas import detectar_carga_sin_movil
+
+    flota, consumo = _flota_y_cargas_de_vinculacion()
+    alertas = detectar_carga_sin_movil(consumo, flota)
+    assert set(alertas["id_registro"]) == {"C4", "C6"}   # la tarjeta personal no se cuenta
+    assert set(alertas["regla"]) == {"carga_sin_movil_identificado"}
+
+
+def test_un_dominio_a_distancia_1_del_de_su_tarjeta_es_un_error_de_tipeo():
+    from deteccion.reglas import causas_de_dominio
+
+    flota, consumo = _flota_y_cargas_de_vinculacion()
+    assert causas_de_dominio(consumo, flota) == {"C5": "dominio_equivocado"}
+
+
+def test_dispositivos_y_pedidos_sin_movil_identificado():
+    from deteccion.reglas import (GRUPO_DEPOSITO, detectar_baja_con_dispositivo, detectar_dispositivo_sin_movil,
+                                  detectar_pedido_sin_movil)
+
+    flota, _ = _flota_y_cargas_de_vinculacion()
+    flota = flota.assign(Estado=["EN SERVICIO", "BAJA", "EN SERVICIO"])
+    telemetria = pd.DataFrame({"Alias": ["D1", "D2", "D3", "D4", "D5"],
+                               "Placa": ["za 001 aa", "00000001", "ZZ999ZZ", None, "ZZ999ZZ"],
+                               "Grupo": ["G1", "G1", "G1", "G1", GRUPO_DEPOSITO]})
+    # La placa normalizada y el motor vinculan; el depósito no se cuenta
+    assert set(detectar_dispositivo_sin_movil(telemetria, flota)["id_registro"]) == {"D3", "D4"}
+    # H11 identifica al móvil de baja también por el motor
+    flota.loc[1, "NumeroMotor"] = "QQ87654321"
+    telemetria.loc[1, "Placa"] = "87654321"
+    assert set(detectar_baja_con_dispositivo(flota, telemetria)["id_registro"]) == {"D2"}
+
+    registro = pd.DataFrame({"id": ["P1", "P2", "P3"], "vehiculo_id": ["S1", "SX", "SX"],
+                             "dominio": ["ZZ999ZZ", "ZA-002-AA", "ZZ999ZZ"]})
+    # P1 lo vincula la matrícula; P2, el dominio normalizado
+    assert set(detectar_pedido_sin_movil(registro, flota)["id_registro"]) == {"P3"}
+
+
+def test_una_carga_sin_movil_cruza_con_el_unico_pedido_de_su_horario_y_litros():
+    from deteccion.reglas import cruzar_registro
+
+    flota = pd.DataFrame({"Matricula": ["S1", "S2"], "Dominio": ["ZA001AA", "ZA002AA"], "NumeroTarjeta": ["T1", "T2"]})
+    consumo = pd.DataFrame({"id": ["C1", "C2"], "dominio": ["ZZ999ZZ", "ZZ888ZZ"], "numero_tarjeta": ["TX", "TY"],
+                            "tipo_identificacion": "PATENTE", "conductor": None, "fecha": "2024-03-01",
+                            "hora": ["10:00:00", "15:00:00"], "litros": [30.0, 40.0]})
+    registro = pd.DataFrame({"id": ["P1", "P2", "P3"], "dominio": ["ZA001AA", "ZA002AA", "ZA001AA"],
+                             "fecha": "2024-03-01", "hora": ["09:30:00", "14:00:00", "14:30:00"],
+                             "litros_cargados": [30.0, 40.0, 40.0], "litros_autorizados": 50.0, "estacion_servicio": "ESTACION",
+                             "tarjeta_personal": False, "solicitante": None, "rendido": "SI", "anulado": "NO"})
+    pares, sin_carga = cruzar_registro(consumo, registro, flota=flota)
+    # C1 tiene un único candidato; C2 tiene dos (P2 y P3) y no se cruza
+    assert pares.loc["C1", "registro_id"] == "P1"
+    assert pd.isna(pares.loc["C2", "registro_id"])
+    assert set(sin_carga["id"]) == {"P2", "P3"}
+
+
 def test_las_cargas_de_otra_red_cierran_el_tramo_del_odometro():
     """El reporte es de un proveedor: una carga en otra red, anotada en el registro interno, parte el tramo."""
     from deteccion.reglas import cargas_fuera_del_reporte
@@ -614,7 +693,8 @@ def test_h11_no_alerta_un_dispositivo_sin_fecha_de_ultima_conexion_legible():
 
     from deteccion.reglas import detectar_dispositivo_activo_en_baja
 
-    flota = pd.DataFrame({"Dominio": ["AA111AA", "AA222AA", "AA333AA"], "Estado": ["BAJA"] * 3})
+    flota = pd.DataFrame({"Matricula": ["V1", "V2", "V3"], "Dominio": ["AA111AA", "AA222AA", "AA333AA"],
+                          "Estado": ["BAJA"] * 3})
     telemetria = pd.DataFrame({
         "Alias": ["DEV-1", "DEV-2", "DEV-3", "DEV-4"],
         "Placa": ["AA111AA", "AA222AA", "AA333AA", "AA999AA"],

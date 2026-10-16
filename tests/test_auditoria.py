@@ -35,7 +35,7 @@ def con_forma_real(s):
         "Matricula": flota["Matricula"], "Dominio": flota["Dominio"], "Estado": flota["Estado"].str.title(),
         "SubEstado": flota["SubEstado"], "TipoVehiculo": flota["TipoVehiculo"], "TipoCombustible": flota["TipoCombustible"],
         "CapacidadTanque": flota["CapacidadTanque"], "NumeroTarjeta": flota["NumeroTarjeta"],
-        "NumeroContrato": flota["NumeroContrato"], "Cupo": flota["Cupo"], "Dependencia": flota["Dependencia"],
+        "NumeroMotor": flota["NumeroMotor"], "NumeroContrato": flota["NumeroContrato"], "Cupo": flota["Cupo"], "Dependencia": flota["Dependencia"],
         "DireccionGral": flota["DireccionGral"], "ExcepcionOdometro": flota["ExcepcionOdometro"],
         "FechaHastaExcepcionOdometro": flota["FechaHastaExcepcionOdometro"]})
     excepciones = s["excepciones_odometro"]
@@ -171,6 +171,7 @@ def test_la_salida_no_tiene_identificadores(resultado, sintetico):
     for valor in [sintetico["consumo"]["id"].iloc[0], sintetico["solicitudes"]["id"].iloc[0],
                   sintetico["flota"]["Dominio"].iloc[0], sintetico["flota"]["Matricula"].iloc[0],
                   sintetico["telemetria"]["Alias"].iloc[0], sintetico["facturacion"]["numero_factura"].iloc[0],
+                  sintetico["flota"]["NumeroMotor"].dropna().iloc[0], sintetico["flota"]["NumeroTarjeta"].iloc[0],
                   "proveedor zeta", "PROVEEDOR ZETA"]:
         assert str(valor) not in texto
     for regla in resultado["reglas"].values():
@@ -223,6 +224,102 @@ def test_las_contingencias_se_clasifican_por_la_carga_mas_parecida():
     assert r["por_mes"]["2024-04"] == {"contingencias": 20, "con_carga_habitual_a_menos_de_12_horas": 0,
                                        "litros_con_la_carga_mas_parecida": {c: 0 for c in litros_contingencia}}
     assert _contingencias(pd.DataFrame(filas).drop(columns="origen_transaccion")) is None
+
+
+def test_la_auditoria_explica_las_cargas_sin_vinculo(resultado):
+    vinculacion = resultado["diagnostico"]["vinculacion"]
+    assert vinculacion["sin_vinculo_normalizado"] != 0
+    # En el sintético, la tarjeta de una carga identificada por el motor o con el dominio mal tipeado es
+    # la del vehículo; las cargas sin móvil traen un dominio bien formado y una tarjeta fuera del padrón
+    assert vinculacion["por_causa"]["tarjeta_del_padron"] != 0
+    assert vinculacion["por_causa"]["sin_explicacion"] != 0
+    assert vinculacion["vinculadas_pct"]["tarjeta"] > vinculacion["vinculadas_pct"]["normalizado"]
+
+
+def _flota_y_cargas_sin_vinculo():
+    """Flota y cargas inventadas, una por cada causa de una carga sin vínculo."""
+    flota = pd.DataFrame({"Matricula": ["S1", "S2", "S3", "S4"], "Dominio": ["AAA001", "AAA002", "AB123CD", "CCC333"],
+                          "NumeroTarjeta": ["T1", "T2", "T3", "T4"],
+                          "NumeroMotor": ["XX99A999A12345678", "999999987654321", None, "ZZ12345678"]})
+    filas = [("ZZZ999", "T1"),        # la tarjeta es de un móvil del padrón
+             ("12345678", "TX"),      # últimos 8 del motor, compartidos por dos móviles
+             ("87654321", "TX"),      # últimos 8 dígitos del motor
+             ("AAA0O1", "TX"),        # confusión de 0 con O
+             ("AAA010", "TX"),        # transposición
+             ("AB123CDX", "TX"),      # letra de más
+             ("QQQ111", "TX"),        # solo en la telemetría
+             (None, "TX"),            # sin identificador
+             ("123", "TX"),           # solo dígitos
+             ("ZZZ888", "TX"),        # bien formado y en ninguna fuente
+             ("aaa-001", "T1"),       # se vincula normalizado
+             ("AAA001", "T1")]        # se vincula tal como llega
+    consumo = pd.DataFrame(filas, columns=["dominio", "numero_tarjeta"]).assign(tipo_identificacion="PATENTE")
+    personal = pd.DataFrame({"dominio": [None], "numero_tarjeta": ["TX"], "tipo_identificacion": ["DNI"]})
+    return flota, pd.concat([consumo, personal], ignore_index=True), pd.DataFrame({"Placa": ["QQQ-111"]})
+
+
+def test_vinculacion_explica_cada_carga_sin_vinculo_por_una_causa(monkeypatch):
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _vinculacion
+
+    flota, consumo, telemetria = _flota_y_cargas_sin_vinculo()
+    vinculacion = _vinculacion(consumo, flota, telemetria)
+    assert vinculacion["cargas_evaluadas"] == 12
+    assert vinculacion["sin_vinculo_exacto"] == 11
+    assert vinculacion["sin_vinculo_normalizado"] == 10
+    assert vinculacion["por_causa"] == {"tarjeta_del_padron": 1, "ultimos_8_del_motor": 2,
+                                        "distancia_1_de_un_dominio": 3, "otra_fuente": 1,
+                                        "forma_del_identificador": 2, "sin_explicacion": 1}
+    assert vinculacion["distancia_1_por_edicion"] == {"confusion_visual": 1, "letra_cambiada": 0,
+                                                      "transposicion": 1, "letra_de_mas_o_de_menos": 1}
+    assert vinculacion["motor_con_mas_de_un_movil"] == 1
+    assert vinculacion["forma_del_identificador"] == {"vacio": 1, "solo_digitos": 1, "solo_letras": 0,
+                                                      "largo_distinto": 0}
+
+
+def test_vinculacion_de_la_telemetria_y_del_registro(monkeypatch):
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _vinculacion
+
+    flota, consumo, _ = _flota_y_cargas_sin_vinculo()
+    telemetria = pd.DataFrame({"Alias": ["D1", "D2", "D3", "D4"], "Placa": ["aaa-001", "AAA0O2", "ZZZ999", "QQQ777"],
+                               "Grupo": ["G1", "G1", "G1", "BAJA / REEMPLAZOS"]})
+    registro = pd.DataFrame({"id": ["P1", "P2", "P3"], "vehiculo_id": ["S1", "SX", "SX"],
+                             "dominio": ["ZZZ777", "AAA002", "4567"]})
+    vinculacion = _vinculacion(consumo, flota, telemetria, registro)
+    t = vinculacion["telemetria"]
+    assert t["dispositivos_evaluados"] == 3     # el del depósito no se cuenta
+    assert t["vinculados_pct"] is not None and t["sin_vinculo_normalizado"] == 2
+    # AAA0O2 está a distancia 1 de AAA002; ZZZ999 es una carga sin vínculo: está en otra fuente
+    assert t["por_causa"] == {"ultimos_8_del_motor": 0, "distancia_1_de_un_dominio": 1, "otra_fuente": 1,
+                              "forma_del_identificador": 0, "sin_explicacion": 0}
+    r = vinculacion["registro"]
+    assert r["pedidos_evaluados"] == 3 and r["sin_vinculo_normalizado"] == 2
+    assert r["por_causa"] == {"matricula_del_padron": 1, "ultimos_8_del_motor": 0, "distancia_1_de_un_dominio": 0,
+                              "otra_fuente": 0, "forma_del_identificador": 1, "sin_explicacion": 0}
+
+
+def test_vinculacion_suprime_los_grupos_pequenos_y_no_tiene_identificadores():
+    from perfilador.auditoria import _vinculacion
+
+    flota, consumo, telemetria = _flota_y_cargas_sin_vinculo()
+    vinculacion = _vinculacion(consumo, flota, telemetria)
+    assert vinculacion["sin_vinculo_normalizado"] == "1–19"
+    texto = json.dumps(vinculacion, ensure_ascii=False)
+    for valor in ["ZZZ", "AAA", "1234", "8765", "QQQ", "T1", "S1"]:
+        assert valor not in texto
+
+
+def test_distancia_uno():
+    from deteccion.reglas import distancia_uno as _distancia_uno
+
+    assert _distancia_uno("AB1C", "AB1C") is None
+    assert _distancia_uno("AAB8", "AAB9") == "letra_cambiada"
+    assert _distancia_uno("AI23", "A123") == "confusion_visual"
+    assert _distancia_uno("AB12", "BA12") == "transposicion"
+    assert _distancia_uno("AB12", "AB123") == "letra_de_mas_o_de_menos"
+    assert _distancia_uno("AB12", "BA21") is None
+    assert _distancia_uno("AB12", "AB1234") is None
 
 
 def test_los_reclamos_se_vinculan_y_se_comparan_con_las_reglas(resultado):
@@ -480,4 +577,16 @@ def test_el_adaptador_cuenta_las_fechas_de_transmision_ilegibles_sin_descartar_e
     assert diagnostico["telemetria"]["fechas_de_transmision_ilegibles"] == "1–19"
     assert len(datos["telemetria"]) == len(sintetico["telemetria"])
     assert datos["telemetria"]["UltimaConexion"].isna().sum() == 3
+
+
+def test_un_grupo_chico_no_se_recupera_restando_a_las_demas_partes_del_total():
+    """Reidentificación por diferencia (#41): con el total a la vista y una sola parte oculta, restar las otras la
+    devolvía (37 menos 23 daba el 14 oculto). Se oculta también la parte visible más chica."""
+    from perfilador.auditoria import _partes_sin_resta
+
+    assert _partes_sin_resta(37, {"a": 23, "b": 14, "c": 0}) == {"a": None, "b": "1–19", "c": 0}
+    assert _partes_sin_resta(100, {"a": 50, "b": 50}) == {"a": 50, "b": 50}              # nada que ocultar
+    assert _partes_sin_resta(10, {"a": 10}) == {"a": "1–19"}                           # el total ya está oculto
+    # dos partes chicas: restar solo da su suma, que no revela ninguna
+    assert _partes_sin_resta(71, {"a": 5, "b": 6, "c": 60}) == {"a": "1–19", "b": "1–19", "c": 60}
 
