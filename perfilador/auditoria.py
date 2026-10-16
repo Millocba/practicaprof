@@ -207,7 +207,7 @@ def _contingencias(consumo):
     if pares is None:
         return None
     es = consumo["origen_transaccion"].astype("string").str.upper() == ORIGEN_CONTINGENCIA
-    mes = pd.to_datetime(consumo.loc[es, "fecha"]).dt.strftime("%Y-%m")
+    mes = leer_fecha(consumo.loc[es, "fecha"].astype("string")).dt.strftime("%Y-%m")
     diferencia = (pares["litros"] - pares["litros_habitual"]).abs() / pares["litros_habitual"]
     clase = np.select(
         [pares["litros"].round(2) == pares["litros_habitual"].round(2), pares["mismos_litros"], pares["decimal_movido"],

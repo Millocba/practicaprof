@@ -485,3 +485,30 @@ def test_el_catalogo_llama_consumo_atipico_a_la_anomalia_de_h5_con_severidad_med
     assert CATALOGO_ANOMALIAS["CONSUMO_ATIPICO"] == ("H5", "MEDIA")
     assert "RENDIMIENTO_IMPOSIBLE" not in CATALOGO_ANOMALIAS
 
+
+def test_doble_cobro_con_el_decimal_mal_colocado_y_prioridad_de_los_mismos_litros():
+    """H13 (#55) con datos armados a mano: cada factor del decimal, el par más parecido y la contingencia sin par."""
+    import pandas as pd
+
+    from deteccion.reglas import detectar_doble_cobro
+
+    def carga(id_, vehiculo, hora, litros, origen="POSNET"):
+        return {"id": id_, "vehiculo_id": vehiculo, "fecha": "2026-03-01", "hora": hora, "litros": litros,
+                "origen_transaccion": origen}
+
+    consumo = pd.DataFrame([
+        carga("H1", "V1", "08:00:00", 15.96), carga("C1", "V1", "08:30:00", 1596.0, "CONTINGENCIA"),       # ×100
+        carga("H2", "V2", "08:00:00", 40.0), carga("C2", "V2", "08:30:00", 4.0, "CONTINGENCIA"),           # ÷10
+        carga("H3", "V3", "08:00:00", 0.4), carga("C3", "V3", "08:30:00", 40.0, "CONTINGENCIA"),           # ×100 inverso
+        carga("H4", "V4", "08:00:00", 40.0), carga("H5", "V4", "09:00:00", 4.0),
+        carga("C4", "V4", "09:30:00", 40.0, "CONTINGENCIA"),                                              # dos pares: gana el de los mismos litros
+        carga("H6", "V5", "08:00:00", 30.0), carga("C5", "V5", "08:30:00", 17.0, "CONTINGENCIA"),         # litros sin relación
+        carga("C6", "V6", "08:30:00", 30.0, "CONTINGENCIA"),                                               # sin carga habitual
+        carga("H7", "V7", "08:00:00", 30.0), carga("C7", "V7", "22:00:00", 30.0, "CONTINGENCIA"),         # fuera de las 12 horas
+    ])
+    alertas = detectar_doble_cobro(consumo)
+    assert set(alertas["id_registro"]) == {"C1", "C2", "C3", "C4"}
+    detalle = alertas.set_index("id_registro")["detalle"]
+    assert "decimal mal colocado" in detalle["C1"] and "decimal mal colocado" in detalle["C2"]
+    assert "decimal mal colocado" not in detalle["C4"]     # el par de los mismos litros va antes
+
