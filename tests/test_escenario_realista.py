@@ -466,3 +466,16 @@ def test_retiros_inmediatos_no_dependen_de_las_alertas_del_puntaje(dataset, aler
     assert not sin_pasar_alertas.empty
     assert _dispositivos_de(sin_pasar_alertas) == _dispositivos_de(con_alertas)
 
+
+def test_la_lista_de_cargas_a_vehiculos_fuera_de_servicio_distingue_las_sin_pedido(dataset, alertas):
+    """H6: la lista sale de las alertas de la regla, con las cargas sin pedido (la tarjeta se usó por fuera del
+    sistema) primero y las que tienen pedido después."""
+    lista = priorizacion.cargas_a_vehiculos_fuera_de_servicio(dataset["consumo"], dataset["flota"],
+                                                              dataset["solicitudes"])
+    esperado = set(alertas.loc[alertas["regla"] == "carga_vehiculo_inactivo", "id_registro"])
+    assert not lista.empty
+    assert set(lista["id"]) == esperado
+    sin_pedido = lista["sin_pedido"].tolist()
+    assert sin_pedido == sorted(sin_pedido, reverse=True)           # todas las sin pedido antes que las otras
+    assert set(lista.loc[lista["sin_pedido"], "motivo"]) <= {"sin pedido en el registro interno: la tarjeta se usó por fuera del sistema"}
+

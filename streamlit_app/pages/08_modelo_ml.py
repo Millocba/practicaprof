@@ -282,6 +282,33 @@ def pagina_realista():
                        mime="text/csv")
 
     seccion(
+        "🚫 Cargas a vehículos fuera de servicio",
+        ayuda="Un vehículo **en trámite de baja o fuera de servicio no puede ni debe cargar**: el sistema "
+              "lo prohíbe. Si hay una carga, se incumplió una directiva importante y se evitó una "
+              "validación (H6), por eso es un análisis prioritario.\n\n"
+              "Está aparte de la cola para que no se confunda con los cruces de las cargas.\n\n"
+              "Arriba van las cargas **sin pedido** en el registro interno: la tarjeta se usó por fuera "
+              "del sistema, lo más grave. Después las que tienen pedido (el estado cambió después de "
+              "pedir), las de más tiempo desde el cambio de estado primero.")
+    fuera_de_servicio = priorizacion.cargas_a_vehiculos_fuera_de_servicio(consumo, flota, datos.get("solicitudes"))
+    if fuera_de_servicio.empty:
+        st.success("✅ Ninguna carga a un vehículo fuera de servicio o en trámite de baja.")
+    else:
+        col1, col2 = st.columns(2)
+        col1.metric("Cargas a revisar", f"{len(fuera_de_servicio):,}")
+        col2.metric("Sin pedido en el registro", f"{int(fuera_de_servicio['sin_pedido'].sum()):,}",
+                    help="La tarjeta se usó por fuera del sistema: la más grave.")
+        st.dataframe(
+            fuera_de_servicio.rename(columns={"id": "Carga", "vehiculo_id": "Vehículo", "dominio": "Dominio",
+                                              "TipoVehiculo": "Tipo", "fecha": "Fecha", "estacion": "Estación",
+                                              "litros": "Litros", "dias_desde_el_cambio": "Días desde el cambio",
+                                              "sin_pedido": "Sin pedido", "motivo": "Motivo"})
+            .style.format({"Sin pedido": lambda v: "⚠️ sí" if v else "no"}),
+            use_container_width=True, hide_index=True)
+        st.download_button("⬇️ Descargar las cargas (CSV)", fuera_de_servicio.to_csv(index=False),
+                           file_name="cargas_a_vehiculos_fuera_de_servicio.csv", mime="text/csv")
+
+    seccion(
         "🚨 Retiros inmediatos",
         ayuda="La otra cosa que hay que hacer, y que no es revisar una carga: **retirar el "
               "dispositivo antes de que el móvil vaya al desguace** (H11). Un aparato que "

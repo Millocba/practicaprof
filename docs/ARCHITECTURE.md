@@ -46,6 +46,6 @@ Cada ejecución deberá asociarse con versión de código, esquema, semilla, par
 | Análisis | `streamlit_app/pages/05_analisis_por_hipotesis.py` | Hallazgos de las reglas por hipótesis, sin ground truth; usa el catálogo único de `deteccion/hipotesis.py` |
 | Detección | `deteccion/reglas.py`, `deteccion/modelo.py`, `deteccion/evaluacion.py` | Reglas ingenuas y con contexto, Isolation Forest y modelo supervisado, evaluados contra el ground truth |
 | Hipótesis | `deteccion/hipotesis.py` | Contraste de cada hipótesis del escenario realista con veredicto calculado |
-| Priorización | `deteccion/priorizacion.py` | Cola de revisión con motivos, curva de esfuerzo, vehículos a auditar, facturas a revisar y retiros inmediatos |
+| Priorización | `deteccion/priorizacion.py` | Cola de revisión con motivos, curva de esfuerzo, vehículos a auditar, facturas a revisar, retiros inmediatos y cargas a vehículos fuera de servicio |
 | Persistencia | `base_datos/` | SQLite con migraciones versionadas: maestros con vigencia, operativos cargados por día de forma repetible y vistas de control (saldo diario, conciliación triple, bajas con dispositivo activo, odómetro sin avance sin excepción); ver [BASE_DE_DATOS.md](BASE_DE_DATOS.md) |
 | Presentación | `streamlit_app/` | Aplicación Streamlit; no duplica la lógica de detección, la importa de `deteccion/` |

@@ -727,3 +727,27 @@ def test_los_retiros_inmediatos_muestran_a_verificar_el_dispositivo_con_fecha_il
     solo_ilegible = retiros_inmediatos(flota, telemetria.iloc[[1]])
     assert solo_ilegible["fecha_ilegible"].tolist() == [True]
 
+
+def test_las_cargas_a_vehiculos_fuera_de_servicio_van_en_su_lista_con_las_mas_antiguas_primero():
+    """H6: sin el registro interno no se distingue el pedido; van todas, las de más tiempo desde el cambio primero,
+    y un vehículo en servicio no aparece."""
+    import pandas as pd
+
+    from deteccion.priorizacion import cargas_a_vehiculos_fuera_de_servicio
+
+    flota = pd.DataFrame({"Matricula": ["V1", "V2", "V3"], "Dominio": ["AA111AA", "AA222AA", "AA333AA"],
+                          "Estado": ["FUERA DE SERVICIO", "TRAMITE EN BAJA", "EN SERVICIO"],
+                          "TipoVehiculo": ["SEDAN"] * 3,
+                          "FechaEstado": ["2026-03-01", "2026-03-10", None]})
+    consumo = pd.DataFrame({
+        "id": ["C1", "C2", "C3", "C4", "C5"], "vehiculo_id": ["V1", "V2", "V1", "V3", "V1"],
+        "fecha": ["2026-03-20", "2026-03-12", "2026-02-20", "2026-03-15", "2026-03-01"],
+        "estacion": ["E1"] * 5, "litros": [30.0, 25.0, 30.0, 40.0, 20.0]})
+    lista = cargas_a_vehiculos_fuera_de_servicio(consumo, flota)
+    # C3 es anterior al cambio de estado y C4 es de un vehículo en servicio: no aparecen
+    assert lista["id"].tolist() == ["C1", "C2", "C5"]
+    assert lista["dias_desde_el_cambio"].tolist() == [19, 2, 0]       # de más a menos tiempo desde el cambio
+    assert not lista["sin_pedido"].any()
+    assert (lista["motivo"] == "vehículo fuera de servicio: no puede cargar").all()
+    assert cargas_a_vehiculos_fuera_de_servicio(consumo[consumo["id"].isin(["C3", "C4"])], flota).empty
+

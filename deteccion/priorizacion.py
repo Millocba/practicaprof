@@ -28,7 +28,8 @@ from deteccion.modelo import (
     entrenar_isolation_forest,
     ids_con_anomalia_de_comportamiento,
 )
-from deteccion.reglas import (GRUPO_DEPOSITO, RENDIMIENTO_MINIMO, SIN_EXPLICACION, detectar_dispositivo_activo_en_baja,
+from deteccion.reglas import (GRUPO_DEPOSITO, RENDIMIENTO_MINIMO, SIN_EXPLICACION, cruzar_registro,
+                              detectar_carga_vehiculo_inactivo, detectar_dispositivo_activo_en_baja,
                               dispositivos_de_baja_sin_fecha, reglas_del_dataset)
 
 REGLAS_INGENUAS = ["litros_mayor_a_tanque", "odometro_disminuye", "salto_historial_vehiculo",
@@ -300,6 +301,39 @@ def facturas_a_revisar(facturacion, facturacion_detalle, alertas):
     }), include_groups=False)
     return (encabezado[["proveedor", "periodo", "total_monto"]].join(resumen, how="inner")
             .sort_values("importe_en_juego", ascending=False).reset_index())
+
+
+def cargas_a_vehiculos_fuera_de_servicio(consumo, flota, solicitudes=None):
+    """Cargas a vehículos fuera de servicio o en trámite de baja (H6): análisis prioritario, en su propia lista.
+
+    Un vehículo que no está en servicio no puede ni debe cargar: el sistema lo prohíbe, así que haberse
+    producido es incumplir una directiva importante y evitar una validación. Va aparte de la cola de revisión
+    para que no se confunda con los cruces de las cargas.
+
+    Va primero lo más grave: la carga **sin pedido** en el registro interno, porque la tarjeta se usó por
+    fuera del sistema; después la que tiene pedido (el estado cambió después del pedido), la de más tiempo
+    desde el cambio de estado primero. Sin el registro interno no se puede distinguir y todas van como a revisar.
+    """
+    alertas = detectar_carga_vehiculo_inactivo(consumo, flota)
+    if alertas.empty:
+        return pd.DataFrame()
+    cargas = consumo.set_index("id").loc[alertas["id_registro"], ["vehiculo_id", "fecha", "estacion", "litros"]]
+    filas = cargas.join(flota.set_index("Matricula")[["Dominio", "Estado", "TipoVehiculo", "FechaEstado"]],
+                        on="vehiculo_id")
+    filas["dias_desde_el_cambio"] = (pd.to_datetime(filas["fecha"]) - pd.to_datetime(filas["FechaEstado"])).dt.days
+    if solicitudes is not None and len(solicitudes):
+        pares, _ = cruzar_registro(consumo, solicitudes, flota=flota)
+        filas["sin_pedido"] = pares["registro_id"].isna().reindex(filas.index).fillna(True).astype(bool)
+        filas["motivo"] = np.where(filas["sin_pedido"],
+                                   "sin pedido en el registro interno: la tarjeta se usó por fuera del sistema",
+                                   "con pedido: el estado cambió después del pedido")
+    else:
+        filas["sin_pedido"] = False
+        filas["motivo"] = "vehículo fuera de servicio: no puede cargar"
+    return (filas.reset_index().rename(columns={"index": "id", "Dominio": "dominio"})
+            [["id", "vehiculo_id", "dominio", "Estado", "TipoVehiculo", "fecha", "estacion", "litros",
+              "dias_desde_el_cambio", "sin_pedido", "motivo"]]
+            .sort_values(["sin_pedido", "dias_desde_el_cambio"], ascending=[False, False], ignore_index=True))
 
 
 def retiros_inmediatos(flota, telemetria, alertas=None):
