@@ -40,9 +40,14 @@ def leer_fecha_texto(serie):
     texto = serie.astype("string").str.lower()
     partes = texto.str.extract(r"(\d{1,2}) de ([a-záéíóú]+) de (\d{4})\s+(\d{1,2}):(\d{2})")
     meses = partes[1].map(MESES)
+    # Con float64 una fecha que no se puede leer queda como NaN y el resultado como NaT; con los enteros con
+    # nulos de pandas la conversión fallaba y la normalización se caía antes de llegar al análisis
+    def numero(serie):
+        return pd.to_numeric(serie, errors="coerce").astype("float64")
+
     armadas = pd.to_datetime(
-        dict(year=pd.to_numeric(partes[2], errors="coerce"), month=meses, day=pd.to_numeric(partes[0], errors="coerce"),
-             hour=pd.to_numeric(partes[3], errors="coerce"), minute=pd.to_numeric(partes[4], errors="coerce")),
+        dict(year=numero(partes[2]), month=numero(meses), day=numero(partes[0]),
+             hour=numero(partes[3]), minute=numero(partes[4])),
         errors="coerce")
     otras = pd.to_datetime(texto, errors="coerce", dayfirst=True, format="mixed")
     return armadas.fillna(otras)

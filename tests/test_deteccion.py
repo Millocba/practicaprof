@@ -625,3 +625,25 @@ def test_h11_no_alerta_un_dispositivo_sin_fecha_de_ultima_conexion_legible():
     # DEV-1 y DEV-3 transmiten (DEV-3 con el grupo viejo); DEV-2 tiene una fecha ilegible; DEV-4 no es de un móvil de baja
     assert set(alertas["id_registro"]) == {"DEV-1", "DEV-3"}
 
+
+def test_los_retiros_inmediatos_muestran_a_verificar_el_dispositivo_con_fecha_ilegible():
+    """Un dispositivo de un móvil de baja sin fecha legible no se marca como activo, pero tampoco se pierde:
+    va al final de la lista de retiros para verificarlo a mano."""
+    import pandas as pd
+
+    from deteccion.priorizacion import retiros_inmediatos
+
+    flota = pd.DataFrame({"Dominio": ["AA111AA", "AA222AA"], "Estado": ["BAJA"] * 2,
+                          "Matricula": ["V1", "V2"], "TipoVehiculo": ["SEDAN"] * 2})
+    telemetria = pd.DataFrame({
+        "Alias": ["DEV-1", "DEV-2"], "Placa": ["AA111AA", "AA222AA"], "Grupo": ["MOVILES", "MOVILES"],
+        "UltimaConexion": ["2026-03-10 08:00:00", "no se pudo leer"],
+    })
+    retiros = retiros_inmediatos(flota, telemetria)
+    assert retiros["dominio"].tolist() == ["AA111AA", "AA222AA"]          # el que transmite primero
+    assert retiros["fecha_ilegible"].tolist() == [False, True]
+    assert "verificar a mano" in retiros.loc[1, "motivo"]
+    # y sin ningún dispositivo que transmita, el de fecha ilegible igual aparece
+    solo_ilegible = retiros_inmediatos(flota, telemetria.iloc[[1]])
+    assert solo_ilegible["fecha_ilegible"].tolist() == [True]
+

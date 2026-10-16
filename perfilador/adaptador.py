@@ -304,7 +304,8 @@ def adaptar(tablas, proveedor=None):
                                  GRUPO_DEPOSITO),
             "UltimaConexion": ultima.dt.strftime("%Y-%m-%dT%H:%M:%S"),
         })
-        diagnostico["telemetria"] = {"fechas_de_transmision_legibles_pct": round(100 * ultima.notna().mean(), 1)}
+        diagnostico["telemetria"] = {"fechas_de_transmision_legibles_pct": round(100 * ultima.notna().mean(), 1),
+                                  "fechas_de_transmision_ilegibles": acotar(int(ultima.isna().sum()))}
 
     diagnostico["no_disponible"] = {
         "ubicacion_de_estaciones": "H7 no corre",

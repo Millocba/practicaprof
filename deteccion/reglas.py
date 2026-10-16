@@ -1206,6 +1206,17 @@ def _dispositivos_de_baja(flota, telemetria):
     return telemetria[normalizar_dominio(telemetria["Placa"]).isin(de_baja)].rename(columns={"Alias": "id"})
 
 
+def dispositivos_de_baja_sin_fecha(flota, telemetria):
+    """Dispositivos de móviles de baja cuya última conexión no se pudo leer (H11).
+
+    Sin una fecha no se puede decir si transmiten, así que la regla no los marca; tampoco se descartan en
+    silencio: la lista de retiros inmediatos los muestra para verificarlos a mano.
+    """
+    dispositivos = _dispositivos_de_baja(flota, telemetria)
+    legible = pd.to_datetime(dispositivos["UltimaConexion"], errors="coerce", format="mixed").notna()
+    return dispositivos[~legible]
+
+
 def detectar_baja_con_dispositivo(flota, telemetria):
     """H11 (ingenua): móvil de baja con un dispositivo asociado."""
     return _alertas(_dispositivos_de_baja(flota, telemetria), "DISPOSITIVO_ACTIVO_EN_BAJA", "baja_con_dispositivo",

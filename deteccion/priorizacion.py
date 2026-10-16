@@ -29,7 +29,7 @@ from deteccion.modelo import (
     ids_con_anomalia_de_comportamiento,
 )
 from deteccion.reglas import (GRUPO_DEPOSITO, RENDIMIENTO_MINIMO, SIN_EXPLICACION, detectar_dispositivo_activo_en_baja,
-                              reglas_del_dataset)
+                              dispositivos_de_baja_sin_fecha, reglas_del_dataset)
 
 REGLAS_INGENUAS = ["litros_mayor_a_tanque", "odometro_disminuye", "salto_historial_vehiculo",
                    "fraccionamiento_diario", "rendimiento_bajo_odometro", "carga_lejos_de_base",
@@ -320,12 +320,18 @@ def retiros_inmediatos(flota, telemetria, alertas=None):
     if alertas is None:
         alertas = detectar_dispositivo_activo_en_baja(flota, telemetria)
     alertas = alertas[alertas["regla"] == "dispositivo_activo_en_baja"]
-    if alertas.empty:
+    sin_fecha = dispositivos_de_baja_sin_fecha(flota, telemetria)
+    if alertas.empty and sin_fecha.empty:
         return pd.DataFrame()
 
     dispositivos = telemetria.drop_duplicates("Alias").set_index("Alias")
     filas = alertas.drop_duplicates("id_registro").set_index("id_registro")[["detalle"]].join(
         dispositivos[["Placa", "Grupo", "UltimaConexion"]], how="left")
+    filas["fecha_ilegible"] = False
+    # Los de fecha ilegible no se descartan: no se sabe si transmiten, así que se piden a verificar a mano
+    ilegibles = sin_fecha.drop_duplicates("id").set_index("id")[["Placa", "Grupo", "UltimaConexion"]].assign(
+        detalle="fecha de última conexión ilegible: verificar a mano si transmite", fecha_ilegible=True)
+    filas = pd.concat([filas, ilegibles[~ilegibles.index.isin(filas.index)]])
     padron = flota.set_index("Dominio")
     filas = filas.join(padron[["Matricula", "Estado", "TipoVehiculo"]], on="Placa")
 
@@ -337,7 +343,7 @@ def retiros_inmediatos(flota, telemetria, alertas=None):
     filas["vehiculo_id"] = filas["Matricula"]
 
     return (filas[["vehiculo_id", "Placa", "Estado", "TipoVehiculo", "Grupo", "ultima_conexion",
-                   "dias_sin_transmitir", "grupo_desactualizado", "motivo"]]
+                   "dias_sin_transmitir", "grupo_desactualizado", "fecha_ilegible", "motivo"]]
             .rename(columns={"Placa": "dominio"})
-            .sort_values(["grupo_desactualizado", "dias_sin_transmitir"],
-                         ascending=[False, True], ignore_index=True))
+            .sort_values(["fecha_ilegible", "grupo_desactualizado", "dias_sin_transmitir"],
+                         ascending=[True, False, True], ignore_index=True))
