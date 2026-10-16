@@ -1272,9 +1272,9 @@ def ejecutar_reglas(flota, consumo, estaciones=None, telemetria_diaria=None, sol
         # antecedente (H3b), a un vehículo inactivo (H6), dentro de un día fraccionado (H4) o
         # lejos del GPS (H7) carga sin recorrido por su propio motivo, y el bajo rendimiento
         # es consecuencia. Se calculan antes para poder pasarle los ids a H5.
-        # Un doble cobro tampoco es una carga más para H3b: una copia con el decimal mal colocado (×10, ×100)
-        # supera el tanque sin que el vehículo haya cargado de más
-        exceso = detectar_exceso_sin_antecedente(consumo[~consumo["id"].isin(set(dobles["id_registro"]))], flota)
+        # Una copia con el decimal mal colocado (×10, ×100) supera el tanque y H3b también la alerta: son dos
+        # alertas distintas sobre la misma carga y no se debe perder ninguna (decisión del dueño, #55)
+        exceso = detectar_exceso_sin_antecedente(consumo, flota)
         inactivo = detectar_carga_vehiculo_inactivo(consumo, flota)
         fraccionado = detectar_fraccionamiento(dias, con_rendimiento=True)
         lejos_del_gps = (detectar_carga_lejos_del_gps(consumo, flota, estaciones, telemetria_diaria)

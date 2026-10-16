@@ -158,9 +158,16 @@ def test_el_doble_cobro_con_el_decimal_mal_colocado_se_detecta(dataset, alertas)
     assert factores == [0.1, 10, 100]
     doble_cobro = alertas[alertas["regla"] == "doble_cobro"].set_index("id_registro")
     assert doble_cobro.loc[movidos["id_registro"], "detalle"].str.contains("decimal mal colocado").all()
-    # No es una carga más del vehículo: la copia ×10 o ×100 no se alerta como exceso sin antecedente (H3b)
+    # Las copias que superan el tanque también las alerta H3b: son dos alertas sobre la misma carga y no se
+    # debe perder ninguna (decisión del dueño, #55)
+    capacidad = dataset["flota"].set_index("Matricula")["CapacidadTanque"]
+    copias = consumo.loc[movidos["id_registro"]]
+    superan = copias.index[copias["litros"].to_numpy() > copias["vehiculo_id"].map(capacidad).to_numpy()]
+    assert len(superan) >= 1
     exceso = set(alertas.loc[alertas["regla"] == "exceso_sin_antecedente", "id_registro"])
-    assert not set(movidos["id_registro"]) & exceso
+    mayor_al_tanque = set(alertas.loc[alertas["regla"] == "litros_mayor_a_tanque", "id_registro"])
+    assert set(superan) <= mayor_al_tanque           # todas siguen con su alerta de exceso del tanque
+    assert set(superan) & exceso                    # y alguna también con la de H3b con contexto
 
 
 def test_las_contingencias_con_un_par_parecido_no_son_doble_cobro(dataset, alertas):
