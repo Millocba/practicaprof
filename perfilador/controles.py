@@ -109,7 +109,7 @@ def telemetria_vs_estado(tablas, dias=DIAS_TRANSMISION, grupo_deposito=GRUPO_DEP
                        for e, fila in tabla.iterrows()},
         "dispositivos_sin_movil": acotar(movil.isna().sum()),
         "fechas_de_transmision_ilegibles": acotar(fechas.isna().sum()),
-        "alerta_baja_con_dispositivo_activo": acotar(tabla.loc[en_baja, "otro_grupo_transmite"].sum()),
+        "alerta_baja_con_dispositivo_activo": acotar(tabla.loc[en_baja, ["deposito_transmite", "otro_grupo_transmite"]].sum().sum()),
     }
 
 

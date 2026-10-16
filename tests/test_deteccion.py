@@ -606,3 +606,22 @@ def test_la_causa_propia_sin_explicacion_no_tapa_la_causa_de_un_error_de_carga()
     resultado = asignar_causa_probable(alertas, {"X1": "tarjeta_equivocada", "X2": "tarjeta_equivocada"})
     assert resultado["causa_probable"].tolist() == ["tarjeta_equivocada", "capacidad_tanque_mal_registrada", SIN_EXPLICACION]
 
+
+def test_h11_no_alerta_un_dispositivo_sin_fecha_de_ultima_conexion_legible():
+    """H11 decide por la última conexión: sin una fecha legible no se puede decir que transmite (se informa en
+    la auditoría como fechas ilegibles) y el dispositivo no se marca; los que transmiten sí."""
+    import pandas as pd
+
+    from deteccion.reglas import detectar_dispositivo_activo_en_baja
+
+    flota = pd.DataFrame({"Dominio": ["AA111AA", "AA222AA", "AA333AA"], "Estado": ["BAJA"] * 3})
+    telemetria = pd.DataFrame({
+        "Alias": ["DEV-1", "DEV-2", "DEV-3", "DEV-4"],
+        "Placa": ["AA111AA", "AA222AA", "AA333AA", "AA999AA"],
+        "Grupo": ["MOVILES", "MOVILES", "BAJA / REEMPLAZOS", "MOVILES"],
+        "UltimaConexion": ["2026-03-10 08:00:00", "no se pudo leer", "2026-03-09 08:00:00", "2026-03-10 08:00:00"],
+    })
+    alertas = detectar_dispositivo_activo_en_baja(flota, telemetria)
+    # DEV-1 y DEV-3 transmiten (DEV-3 con el grupo viejo); DEV-2 tiene una fecha ilegible; DEV-4 no es de un móvil de baja
+    assert set(alertas["id_registro"]) == {"DEV-1", "DEV-3"}
+

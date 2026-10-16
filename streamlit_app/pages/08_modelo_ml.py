@@ -294,7 +294,7 @@ def pagina_realista():
               "Arriba van los que tienen el **grupo desactualizado**: el aparato ya se retiró "
               "pero el grupo quedó con el valor anterior, así que en el parte de la flota "
               "parece un móvil más dado de baja y nadie mira.")
-    retiros = priorizacion.retiros_inmediatos(flota, datos.get("telemetria"), alertas)
+    retiros = priorizacion.retiros_inmediatos(flota, datos.get("telemetria"))
     if retiros.empty:
         st.success("✅ Ningún móvil de baja tiene el dispositivo transmitiendo.")
     else:

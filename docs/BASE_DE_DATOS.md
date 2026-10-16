@@ -60,8 +60,9 @@ Dos relaciones no son claves foráneas a propósito (flechas punteadas): el regi
 | 003 | Vistas de control |
 | 004 | Registro de cargas |
 | 005 | Excepciones de odómetro y su vista de control |
+| 006 | La vista `baja_con_dispositivo_activo` decide por la última conexión del dispositivo y no por su grupo |
 
-Para una base creada antes de la 005, `python -m base_datos cargar` aplica la migración pendiente y carga las excepciones; el resto de las tablas no cambia.
+Para una base creada antes de la 005, `python -m base_datos cargar` aplica la migración pendiente y carga las excepciones; el resto de las tablas no cambia. La 006 solo reemplaza una vista y no toca datos.
 
 Cada migración declara su compatibilidad, el bloqueo esperado, cómo volver atrás y cómo verificarla, y se aplica una sola vez, en su propia transacción (`base_datos/esquema.py`).
 

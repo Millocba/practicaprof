@@ -160,11 +160,11 @@ HIPOTESIS = [
         "codigo": "H11",
         "titulo": "Telemetría de los móviles de baja",
         "enunciado": "Marcar todo móvil de baja con dispositivo confunde los aparatos ya retirados al depósito con "
-                     "los que siguen funcionando; mirar el grupo del dispositivo y su última transmisión deja solo "
+                     "los que siguen funcionando; mirar la última transmisión (el grupo del dispositivo a veces queda con el valor anterior) deja solo "
                      "los móviles que irían a desguace con el aparato activo.",
         "tipos": ["DISPOSITIVO_ACTIVO_EN_BAJA"],
         "reglas": [("baja_con_dispositivo", "móvil de baja con dispositivo asociado"),
-                   ("dispositivo_activo_en_baja", "fuera del grupo de depósito y con transmisión en la última semana")],
+                   ("dispositivo_activo_en_baja", "con transmisión en la última semana, esté en el grupo que esté")],
         "contexto": "grupo del dispositivo y última transmisión",
     },
     {

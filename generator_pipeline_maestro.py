@@ -307,7 +307,7 @@ EVENTOS_REALISTA = {
     "DIFERENCIA_DEUDA_PDF": 2,      # facturas cuyo PDF no coincide con la deuda
     "PRODUCTO_NO_COMBUSTIBLE": 2,   # facturas con renglones de lubricante
     "CARGA_CON_CUPO_AGOTADO": 1,    # contratos-mes en los que una transferencia llega tarde y se carga sin saldo
-    "DISPOSITIVO_ACTIVO_EN_BAJA": 2,  # móviles de baja con el dispositivo fuera del depósito y transmitiendo
+    "DISPOSITIVO_ACTIVO_EN_BAJA": 2,  # móviles de baja con el dispositivo transmitiendo (en el grupo que figure)
     "DISPOSITIVO_GRUPO_VIEJO": 2,     # el grupo quedó en el valor anterior pero el aparato sigue transmitiendo
     "DISPOSITIVO_EN_DEPOSITO": 3,   # legítimos, como mínimo: ~4% de las bajas tiene dispositivo (fuente)
     "TRANSFERENCIA_SIN_NECESIDAD": 2,  # transferencias que la proyección no justifica

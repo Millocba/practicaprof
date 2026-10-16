@@ -28,7 +28,8 @@ from deteccion.modelo import (
     entrenar_isolation_forest,
     ids_con_anomalia_de_comportamiento,
 )
-from deteccion.reglas import GRUPO_DEPOSITO, RENDIMIENTO_MINIMO, SIN_EXPLICACION, reglas_del_dataset
+from deteccion.reglas import (GRUPO_DEPOSITO, RENDIMIENTO_MINIMO, SIN_EXPLICACION, detectar_dispositivo_activo_en_baja,
+                              reglas_del_dataset)
 
 REGLAS_INGENUAS = ["litros_mayor_a_tanque", "odometro_disminuye", "salto_historial_vehiculo",
                    "fraccionamiento_diario", "rendimiento_bajo_odometro", "carga_lejos_de_base",
@@ -301,7 +302,7 @@ def facturas_a_revisar(facturacion, facturacion_detalle, alertas):
             .sort_values("importe_en_juego", ascending=False).reset_index())
 
 
-def retiros_inmediatos(flota, telemetria, alertas):
+def retiros_inmediatos(flota, telemetria, alertas=None):
     """Móviles de baja cuyo dispositivo todavía transmite: hay que retirar el aparato (#53).
 
     No es una anomalía de una carga sino del vehículo, así que no entra en el puntaje ni en la
@@ -314,6 +315,10 @@ def retiros_inmediatos(flota, telemetria, alertas):
     """
     if telemetria is None or "Grupo" not in getattr(telemetria, "columns", []):
         return pd.DataFrame()
+    # Las alertas de H11 se calculan acá con el padrón y la telemetría: el puntaje de las cargas se arma sin
+    # la telemetría, así que usar sus alertas dejaba la lista siempre vacía
+    if alertas is None:
+        alertas = detectar_dispositivo_activo_en_baja(flota, telemetria)
     alertas = alertas[alertas["regla"] == "dispositivo_activo_en_baja"]
     if alertas.empty:
         return pd.DataFrame()

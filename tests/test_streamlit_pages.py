@@ -182,3 +182,11 @@ def test_el_resumen_de_datasets_cubre_todas_las_entidades_generadas(escenario):
     esperadas = {data_loader.ETIQUETAS_TABLAS.get(n, n) for n, _ in data_loader.entidades_del_escenario(escenario)}
     assert set(resumen["name"]) == esperadas
     assert not {"ground_truth", "casos_legitimos"} & set(resumen["name"])
+
+
+def test_modelo_ml_lista_los_retiros_inmediatos_de_los_moviles_de_baja():
+    """#53: la lista aparte de H11 sale con datos; no puede mostrar siempre que ningún móvil de baja transmite."""
+    at = abrir("pages/08_modelo_ml.py", "realista")
+    assert not at.exception, [e.value for e in at.exception]
+    assert not any("Ningún móvil de baja tiene el dispositivo transmitiendo" in s.value for s in at.success)
+

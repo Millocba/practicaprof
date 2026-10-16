@@ -73,7 +73,7 @@ La base separa los datos maestros, que cambian poco y se versionan con vigencia,
 
 - asigna dispositivos sobre todo a móviles en servicio;
 - al pasar un móvil a baja, mueve su dispositivo al grupo de depósito (caso legítimo `DISPOSITIVO_EN_DEPOSITO`);
-- anomalía `DISPOSITIVO_ACTIVO_EN_BAJA`: móvil en baja con el dispositivo fuera del grupo de depósito y transmitiendo.
+- anomalía `DISPOSITIVO_ACTIVO_EN_BAJA`: móvil en baja con el dispositivo transmitiendo, esté en el grupo que esté (el grupo a veces queda con el valor anterior).
 
 **Reporte del proveedor.** La tabla de cargas incorpora origen (normal o contingencia), remito, precio de surtidor y precio de empresa (este último alrededor de 2% menor) y los impuestos por litro incluidos en el precio.
 
@@ -105,7 +105,7 @@ Se mantienen las irregularidades de línea actuales (sin carga, duplicada, sobre
 |---|---|---|
 | **H8 (reformulada).** Cruzar el registro interno con el reporte detecta cargas sin respaldo, rendiciones sin carga y anuladas que se facturan | Emparejamiento voraz por dominio y día, sin tolerancia de horario ni de litros; las cargas con tarjeta personal no tienen dominio y quedan como "sin solicitud" | Asignación óptima por dominio, o por persona en las tarjetas personales, con tolerancia de horario y litros, excluyendo estaciones ajenas y pendientes |
 | **H9 (ampliada).** La conciliación triple deuda–PDF–consumo por contrato detecta sobre y subfacturación que el total mensual no ve | Total del mes contra consumo del mes | Deuda contra consumo, PDF contra deuda y cada línea contra su carga |
-| **H11 (nueva).** Un móvil en baja con telemetría activa indica un dispositivo que no se recuperó | Móvil en baja con cualquier dispositivo asociado | Móvil en baja con el dispositivo fuera del grupo de depósito y con transmisión reciente |
+| **H11 (nueva).** Un móvil en baja con telemetría activa indica un dispositivo que no se recuperó | Móvil en baja con cualquier dispositivo asociado | Móvil en baja con el dispositivo con transmisión reciente, sin mirar el grupo |
 | **H10 (nueva).** Las irregularidades del cupo solo se ven siguiendo el saldo diario de cada contrato y su proyección | Ejecución mensual de cada contrato contra su tope | Saldo diario con la proyección a fin de mes y las transferencias: transferencias que la proyección no justifica, consumo anticipado, cargas durante el corte, tarjetas de otro contrato |
 
 La regla ingenua de H8 reproduce el cruce típico de un sistema operativo (voraz, sin tolerancias); la con contexto es el aporte metodológico del proyecto.

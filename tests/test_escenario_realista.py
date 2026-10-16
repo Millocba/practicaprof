@@ -430,3 +430,13 @@ def test_la_causa_probable_reconoce_los_errores_y_no_las_anomalias(dataset, aler
         assert aciertos > 0.5, tipo
     reales = causa.reindex(gt.loc[gt["hipotesis"] != "CALIDAD", "id_registro"]).dropna()
     assert len(reales) > 0 and (reales == "sin_explicacion").all()
+
+
+def test_retiros_inmediatos_no_dependen_de_las_alertas_del_puntaje(dataset, alertas):
+    """La lista se calcula con el padrón y la telemetría: el puntaje de las cargas se arma sin la telemetría,
+    así que apoyarse en sus alertas dejaba la lista de la página vacía."""
+    sin_pasar_alertas = priorizacion.retiros_inmediatos(dataset["flota"], dataset["telemetria"])
+    con_alertas = priorizacion.retiros_inmediatos(dataset["flota"], dataset["telemetria"], alertas)
+    assert not sin_pasar_alertas.empty
+    assert _dispositivos_de(sin_pasar_alertas) == _dispositivos_de(con_alertas)
+
