@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from base_datos.carga import TABLAS, cargar  # noqa: E402
 from base_datos.esquema import conectar, migraciones_disponibles, migrar, verificar  # noqa: E402
 from deteccion.datos import cargar_dataset  # noqa: E402
+from deteccion.reglas import leer_fecha, reglas_del_dataset  # noqa: E402
 from generator_pipeline_maestro import GeneradorMaestro  # noqa: E402
 
 
@@ -42,7 +43,7 @@ def test_migraciones_se_aplican_una_sola_vez(tmp_path):
     assert migrar(conexion) == []
     vistas = {n for (n,) in conexion.execute("SELECT name FROM sqlite_master WHERE type = 'view'")}
     assert vistas == {"saldo_diario_contrato", "cargas_con_saldo_agotado", "conciliacion_factura", "linea_sin_carga",
-                      "baja_con_dispositivo_activo"}
+                      "baja_con_dispositivo_activo", "excepcion_vigente", "odometro_sin_avance_sin_excepcion"}
 
 
 def test_la_carga_trae_todo_y_respeta_las_claves(base, directorio):
@@ -52,6 +53,7 @@ def test_la_carga_trae_todo_y_respeta_las_claves(base, directorio):
     assert filas["pedido"] == len(datos["solicitudes"])
     assert filas["factura_linea"] == len(datos["facturacion_detalle"])
     assert filas["vehiculo"] == len(datos["flota"]) and filas["dispositivo"] == len(datos["telemetria"])
+    assert filas["excepcion_odometro"] == len(datos["excepciones_odometro"]) > 0
     assert verificar(base) == []
     # El registro interno llega en DD/MM/AAAA y se guarda en AAAA-MM-DD
     assert pd.read_sql("SELECT fecha FROM pedido", base)["fecha"].str.fullmatch(r"\d{4}-\d{2}-\d{2}").all()
@@ -112,3 +114,58 @@ def test_el_saldo_diario_parte_del_tope_y_suma_transferencias(base):
     cierre = saldo.groupby(["contrato", "mes"]).tail(1).set_index(["contrato", "mes"])["saldo_al_cierre"]
     total = saldo.groupby(["contrato", "mes"]).agg(tope=("tope", "first"), t=("transferido", "sum"), c=("consumo", "sum"))
     assert ((total["tope"] + total["t"] - total["c"]) - cierre).abs().max() < 1e-6
+
+
+def test_las_excepciones_vigentes_son_las_del_padron(base, directorio):
+    flota = cargar_dataset(directorio)["flota"]
+    con = flota[flota["ExcepcionOdometro"] == "SI"]
+    padron = dict(zip(con["Matricula"], leer_fecha(con["FechaHastaExcepcionOdometro"]).dt.strftime("%Y-%m-%d")))
+    assert dict(base.execute("SELECT matricula, hasta FROM excepcion_vigente").fetchall()) == padron
+    # Una excepción puede durar un solo día
+    assert base.execute("SELECT COUNT(*) FROM excepcion_odometro WHERE desde = hasta").fetchone()[0] > 0
+
+
+def test_verificar_controla_las_excepciones(directorio, tmp_path):
+    conexion = conectar(tmp_path / "excepciones.db")
+    migrar(conexion)
+    cargar(conexion, directorio)
+    matricula, desde = conexion.execute("SELECT matricula, desde FROM excepcion_vigente LIMIT 1").fetchone()
+    conexion.execute("INSERT INTO excepcion_odometro VALUES ('EXC-X', ?, 'MOTIVO', 'SI', ?, ?)",
+                     (matricula, desde, desde))
+    assert verificar(conexion) == [f"excepcion_odometro: el vehículo {matricula} tiene 2 excepciones activas"]
+    with pytest.raises(sqlite3.IntegrityError):         # vehículo que no está en el padrón
+        conexion.execute("INSERT INTO excepcion_odometro VALUES ('EXC-Y', 'VEH-NO-EXISTE', 'M', 'NO', ?, ?)",
+                         (desde, desde))
+    with pytest.raises(sqlite3.IntegrityError):         # misma clave natural
+        conexion.execute("INSERT INTO excepcion_odometro VALUES ('EXC-Z', ?, 'M', 'SI', ?, ?)", (matricula, desde, desde))
+    with pytest.raises(sqlite3.IntegrityError):         # termina antes de empezar
+        conexion.execute("INSERT INTO excepcion_odometro VALUES ('EXC-W', ?, 'M', 'NO', '2024-02-02', '2024-02-01')",
+                         (matricula,))
+
+
+def test_una_patente_fuera_del_padron_hace_fallar_la_carga(directorio, tmp_path):
+    copia = tmp_path / "datos"
+    copia.mkdir()
+    for archivo in Path(directorio).iterdir():
+        (copia / archivo.name).write_bytes(archivo.read_bytes())
+    excepciones = pd.read_csv(copia / "excepciones_odometro.csv")
+    excepciones.loc[0, "patente"] = "SINTETICO-SIN-PADRON"
+    excepciones.to_csv(copia / "excepciones_odometro.csv", index=False)
+    conexion = conectar(tmp_path / "patente.db")
+    migrar(conexion)
+    with pytest.raises(sqlite3.IntegrityError):
+        cargar(conexion, copia)
+    assert conexion.execute("SELECT COUNT(*) FROM carga").fetchone()[0] == 0     # la transacción se deshizo
+
+
+@pytest.mark.parametrize("seed", [1, 2, 3, 4, 5])
+def test_la_vista_de_sin_avance_coincide_con_la_regla(seed, tmp_path):
+    datos_dir = tmp_path / "datos"
+    assert GeneradorMaestro(n_flota=120, seed=seed, output_dir=datos_dir, escenario="realista").ejecutar()["exito"]
+    conexion = conectar(tmp_path / "base.db")
+    migrar(conexion)
+    cargar(conexion, datos_dir)
+    alertas = reglas_del_dataset(cargar_dataset(datos_dir))
+    regla = set(alertas.loc[alertas["regla"] == "sin_avance_sin_excepcion", "id_registro"])
+    vista = {i for (i,) in conexion.execute("SELECT id FROM odometro_sin_avance_sin_excepcion")}
+    assert regla and vista == regla

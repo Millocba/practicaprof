@@ -4,6 +4,13 @@ Cada fila se inserta o se actualiza por su clave (`INSERT ... ON CONFLICT DO UPD
 veces el mismo dataset no duplica nada. Con `hasta`, los datos operativos se cargan solo hasta
 esa fecha, como una carga diaria; una carga posterior agrega lo que falta. Los maestros se cargan
 completos, con sus vigencias.
+
+Las excepciones de odómetro se cargan completas, como un maestro con vigencia. Su clave natural es
+el vehículo y la vigencia (`matricula`, `desde`, `hasta`): si vuelve una excepción con la misma
+vigencia, se actualizan su id, su motivo y si está activa. Efectos laterales: una excepción a la que
+la fuente le cambia la vigencia es otra fila para la clave natural, pero conserva su id, que también
+es único, y la carga falla en vez de guardar las dos versiones; y una patente que no está en el
+padrón no tiene matrícula, así que la carga también falla (no se descarta en silencio).
 """
 import json
 from datetime import datetime, timezone
@@ -12,18 +19,18 @@ from pathlib import Path
 import pandas as pd
 
 from deteccion.datos import cargar_dataset
-from deteccion.reglas import leer_fecha
+from deteccion.reglas import leer_fecha, normalizar_dominio
 
 DESDE_SIEMPRE = "1900-01-01"
 TABLAS = ["contrato", "dependencia", "vehiculo", "estado_vehiculo", "tarjeta", "asignacion_tarjeta", "estacion",
-          "dispositivo", "asignacion_dispositivo", "carga", "pedido", "transferencia", "factura", "factura_linea",
-          "posicion_diaria"]
+          "dispositivo", "asignacion_dispositivo", "excepcion_odometro", "carga", "pedido", "transferencia", "factura",
+          "factura_linea", "posicion_diaria"]
 CLAVES = {
     "contrato": ["indice"], "dependencia": ["codigo"], "vehiculo": ["matricula"],
     "estado_vehiculo": ["matricula", "estado", "desde"], "tarjeta": ["numero"],
     "asignacion_tarjeta": ["tarjeta", "desde"], "estacion": ["codigo"], "dispositivo": ["alias"],
-    "asignacion_dispositivo": ["dispositivo", "desde"], "carga": ["id"], "pedido": ["id"],
-    "transferencia": ["id"], "factura": ["numero"], "factura_linea": ["numero_linea"],
+    "asignacion_dispositivo": ["dispositivo", "desde"], "excepcion_odometro": ["matricula", "desde", "hasta"],
+    "carga": ["id"], "pedido": ["id"], "transferencia": ["id"], "factura": ["numero"], "factura_linea": ["numero_linea"],
     "posicion_diaria": ["matricula", "fecha"],
 }
 
@@ -77,6 +84,17 @@ def tablas_de_la_base(datos):
     t["asignacion_dispositivo"] = pd.DataFrame({
         "dispositivo": telemetria["Alias"], "matricula": telemetria["Placa"].map(matricula_de),
         "desde": DESDE_SIEMPRE, "hasta": None})
+
+    # Historial de excepciones de odómetro (desde la versión 2.3 del generador): el dominio se resuelve
+    # normalizado, como en la regla de H12. El estado de hoy del padrón son las activas (vista excepcion_vigente)
+    excepciones = datos.get("excepciones_odometro")
+    if excepciones is None:
+        excepciones = pd.DataFrame(columns=["id", "patente", "motivo", "activo", "fecha_creacion", "fecha_hasta"])
+    matricula_por_dominio = dict(zip(normalizar_dominio(flota["Dominio"]), flota["Matricula"]))
+    t["excepcion_odometro"] = pd.DataFrame({
+        "id": excepciones["id"], "matricula": normalizar_dominio(excepciones["patente"]).map(matricula_por_dominio),
+        "motivo": excepciones["motivo"], "activo": excepciones["activo"].astype("string").str.strip().str.upper(),
+        "desde": _fecha_iso(excepciones["fecha_creacion"]), "hasta": _fecha_iso(excepciones["fecha_hasta"])})
 
     t["carga"] = consumo.rename(columns={
         "numero_tarjeta": "tarjeta", "vehiculo_id": "matricula", "dominio": "dominio_informado",
