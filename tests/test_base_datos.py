@@ -155,7 +155,10 @@ def test_una_patente_fuera_del_padron_hace_fallar_la_carga(directorio, tmp_path)
     migrar(conexion)
     with pytest.raises(sqlite3.IntegrityError):
         cargar(conexion, copia)
-    assert conexion.execute("SELECT COUNT(*) FROM carga").fetchone()[0] == 0     # la transacción se deshizo
+    # La carga falla recién al llegar a las excepciones, después de los maestros y de las cargas: si la transacción
+    # no se deshiciera quedarían filas de las tablas que se cargaron antes
+    for tabla in ("contrato", "vehiculo", "carga", "excepcion_odometro"):
+        assert conexion.execute(f"SELECT COUNT(*) FROM {tabla}").fetchone()[0] == 0, tabla      # la transacción se deshizo
 
 
 @pytest.mark.parametrize("seed", [1, 2, 3, 4, 5])
@@ -169,3 +172,44 @@ def test_la_vista_de_sin_avance_coincide_con_la_regla(seed, tmp_path):
     regla = set(alertas.loc[alertas["regla"] == "sin_avance_sin_excepcion", "id_registro"])
     vista = {i for (i,) in conexion.execute("SELECT id FROM odometro_sin_avance_sin_excepcion")}
     assert regla and vista == regla
+
+
+def test_una_excepcion_rige_desde_el_primer_dia_hasta_el_ultimo_y_las_solapadas_no_duplican(directorio, tmp_path):
+    """Bordes de la vigencia en la vista de odómetro sin avance: la excepción cubre `desde` y `hasta` inclusive,
+    la que termina el día anterior no cubre, y dos excepciones solapadas del mismo vehículo se cuentan una vez."""
+    from datetime import date, timedelta
+
+    conexion = conectar(tmp_path / "bordes.db")
+    migrar(conexion)
+    cargar(conexion, directorio)
+    id_, matricula, fecha = conexion.execute(
+        "SELECT id, matricula, fecha FROM odometro_sin_avance_sin_excepcion ORDER BY id LIMIT 1").fetchone()
+    dia = date.fromisoformat(fecha)
+    contar_vista = lambda: conexion.execute("SELECT COUNT(*) FROM odometro_sin_avance_sin_excepcion").fetchone()[0]
+    ese_dia = conexion.execute("SELECT COUNT(*) FROM odometro_sin_avance_sin_excepcion WHERE matricula = ? AND fecha = ?",
+                               (matricula, fecha)).fetchone()[0]
+    inicial = contar_vista()
+
+    def excepcion(id_, desde, hasta):
+        conexion.execute("INSERT INTO excepcion_odometro (id, matricula, motivo, activo, desde, hasta) "
+                         "VALUES (?, ?, 'prueba', 'NO', ?, ?)", (id_, matricula, desde.isoformat(), hasta.isoformat()))
+
+    excepcion("EXC-T1", dia - timedelta(days=10), dia - timedelta(days=1))      # termina el día anterior
+    assert contar_vista() == inicial                                             # no cubre la carga
+    excepcion("EXC-T2", dia, dia)                                                # dura un solo día: ese día
+    assert contar_vista() == inicial - ese_dia
+    excepcion("EXC-T3", dia - timedelta(days=5), dia + timedelta(days=5))        # se solapa con la anterior
+    assert contar_vista() == inicial - ese_dia                                   # no cuenta dos veces
+    conexion.execute("DELETE FROM excepcion_odometro WHERE id IN ('EXC-T2', 'EXC-T3')")
+    excepcion("EXC-T4", dia, dia + timedelta(days=3))                            # empieza ese mismo día
+    assert contar_vista() == inicial - ese_dia
+
+
+def test_la_vista_usa_la_misma_estacion_ajena_que_la_regla():
+    """La vista repite el literal de ESTACION_AJENA: si cambia la constante, la vista tiene que cambiar con ella."""
+    from base_datos.esquema import MIGRACIONES
+    from deteccion.reglas import ESTACION_AJENA
+
+    sql = (MIGRACIONES / "005_excepciones_odometro.sql").read_text(encoding="utf-8")
+    assert f"'{ESTACION_AJENA}'" in sql
+
