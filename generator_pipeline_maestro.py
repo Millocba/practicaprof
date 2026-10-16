@@ -42,7 +42,7 @@ DIRECTORIOS_ESCENARIO = {
 SEED = 42
 # Versión de los datos que produce el generador: cambiarla cuando cambie lo que genera, así la
 # aplicación regenera los datos que tenga en disco de una versión anterior
-VERSION_GENERADOR = "2.9"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md); 2.1: horas del día en el orden del odómetro; 2.2: forma de cargar calibrada; 2.3: excepciones de odómetro; 2.4: textos del diccionario; 2.5: origen de la transacción (H13); 2.6: errores de carga en el registro interno; 2.7: observaciones de las alertas; 2.8: H5 pasa de rendimiento imposible a consumo atípico; 2.9: decimal mal colocado en las contingencias (H13)
+VERSION_GENERADOR = "3.0"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md); 2.1: horas del día en el orden del odómetro; 2.2: forma de cargar calibrada; 2.3: excepciones de odómetro; 2.4: textos del diccionario; 2.5: origen de la transacción (H13); 2.6: errores de carga en el registro interno; 2.7: observaciones de las alertas; 2.8: H5 pasa de rendimiento imposible a consumo atípico; 2.9: decimal mal colocado en las contingencias (H13); 3.0: H3b con tolerancia e historial (capacidad mal registrada visible desde la primera carga)
 
 # Ventana temporal de los datos: consumos y solicitudes entre FECHA_INICIO y
 # FECHA_INICIO + DIAS_VENTANA. FECHA_REFERENCIA hace de "ahora" para la telemetría.
@@ -90,6 +90,7 @@ CATALOGO_ANOMALIAS = {
     "TRANSFERENCIA_SIN_NECESIDAD": ("H10", "MEDIA"),
     "ODOMETRO_SIN_AVANCE": ("H12", "MEDIA"),
     "DOBLE_COBRO": ("H13", "ALTA"),
+    "CAPACIDAD_MAL_REGISTRADA": ("H3b", "BAJA"),
     # Errores de carga en el registro interno (realista): disparan alertas correctas, que se citan y
     # se corrigen; no son irregularidades (#24)
     "ERROR_PROVEEDOR": ("CALIDAD", "BAJA"),
@@ -108,7 +109,6 @@ TIPOS_POR_ESCENARIO = {
 # Casos legítimos que se parecen a una anomalía (escenario realista). No van al
 # ground truth: se registran en casos_legitimos.csv para medir las falsas alarmas.
 CATALOGO_LEGITIMOS = {
-    "TANQUE_AUXILIAR": "el vehículo tiene más capacidad que la registrada y carga por encima del tanque",
     "VIAJE_LARGO": "carga en estaciones de ruta durante un viaje real",
     "CAMBIO_ODOMETRO": "el odómetro se reemplazó y vuelve a contar desde un valor bajo",
     "ERROR_TIPEO_ODOMETRO": "la lectura del odómetro se cargó con un error de tipeo",
@@ -117,6 +117,7 @@ CATALOGO_LEGITIMOS = {
     "TARJETA_PERSONAL": "carga con una tarjeta personal: el reporte trae la persona y no el dominio",
     "REGISTRO_REHECHO": "el pedido se anuló y se volvió a hacer antes de cargar: el anulado no tiene carga",
     "TOLERANCIA_MEDICION": "la carga supera lo autorizado dentro de la tolerancia de medición del surtidor",
+    "TOLERANCIA_TANQUE": "la carga supera la capacidad registrada hasta un 2%, dentro de la tolerancia operativa",
     "DESFASE_DE_CORTE": "la carga del último día del mes se factura en el período siguiente",
     "AJUSTE_DOCUMENTADO": "la factura incluye un ajuste documentado (bonificación o recargo)",
     "DOMINIO_CON_FORMATO": "el dominio se registró con espacios, guiones o minúsculas; normalizado es el del vehículo",
@@ -284,7 +285,8 @@ EVENTOS_REALISTA = {
     "ODOMETRO_REGRESIVO": 3,
     "ODOMETRO_REGRESIVO_LEVE": 4,
     "ODOMETRO_SALTO": 3,
-    "TANQUE_AUXILIAR": 3,           # legítimos
+    "CAPACIDAD_MAL_REGISTRADA": 3,  # calidad: el padrón declara menos capacidad que la observada
+    "TOLERANCIA_TANQUE": 20,        # legítimos: hasta 2% por encima de la capacidad registrada
     "VIAJE_LARGO": 4,
     "CAMBIO_ODOMETRO": 2,
     "ERROR_TIPEO_ODOMETRO": 5,
@@ -333,7 +335,8 @@ REGLA_DE_ANOMALIA = {
     "DESACUERDO_DE_LITROS": "desacuerdo_de_litros", "DIFERENCIA_DEUDA_PDF": "pdf_no_concilia",
     "DISPOSITIVO_ACTIVO_EN_BAJA": "dispositivo_activo_en_baja", "DOBLE_COBRO": "doble_cobro",
     "DOMINIO_INVALIDO": "dominio_sin_vinculo_normalizado", "DUPLICADO": "duplicado_exacto",
-    "EXCESO_VOLUMETRICO": "exceso_sin_antecedente", "FACTURADA_A_PRECIO_DE_SURTIDOR": "precio_de_surtidor",
+    "EXCESO_VOLUMETRICO": "exceso_sin_antecedente", "CAPACIDAD_MAL_REGISTRADA": "exceso_sin_antecedente",
+    "FACTURADA_A_PRECIO_DE_SURTIDOR": "precio_de_surtidor",
     "FRACCIONAMIENTO": "fraccionamiento_sin_recorrido", "LINEA_DUPLICADA": "linea_duplicada",
     "LINEA_SIN_CONSUMO": "linea_sin_consumo", "ODOMETRO_REGRESIVO": "retroceso_con_contexto",
     "ODOMETRO_REGRESIVO_LEVE": "retroceso_con_contexto", "ODOMETRO_SALTO": "salto_con_contexto",
@@ -355,6 +358,9 @@ OBSERVACIONES = {
 # Anomalías con una causa conocida: el doble cobro (H13) ocurre por un retraso del sistema, según el
 # referente del dominio. Se documenta como facturación del proveedor y la acción es reclamar el duplicado
 OBSERVACIONES_DE_ANOMALIA = {
+    "CAPACIDAD_MAL_REGISTRADA": ("error_humano", [
+        "La capacidad observada supera desde el inicio a la registrada. Se solicita corregir el padrón; "
+        "el dato de origen se conserva."]),
     "DOBLE_COBRO": ("facturacion_del_proveedor", [
         "Causa probable: retraso del sistema, se creyó que el primer intento falló y la carga se cobró dos veces. "
         "Se reclama el duplicado al proveedor.",
@@ -1230,8 +1236,9 @@ class GeneradorMaestro:
 
         en_servicio = [v["Matricula"] for v in vehiculos if v["Estado"] == "EN SERVICIO"]
         tipo = {v["Matricula"]: v["TipoVehiculo"] for v in vehiculos}
-        asignar("TANQUE_AUXILIAR", [m for m in en_servicio
-                                    if tipo[m] in ("CAMION", "BOMBERO", "PICK-UP", "CAMIONETA")])
+        asignar("CAPACIDAD_MAL_REGISTRADA", [m for m in en_servicio
+                                              if tipo[m] in ("CAMION", "BOMBERO", "PICK-UP", "CAMIONETA")])
+        asignar("TOLERANCIA_TANQUE", en_servicio)
         asignar("EXCESO_VOLUMETRICO", en_servicio)
         asignar("CONSUMO_ATIPICO", en_servicio)
         asignar("VIAJE_LARGO", en_servicio)
@@ -1248,12 +1255,15 @@ class GeneradorMaestro:
         m = v["Matricula"]
         perfil = self._perfiles[m]
         cap_reg = v["CapacidadTanque"]
-        cap_real = cap_reg * rng.uniform(1.3, 1.6) if rol == "TANQUE_AUXILIAR" else cap_reg
+        cap_real = cap_reg * rng.uniform(1.3, 1.6) if rol == "CAPACIDAD_MAL_REGISTRADA" else cap_reg
         base = perfil["base"]
         fin_activo = datetime.combine(v["FechaEstado"], datetime.min.time()) if v["FechaEstado"] else None
         productos = PRODUCTOS_REALISTA[v["TipoCombustible"]]
         odo = float(rng.randint(10000, 250000))
-        combustible = cap_real * rng.uniform(0.4, 0.9)
+        # En una capacidad mal registrada el problema debe ser visible desde la primera carga;
+        # se conserva una llamada al mismo generador para no alterar innecesariamente la secuencia.
+        combustible = cap_real * (rng.uniform(0.0, 0.1) if rol == "CAPACIDAD_MAL_REGISTRADA"
+                                  else rng.uniform(0.4, 0.9))
         dia_inicio_inyectado = rng.randint(90, 200)
 
         viaje = (rng.randint(30, DIAS_VENTANA - 10), rng.choice(self._destinos)) if rol == "VIAJE_LARGO" else None
@@ -1264,6 +1274,7 @@ class GeneradorMaestro:
         dia_fuera_de_zona = rng.randint(30, DIAS_VENTANA) if rol == "CARGA_FUERA_DE_ZONA" else None
         cargas_sin_uso = rng.randint(3, 6) if rol == "CONSUMO_ATIPICO" else 0
         fraccionado = False
+        tolerancia_registrada = False
 
         def registrar(fecha, estacion, litros, odometro, etiqueta=None, legitimo=None):
             cargas.append({
@@ -1276,7 +1287,7 @@ class GeneradorMaestro:
             })
 
         def cargar(fecha, pos, dia, completa=False):
-            nonlocal combustible, fraccionado
+            nonlocal combustible, fraccionado, tolerancia_registrada
             if not completa and PROB_CARGA_PARCIAL and rng.random() < PROB_CARGA_PARCIAL:
                 objetivo = cap_real * rng.uniform(*CARGA_PARCIAL)
             else:
@@ -1284,8 +1295,12 @@ class GeneradorMaestro:
             al_tanque = max(objetivo - combustible, 0.08 * cap_real)
             litros, etiqueta, legitimo = al_tanque, None, None
             estacion = self._estacion_cercana(pos)
-            if rol == "TANQUE_AUXILIAR":
-                legitimo = "TANQUE_AUXILIAR"
+            if rol == "CAPACIDAD_MAL_REGISTRADA" and litros > cap_reg * 1.02:
+                etiqueta = "CAPACIDAD_MAL_REGISTRADA"
+            elif rol == "TOLERANCIA_TANQUE" and not tolerancia_registrada:
+                litros = cap_reg * rng.uniform(1.005, 1.02)
+                legitimo = "TOLERANCIA_TANQUE"
+                tolerancia_registrada = True
             elif rol == "VIAJE_LARGO" and self._ubicacion_estacion[estacion] == "RUTA":
                 legitimo = "VIAJE_LARGO"
             elif rol == "EXCESO_VOLUMETRICO" and dia >= dia_inicio_inyectado and rng.random() < 0.3:
@@ -1474,7 +1489,8 @@ class GeneradorMaestro:
         self._alterar_odometros(por_vehiculo, roles)
 
         columnas_etiqueta = {
-            "EXCESO_VOLUMETRICO": "litros", "FRACCIONAMIENTO": "litros", "CONSUMO_ATIPICO": "litros",
+            "EXCESO_VOLUMETRICO": "litros", "CAPACIDAD_MAL_REGISTRADA": "litros",
+            "FRACCIONAMIENTO": "litros", "CONSUMO_ATIPICO": "litros",
             "CARGA_VEHICULO_INACTIVO": "fecha", "CARGA_FUERA_DE_ZONA": "estacion",
         }
         for c in cargas:
@@ -1486,6 +1502,7 @@ class GeneradorMaestro:
                 tipo = c["_etiqueta"]
                 detalle = c.get("_detalle") or {
                     "EXCESO_VOLUMETRICO": f"{c['litros']:.2f} L con tanque de {c['_capacidad']:.1f} L",
+                    "CAPACIDAD_MAL_REGISTRADA": f"capacidad observada superior a {c['_capacidad']:.1f} L desde el inicio",
                     "FRACCIONAMIENTO": "carga repartida en el mismo día",
                     "CONSUMO_ATIPICO": f"{c['litros']:.2f} L para el recorrido del día",
                     "CARGA_VEHICULO_INACTIVO": "carga posterior a la baja o salida de servicio",

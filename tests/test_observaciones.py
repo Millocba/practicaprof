@@ -83,7 +83,7 @@ def test_resultados_segun_el_tipo_de_registro(dataset):
     tipos = dataset["ground_truth"].groupby(["tabla", "id_registro"])["tipo_anomalia"].agg(set)
     for fila in obs.itertuples():
         tipo = tipos[(fila.tabla, fila.id_registro)]
-        if tipo & set(ERRORES_DE_CARGA):
+        if tipo & (set(ERRORES_DE_CARGA) | {"CAPACIDAD_MAL_REGISTRADA"}):
             assert fila.resultado == "error_humano"
         elif "DOBLE_COBRO" in tipo:
             # Causa probable según el referente: un retraso del sistema; la acción es reclamar el duplicado

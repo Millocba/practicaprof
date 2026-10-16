@@ -107,6 +107,26 @@ def test_normalizar_dominio_y_leer_fecha():
     assert list(fechas.dt.strftime("%Y-%m-%d")) == ["2024-03-05", "2024-03-05", "2024-12-31"]
 
 
+def test_h3b_aplica_tolerancia_y_clasifica_segun_el_historial():
+    """Hasta 2% no alerta; un exceso inicial es calidad y uno posterior, posible uso indebido."""
+    from deteccion.reglas import detectar_exceso_sin_antecedente
+
+    flota = pd.DataFrame({"Matricula": ["V1", "V2", "V3"], "CapacidadTanque": [50.0, 50.0, 50.0]})
+    consumo = pd.DataFrame({
+        "id": ["A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4", "T1"],
+        "vehiculo_id": ["V1"] * 4 + ["V2"] * 4 + ["V3"],
+        "fecha": [f"2024-01-{d:02d}" for d in range(1, 5)] * 2 + ["2024-01-01"],
+        "litros": [55.0, 54.0, 40.0, 42.0, 40.0, 42.0, 44.0, 55.0, 51.0],
+    })
+
+    alertas = detectar_exceso_sin_antecedente(consumo, flota).set_index("id_registro")
+    assert "T1" not in alertas.index  # borde exacto del 2%
+    assert alertas.loc["A1", "tipo_anomalia"] == "CAPACIDAD_MAL_REGISTRADA"
+    assert alertas.loc["A1", "causa_probable"] == "capacidad_tanque_mal_registrada"
+    assert alertas.loc["B4", "tipo_anomalia"] == "EXCESO_VOLUMETRICO"
+    assert alertas.loc["B4", "causa_probable"] == "sin_explicacion"
+
+
 def test_las_cargas_de_otra_red_cierran_el_tramo_del_odometro():
     """El reporte es de un proveedor: una carga en otra red, anotada en el registro interno, parte el tramo."""
     from deteccion.reglas import cargas_fuera_del_reporte
@@ -511,4 +531,21 @@ def test_doble_cobro_con_el_decimal_mal_colocado_y_prioridad_de_los_mismos_litro
     detalle = alertas.set_index("id_registro")["detalle"]
     assert "decimal mal colocado" in detalle["C1"] and "decimal mal colocado" in detalle["C2"]
     assert "decimal mal colocado" not in detalle["C4"]     # el par de los mismos litros va antes
+
+
+def test_la_causa_propia_sin_explicacion_no_tapa_la_causa_de_un_error_de_carga():
+    """H3b (#45): el exceso posterior lleva SIN_EXPLICACION, pero si la carga tiene la firma de un error de carga
+    (tarjeta de otro vehículo) esa causa debe llegar a la alerta; la de capacidad mal registrada se conserva."""
+    import pandas as pd
+
+    from deteccion.reglas import SIN_EXPLICACION, asignar_causa_probable
+
+    alertas = pd.DataFrame({
+        "id_registro": ["X1", "X2", "X3"],
+        "regla": ["exceso_sin_antecedente"] * 3,
+        "detalle": ["exceso"] * 3,
+        "causa_probable": [SIN_EXPLICACION, "capacidad_tanque_mal_registrada", SIN_EXPLICACION],
+    })
+    resultado = asignar_causa_probable(alertas, {"X1": "tarjeta_equivocada", "X2": "tarjeta_equivocada"})
+    assert resultado["causa_probable"].tolist() == ["tarjeta_equivocada", "capacidad_tanque_mal_registrada", SIN_EXPLICACION]
 
