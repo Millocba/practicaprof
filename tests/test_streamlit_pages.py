@@ -190,3 +190,11 @@ def test_modelo_ml_lista_los_retiros_inmediatos_de_los_moviles_de_baja():
     assert not at.exception, [e.value for e in at.exception]
     assert not any("Ningún móvil de baja tiene el dispositivo transmitiendo" in s.value for s in at.success)
 
+
+def test_modelo_ml_lista_las_cargas_a_vehiculos_fuera_de_servicio():
+    """H6: la lista prioritaria aparte sale con datos y no dice que no hay ninguna carga."""
+    at = abrir("pages/08_modelo_ml.py", "realista")
+    assert not at.exception, [e.value for e in at.exception]
+    assert not any("Ninguna carga a un vehículo fuera de servicio" in s.value for s in at.success)
+    assert any(m.label == "Cargas a revisar" for m in at.metric)
+
