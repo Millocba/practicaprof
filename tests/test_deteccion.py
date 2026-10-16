@@ -693,7 +693,8 @@ def test_h11_no_alerta_un_dispositivo_sin_fecha_de_ultima_conexion_legible():
 
     from deteccion.reglas import detectar_dispositivo_activo_en_baja
 
-    flota = pd.DataFrame({"Dominio": ["AA111AA", "AA222AA", "AA333AA"], "Estado": ["BAJA"] * 3})
+    flota = pd.DataFrame({"Matricula": ["V1", "V2", "V3"], "Dominio": ["AA111AA", "AA222AA", "AA333AA"],
+                          "Estado": ["BAJA"] * 3})
     telemetria = pd.DataFrame({
         "Alias": ["DEV-1", "DEV-2", "DEV-3", "DEV-4"],
         "Placa": ["AA111AA", "AA222AA", "AA333AA", "AA999AA"],
