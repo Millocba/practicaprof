@@ -578,3 +578,15 @@ def test_el_adaptador_cuenta_las_fechas_de_transmision_ilegibles_sin_descartar_e
     assert len(datos["telemetria"]) == len(sintetico["telemetria"])
     assert datos["telemetria"]["UltimaConexion"].isna().sum() == 3
 
+
+def test_un_grupo_chico_no_se_recupera_restando_a_las_demas_partes_del_total():
+    """Reidentificación por diferencia (#41): con el total a la vista y una sola parte oculta, restar las otras la
+    devolvía (37 menos 23 daba el 14 oculto). Se oculta también la parte visible más chica."""
+    from perfilador.auditoria import _partes_sin_resta
+
+    assert _partes_sin_resta(37, {"a": 23, "b": 14, "c": 0}) == {"a": None, "b": "1–19", "c": 0}
+    assert _partes_sin_resta(100, {"a": 50, "b": 50}) == {"a": 50, "b": 50}              # nada que ocultar
+    assert _partes_sin_resta(10, {"a": 10}) == {"a": "1–19"}                           # el total ya está oculto
+    # dos partes chicas: restar solo da su suma, que no revela ninguna
+    assert _partes_sin_resta(71, {"a": 5, "b": 6, "c": 60}) == {"a": "1–19", "b": "1–19", "c": 60}
+

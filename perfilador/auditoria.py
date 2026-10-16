@@ -281,6 +281,21 @@ def _dominios(serie):
     return set(normalizar_dominio(serie).dropna()) - {""} if serie is not None else set()
 
 
+def _partes_sin_resta(total, partes):
+    """Las partes de un total que se informa, sin que un grupo chico se pueda recuperar por resta.
+
+    Un conteo de 1 a 19 sale como "1–19"; pero si el total sale entero y esa es la única parte oculta, restarle
+    las otras lo devolvería. Por eso se oculta también la parte visible más chica (`None`): quien resta solo
+    obtiene la suma de las dos, que no revela ninguna.
+    """
+    salida = {k: acotar(v) for k, v in partes.items()}
+    chicas = [k for k, v in partes.items() if 0 < v < MINIMO_GRUPO]
+    visibles = {k: v for k, v in partes.items() if v >= MINIMO_GRUPO}
+    if len(chicas) == 1 and total >= MINIMO_GRUPO and visibles:
+        salida[min(visibles, key=visibles.get)] = None
+    return salida
+
+
 def _sin_vinculo(identificador, flota, otras, clave=None, nombre_clave=None):
     """Por qué los identificadores sin vínculo normalizado no se vinculan con la flota, solo en agregado.
 
@@ -330,15 +345,19 @@ def _sin_vinculo(identificador, flota, otras, clave=None, nombre_clave=None):
     causas, formas = pd.Series(causas, dtype="string"), pd.Series(formas, dtype="string")
     sin_forma = formas[causas.eq("forma_del_identificador").values]
     nombres = ((nombre_clave,) if nombre_clave else ()) + CAUSAS_SIN_VINCULO
+    por_causa = {c: int(causas.eq(c).sum()) for c in nombres}
     return {
         "sin_vinculo_exacto": acotar(int((~identificador.isin(set(flota["Dominio"].dropna()))).sum())),
         "sin_vinculo_normalizado": acotar(len(sin_vinculo)),
-        "por_causa": {c: acotar(int(causas.eq(c).sum())) for c in nombres},
-        "distancia_1_por_edicion": {e: acotar(ediciones.count(e)) for e in EDICIONES},
+        "por_causa": _partes_sin_resta(len(sin_vinculo), por_causa),
+        "distancia_1_por_edicion": _partes_sin_resta(por_causa.get("distancia_1_de_un_dominio", 0),
+                                                     {e: ediciones.count(e) for e in EDICIONES}),
         "distancia_1_con_mas_de_un_dominio": acotar(dist_ambigua),
         "motor_con_mas_de_un_movil": acotar(motor_ambiguo),
-        "forma_del_identificador": {f: acotar(int(sin_forma.eq(f).sum())) for f in FORMAS[:-1]},
-        "forma_de_todas_las_sin_vinculo": {f: acotar(int(formas.eq(f).sum())) for f in FORMAS},
+        "forma_del_identificador": _partes_sin_resta(por_causa.get("forma_del_identificador", 0),
+                                                     {f: int(sin_forma.eq(f).sum()) for f in FORMAS[:-1]}),
+        "forma_de_todas_las_sin_vinculo": _partes_sin_resta(len(sin_vinculo),
+                                                            {f: int(formas.eq(f).sum()) for f in FORMAS}),
     }
 
 
