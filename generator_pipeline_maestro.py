@@ -42,7 +42,7 @@ DIRECTORIOS_ESCENARIO = {
 SEED = 42
 # Versión de los datos que produce el generador: cambiarla cuando cambie lo que genera, así la
 # aplicación regenera los datos que tenga en disco de una versión anterior
-VERSION_GENERADOR = "3.0"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md); 2.1: horas del día en el orden del odómetro; 2.2: forma de cargar calibrada; 2.3: excepciones de odómetro; 2.4: textos del diccionario; 2.5: origen de la transacción (H13); 2.6: errores de carga en el registro interno; 2.7: observaciones de las alertas; 2.8: H5 pasa de rendimiento imposible a consumo atípico; 2.9: decimal mal colocado en las contingencias (H13); 3.0: H3b con tolerancia e historial (capacidad mal registrada visible desde la primera carga)
+VERSION_GENERADOR = "3.1"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md); 2.1: horas del día en el orden del odómetro; 2.2: forma de cargar calibrada; 2.3: excepciones de odómetro; 2.4: textos del diccionario; 2.5: origen de la transacción (H13); 2.6: errores de carga en el registro interno; 2.7: observaciones de las alertas; 2.8: H5 pasa de rendimiento imposible a consumo atípico; 2.9: decimal mal colocado en las contingencias (H13); 3.0: H3b con tolerancia e historial (capacidad mal registrada visible desde la primera carga); 3.1: H11 decide por la última conexión del dispositivo
 
 # Ventana temporal de los datos: consumos y solicitudes entre FECHA_INICIO y
 # FECHA_INICIO + DIAS_VENTANA. FECHA_REFERENCIA hace de "ahora" para la telemetría.
@@ -307,7 +307,8 @@ EVENTOS_REALISTA = {
     "DIFERENCIA_DEUDA_PDF": 2,      # facturas cuyo PDF no coincide con la deuda
     "PRODUCTO_NO_COMBUSTIBLE": 2,   # facturas con renglones de lubricante
     "CARGA_CON_CUPO_AGOTADO": 1,    # contratos-mes en los que una transferencia llega tarde y se carga sin saldo
-    "DISPOSITIVO_ACTIVO_EN_BAJA": 2,  # móviles de baja con el dispositivo fuera del depósito y transmitiendo
+    "DISPOSITIVO_ACTIVO_EN_BAJA": 2,  # móviles de baja con el dispositivo transmitiendo (en el grupo que figure)
+    "DISPOSITIVO_GRUPO_VIEJO": 2,     # el grupo quedó en el valor anterior pero el aparato sigue transmitiendo
     "DISPOSITIVO_EN_DEPOSITO": 3,   # legítimos, como mínimo: ~4% de las bajas tiene dispositivo (fuente)
     "TRANSFERENCIA_SIN_NECESIDAD": 2,  # transferencias que la proyección no justifica
     "AJUSTE_DOCUMENTADO": 4,        # legítimos: facturas con un ajuste
@@ -2542,8 +2543,38 @@ class GeneradorMaestro:
             self._registrar_anomalia("telemetria", alias, por_dominio.at[dominio, "Matricula"],
                                      "DISPOSITIVO_ACTIVO_EN_BAJA", "Grupo",
                                      f"móvil de baja con el dispositivo en {grupo}, transmitiendo")
+        # Grupo viejo: el aparato sí se retiró, pero el grupo quedó con el valor anterior y
+        # sigue transmitiendo. La regla con contexto confía hoy en el grupo y lo deja pasar;
+        # el referenteorptionó que no hay que mirar el grupo sino si transmitió, porque la
+        # batería interna permite que funcione sin conexión. Una última conexión reciente en
+        # un móvil de baja hay que revisarla aunque figure en depósito.
+        libres_viejo = [b for b in bajas if b not in set(activos)]
+        viejos = rng.sample(libres_viejo, min(self._cantidad("DISPOSITIVO_GRUPO_VIEJO"), len(libres_viejo)))
+        alias_viejos = set()
+        for dominio in viejos:
+            fila = telemetria.index[telemetria["Placa"] == dominio]
+            reciente = (FECHA_REFERENCIA - timedelta(minutes=rng.randint(10, 3 * 24 * 60))).isoformat()
+            if len(fila):
+                # el Grupo queda como está, en depósito: ese es el dato desactualizado
+                alias = telemetria.at[fila[0], "Alias"]
+                telemetria.loc[fila, ["Estado", "UltimaConexion"]] = ["ONLINE", reciente]
+            else:
+                alias = f"DEV-{len(telemetria) + len(nuevas) + 1:06d}"
+                base = self._perfiles[por_dominio.at[dominio, "Matricula"]]["base"]
+                nuevas.append({
+                    "IMEI": f"{rng.randint(350000000000000, 359999999999999)}",
+                    "Alias": alias, "Placa": dominio,
+                    "MSISDN": f"54911{rng.randint(1000000, 9999999)}", "Modelo": f"GPS-A-{rng.randint(1, 5)}",
+                    "Tipo": "GPS", "Estado": "ONLINE", "Bateria": round(rng.uniform(60, 100), 1),
+                    "UltimaConexion": reciente, "Latitud": round(base[0], 6), "Longitud": round(base[1], 6),
+                    "Odometro": int(rng.randint(20000, 250000)), "Grupo": GRUPO_DEPOSITO})
+            alias_viejos.add(alias)
+            self._registrar_anomalia("telemetria", alias, por_dominio.at[dominio, "Matricula"],
+                                      "DISPOSITIVO_ACTIVO_EN_BAJA", "Grupo",
+                                      "móvil de baja con el dispositivo en el grupo de depósito y transmitiendo: "
+                                      "el grupo quedó con el valor anterior")
         # Al menos unos pocos dispositivos retirados en depósito, como en la fuente
-        con_dispositivo = set(telemetria["Placa"]) | set(activos)
+        con_dispositivo = set(telemetria["Placa"]) | set(activos) | set(viejos)
         faltan = max(0, self._cantidad("DISPOSITIVO_EN_DEPOSITO") - int((telemetria["Grupo"] == GRUPO_DEPOSITO).sum()))
         for dominio in rng.sample([b for b in bajas if b not in con_dispositivo], faltan):
             base = self._perfiles[por_dominio.at[dominio, "Matricula"]]["base"]
@@ -2559,11 +2590,15 @@ class GeneradorMaestro:
             telemetria = pd.concat([telemetria, pd.DataFrame(nuevas)], ignore_index=True)
         en_deposito = telemetria[telemetria["Grupo"] == GRUPO_DEPOSITO]
         for fila in en_deposito.itertuples():
+            # los de grupo viejo ya son anomalía: figuran en depósito y aun así transmiten
+            if fila.Alias in alias_viejos:
+                continue
             self._registrar_legitimo(fila.Alias, por_dominio.at[fila.Placa, "Matricula"], "DISPOSITIVO_EN_DEPOSITO",
                                      CATALOGO_LEGITIMOS["DISPOSITIVO_EN_DEPOSITO"], tabla="telemetria")
         self.datasets["telemetria"] = telemetria
         logger.info(f"✓ Telemetría de bajas: {len(en_deposito)} dispositivos en depósito, "
-                    f"{len(activos)} móviles de baja con el dispositivo activo")
+                    f"{len(activos)} móviles de baja con el dispositivo activo, "
+                    f"{len(alias_viejos)} con el grupo desactualizado")
 
     def ejecutar(self):
         """Ejecuta todo el pipeline"""

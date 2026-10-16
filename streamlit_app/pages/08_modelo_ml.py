@@ -282,6 +282,40 @@ def pagina_realista():
                        mime="text/csv")
 
     seccion(
+        "🚨 Retiros inmediatos",
+        ayuda="La otra cosa que hay que hacer, y que no es revisar una carga: **retirar el "
+              "dispositivo antes de que el móvil vaya al desguace** (H11). Un aparato que "
+              "transmite en un móvil de baja es plata que se va con el chasis.\n\n"
+              "Está aparte de la cola a propósito. La cola se ordena por transacción y esta "
+              "alerta es por vehículo: un móvil de baja deja de cargar, así que casi "
+              "ninguno tiene cargas donde colgarse (19 de cada 20 en las semillas del "
+              "README). Meterlo en el puntaje no solo no aparecería, sino que haría "
+              "contar cargas revisadas en la curva de esfuerzo sin encontrar nada.\n\n"
+              "Arriba van los que tienen el **grupo desactualizado**: el aparato ya se retiró "
+              "pero el grupo quedó con el valor anterior, así que en el parte de la flota "
+              "parece un móvil más dado de baja y nadie mira.")
+    retiros = priorizacion.retiros_inmediatos(flota, datos.get("telemetria"))
+    if retiros.empty:
+        st.success("✅ Ningún móvil de baja tiene el dispositivo transmitiendo.")
+    else:
+        col1, col2 = st.columns(2)
+        col1.metric("Móviles a revisar", f"{len(retiros):,}")
+        col2.metric("Con el grupo desactualizado", f"{int(retiros['grupo_desactualizado'].sum()):,}",
+                    help="El aparato ya se retiró pero el grupo quedó con el valor anterior: "
+                         "pasan inadvertidos en el parte de la flota.")
+        st.dataframe(
+            retiros.rename(columns={"vehiculo_id": "Vehículo", "dominio": "Dominio",
+                                    "Estado": "Estado", "TipoVehiculo": "Tipo",
+                                    "Grupo": "Grupo del dispositivo", "ultima_conexion": "Última conexión",
+                                    "dias_sin_transmitir": "Días sin transmitir",
+                                    "grupo_desactualizado": "Grupo desactualizado", "motivo": "Motivo"})
+            .style.format({"Última conexión": lambda v: str(v)[:16],
+                           "Grupo desactualizado": lambda v: "⚠️ sí" if v else "no"}),
+            use_container_width=True, hide_index=True)
+        st.download_button("⬇️ Descargar los retiros (CSV)", retiros.to_csv(index=False),
+                           file_name="retiros_inmediatos.csv", mime="text/csv")
+
+    seccion(
         "🚗 Vehículos a auditar",
         ayuda="Agrupado por vehículo en vez de por carga. Sirve para el seguimiento: si un mismo "
               "vehículo aparece muchas veces, el problema no es un evento aislado sino un patrón "

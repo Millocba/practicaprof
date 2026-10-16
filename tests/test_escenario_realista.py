@@ -264,8 +264,13 @@ def test_telemetria_de_los_moviles_de_baja(dataset):
     activos = set(dataset["ground_truth"].query("tipo_anomalia == 'DISPOSITIVO_ACTIVO_EN_BAJA'")["id_registro"])
     en_deposito = de_baja[~de_baja["Alias"].isin(activos)]
     assert len(en_deposito) >= 3 and (en_deposito["Grupo"] == "BAJA / REEMPLAZOS").all()
+    # los que no son anomalia estan en deposito y apagados
     assert (en_deposito["Estado"] == "OFFLINE").all()
-    assert (telemetria.loc[telemetria["Alias"].isin(activos), "Grupo"] != "BAJA / REEMPLAZOS").all()
+    # los que si son anomalia transmiten, este en el grupo que este (#53)
+    assert (telemetria.loc[telemetria["Alias"].isin(activos), "Estado"] == "ONLINE").all()
+    grupo_viejo = telemetria[telemetria["Alias"].isin(activos)
+                             & (telemetria["Grupo"] == "BAJA / REEMPLAZOS")]
+    assert len(grupo_viejo) >= 1, "debe haber dispositivos con el grupo desactualizado"
     assert not (telemetria.loc[~estado.str.contains("BAJA", na=False), "Grupo"] == "BAJA / REEMPLAZOS").any()
 
 
@@ -349,6 +354,49 @@ def test_la_cola_de_revision_explica_cada_caso(dataset, puntajes):
     assert (cola["motivos"].str.len() + cola["reglas"].str.len() > 0).all()
 
 
+def _dispositivos_de(retiros):
+    """Los alias de dispositivo que el motivo de cada fila menciona."""
+    return set(retiros["motivo"].str.extract(r"con (DEV-\d+)")[0].dropna())
+
+
+def test_retiros_inmediatos_salen_de_las_alertas_de_h11_ordenadas_por_urgencia(dataset, alertas):
+    """#53: la lista sale de las alertas del dispositivo, con el grupo desactualizado primero."""
+    retiros = priorizacion.retiros_inmediatos(dataset["flota"], dataset["telemetria"], alertas)
+    assert not retiros.empty, "el generador inyecta dispositivos de moviles de baja transmitiendo"
+
+    esperado = set(alertas.loc[alertas["regla"] == "dispositivo_activo_en_baja", "id_registro"])
+    assert _dispositivos_de(retiros) == esperado
+    assert set(retiros["dominio"]) <= set(dataset["flota"]["Dominio"])
+    assert (retiros["motivo"].str.len() > 0).all()
+
+    grupo = retiros["grupo_desactualizado"]
+    assert list(grupo) == sorted(grupo, reverse=True), "el grupo desactualizado va primero"
+    assert grupo.any(), "debe haber casos de grupo desactualizado"
+    assert set(retiros.loc[grupo, "Grupo"]) == {"BAJA / REEMPLAZOS"}
+    # dentro de cada grupo, primero el que mas hace que falta transmision
+    for _, parte in retiros.groupby("grupo_desactualizado"):
+        assert list(parte["dias_sin_transmitir"]) == sorted(parte["dias_sin_transmitir"])
+
+
+def test_h11_no_puntua_ninguna_carga_ni_entra_en_la_curva_de_esfuerzo(dataset, puntajes):
+    """Lo que no puede pasar: que estas alertas toquen el puntaje de alguna carga.
+
+    La cola y la curva de esfuerzo se cuentan en transacciones, y H11 es por vehiculo. Un movil
+    de baja deja de cargar, asi que si llegara al puntaje contaria como revisada una carga que
+    no es la anomalia, y moveria las metricas de todos los metodos a cambio de nada.
+    """
+    assert "dispositivo_activo_en_baja" not in priorizacion.REGLAS_INGENUAS
+    assert "dispositivo_activo_en_baja" not in priorizacion.REGLAS_CONTEXTO
+
+    pun, variables, alertas_ = puntajes
+    cola = priorizacion.cola_de_revision(pun, "Combinado", dataset["consumo"], variables, alertas_,
+                                         cantidad=100)
+    assert not cola["reglas"].str.contains("dispositivo_activo_en_baja").any()
+    # las alertas de H11 son por dispositivo, no tienen id de transaccion: no pueden colarse
+    h11 = alertas_[alertas_["regla"] == "dispositivo_activo_en_baja"]
+    assert not set(h11["id_registro"]) & set(pun.index)
+
+
 # --- Errores de carga y causa probable (#24) ---------------------------------
 
 def test_los_errores_de_carga_se_inyectan_en_la_carga_y_en_su_pedido(dataset):
@@ -382,3 +430,13 @@ def test_la_causa_probable_reconoce_los_errores_y_no_las_anomalias(dataset, aler
         assert aciertos > 0.5, tipo
     reales = causa.reindex(gt.loc[gt["hipotesis"] != "CALIDAD", "id_registro"]).dropna()
     assert len(reales) > 0 and (reales == "sin_explicacion").all()
+
+
+def test_retiros_inmediatos_no_dependen_de_las_alertas_del_puntaje(dataset, alertas):
+    """La lista se calcula con el padrón y la telemetría: el puntaje de las cargas se arma sin la telemetría,
+    así que apoyarse en sus alertas dejaba la lista de la página vacía."""
+    sin_pasar_alertas = priorizacion.retiros_inmediatos(dataset["flota"], dataset["telemetria"])
+    con_alertas = priorizacion.retiros_inmediatos(dataset["flota"], dataset["telemetria"], alertas)
+    assert not sin_pasar_alertas.empty
+    assert _dispositivos_de(sin_pasar_alertas) == _dispositivos_de(con_alertas)
+

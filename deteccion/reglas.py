@@ -1194,7 +1194,10 @@ def detectar_irregularidades_de_cupo(consumo, contratos, transferencias):
 
 
 GRUPO_DEPOSITO = "BAJA / REEMPLAZOS"
-DIAS_TRANSMISION_RECIENTE = 7   # transmitió en la última semana
+# Alarma para revisar el dispositivo y el vehículo: una semana sin transmitir. No implica que
+# esté apagado: el aparato tiene batería principal e interna y sigue funcionando sin conexión,
+# así que la última conexión es lo que dice si dejó de trabajar.
+DIAS_ALARMA_SIN_TRANSMITIR = 7
 
 
 def _dispositivos_de_baja(flota, telemetria):
@@ -1203,27 +1206,42 @@ def _dispositivos_de_baja(flota, telemetria):
     return telemetria[normalizar_dominio(telemetria["Placa"]).isin(de_baja)].rename(columns={"Alias": "id"})
 
 
+def dispositivos_de_baja_sin_fecha(flota, telemetria):
+    """Dispositivos de móviles de baja cuya última conexión no se pudo leer (H11).
+
+    Sin una fecha no se puede decir si transmiten, así que la regla no los marca; tampoco se descartan en
+    silencio: la lista de retiros inmediatos los muestra para verificarlos a mano.
+    """
+    dispositivos = _dispositivos_de_baja(flota, telemetria)
+    legible = pd.to_datetime(dispositivos["UltimaConexion"], errors="coerce", format="mixed").notna()
+    return dispositivos[~legible]
+
+
 def detectar_baja_con_dispositivo(flota, telemetria):
     """H11 (ingenua): móvil de baja con un dispositivo asociado."""
     return _alertas(_dispositivos_de_baja(flota, telemetria), "DISPOSITIVO_ACTIVO_EN_BAJA", "baja_con_dispositivo",
                     lambda d: "móvil de baja con el dispositivo " + d["id"].astype(str) + " en " + d["Grupo"].astype(str))
 
 
-def detectar_dispositivo_activo_en_baja(flota, telemetria, dias=DIAS_TRANSMISION_RECIENTE):
-    """H11: móvil de baja con el dispositivo fuera del grupo de depósito y transmitiendo.
+def detectar_dispositivo_activo_en_baja(flota, telemetria, dias=DIAS_ALARMA_SIN_TRANSMITIR):
+    """H11: móvil de baja con el dispositivo todavía transmitiendo.
 
-    Si el dispositivo quedó en el grupo de depósito (baja / reemplazos) y no transmite, está
-    recuperado. Un móvil de baja no debe ir a desguace con el aparato funcionando.
+    No mira el grupo del dispositivo sino si transmitió. El grupo de depósito (baja /
+    reemplazos) a veces queda con el valor anterior aunque el aparato ya no esté instalado,
+    así que confiar en él dejaba pasar justo el caso que hay que mirar. Un móvil de baja
+    no debe ir a desguace con el aparato funcionando.
     """
     dispositivos = _dispositivos_de_baja(flota, telemetria)
     ultima = pd.to_datetime(telemetria["UltimaConexion"], errors="coerce", format="mixed")
     referencia = ultima.max()
     transmite = (referencia - pd.to_datetime(dispositivos["UltimaConexion"], errors="coerce", format="mixed")
                  ) <= pd.Timedelta(days=dias)
-    activos = dispositivos[(dispositivos["Grupo"] != GRUPO_DEPOSITO) & transmite]
+    activos = dispositivos[transmite]
     return _alertas(activos, "DISPOSITIVO_ACTIVO_EN_BAJA", "dispositivo_activo_en_baja",
                     lambda d: "móvil de baja con " + d["id"].astype(str) + " en " + d["Grupo"].astype(str)
-                    + ", transmitiendo")
+                    + ", transmitiendo"
+                    + (d["Grupo"] == GRUPO_DEPOSITO).map(
+                        {True: " (el grupo quedó con el valor anterior)", False: ""}))
 
 
 def gps_por_intervalo(dias):

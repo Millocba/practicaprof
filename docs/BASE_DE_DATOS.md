@@ -60,8 +60,9 @@ Dos relaciones no son claves foráneas a propósito (flechas punteadas): el regi
 | 003 | Vistas de control |
 | 004 | Registro de cargas |
 | 005 | Excepciones de odómetro y su vista de control |
+| 006 | La vista `baja_con_dispositivo_activo` decide por la última conexión del dispositivo y no por su grupo |
 
-Para una base creada antes de la 005, `python -m base_datos cargar` aplica la migración pendiente y carga las excepciones; el resto de las tablas no cambia.
+Para una base creada antes de la 005, `python -m base_datos cargar` aplica la migración pendiente y carga las excepciones; el resto de las tablas no cambia. La 006 solo reemplaza una vista y no toca datos.
 
 Cada migración declara su compatibilidad, el bloqueo esperado, cómo volver atrás y cómo verificarla, y se aplica una sola vez, en su propia transacción (`base_datos/esquema.py`).
 
@@ -73,7 +74,7 @@ Cada migración declara su compatibilidad, el bloqueo esperado, cómo volver atr
 | `cargas_con_saldo_agotado` | Contratos-mes con días que empiezan sin saldo y tienen cargas | H10 |
 | `conciliacion_factura` | Conciliación triple: deuda contra líneas, PDF contra deuda y renglones que no son combustible | H9 |
 | `linea_sin_carga` | Líneas de combustible que facturan una carga que no está en el reporte | H9 |
-| `baja_con_dispositivo_activo` | Móviles de baja con el dispositivo fuera del depósito y transmitiendo | H11 |
+| `baja_con_dispositivo_activo` | Móviles de baja cuyo dispositivo transmitió en la última semana, esté en el grupo que esté | H11 |
 | `excepcion_vigente` | Excepciones activas: el estado de hoy que muestra el padrón (`ExcepcionOdometro` y `FechaHastaExcepcionOdometro`) | H12 |
 | `odometro_sin_avance_sin_excepcion` | Cargas con la misma lectura que la carga anterior del vehículo, en otro día, sin una excepción vigente ese día | H12 |
 

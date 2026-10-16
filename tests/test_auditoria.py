@@ -467,3 +467,17 @@ def test_el_adaptador_ignora_un_reporte_de_consumo_incompleto(sintetico):
     datos, diagnostico = adaptar(tablas, proveedor="proveedor zeta")
     assert "consumo" in diagnostico["fuentes_encontradas"]
     assert len(datos["consumo"]) == len(sintetico["consumo"])
+
+
+def test_el_adaptador_cuenta_las_fechas_de_transmision_ilegibles_sin_descartar_el_dispositivo(sintetico):
+    """H11: la normalización informa cuántas fechas de última conexión no pudo leer (en bandas) y deja el
+    dispositivo en la telemetría, con la fecha vacía, para que se verifique a mano."""
+    tablas = con_forma_real(sintetico)
+    dispositivos = tablas["dispositivos"].copy()
+    dispositivos.loc[dispositivos.index[:3], "Hora de última transmisión"] = "no se pudo leer"
+    tablas["dispositivos"] = dispositivos
+    datos, diagnostico = adaptar(tablas, proveedor="proveedor zeta")
+    assert diagnostico["telemetria"]["fechas_de_transmision_ilegibles"] == "1–19"
+    assert len(datos["telemetria"]) == len(sintetico["telemetria"])
+    assert datos["telemetria"]["UltimaConexion"].isna().sum() == 3
+

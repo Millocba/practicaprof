@@ -28,7 +28,8 @@ from deteccion.modelo import (
     entrenar_isolation_forest,
     ids_con_anomalia_de_comportamiento,
 )
-from deteccion.reglas import RENDIMIENTO_MINIMO, SIN_EXPLICACION, reglas_del_dataset
+from deteccion.reglas import (GRUPO_DEPOSITO, RENDIMIENTO_MINIMO, SIN_EXPLICACION, detectar_dispositivo_activo_en_baja,
+                              dispositivos_de_baja_sin_fecha, reglas_del_dataset)
 
 REGLAS_INGENUAS = ["litros_mayor_a_tanque", "odometro_disminuye", "salto_historial_vehiculo",
                    "fraccionamiento_diario", "rendimiento_bajo_odometro", "carga_lejos_de_base",
@@ -299,3 +300,50 @@ def facturas_a_revisar(facturacion, facturacion_detalle, alertas):
     }), include_groups=False)
     return (encabezado[["proveedor", "periodo", "total_monto"]].join(resumen, how="inner")
             .sort_values("importe_en_juego", ascending=False).reset_index())
+
+
+def retiros_inmediatos(flota, telemetria, alertas=None):
+    """Móviles de baja cuyo dispositivo todavía transmite: hay que retirar el aparato (#53).
+
+    No es una anomalía de una carga sino del vehículo, así que no entra en el puntaje ni en la
+    curva de esfuerzo, que se cuentan en transacciones. De hecho casi no podría: un móvil de
+    baja deja de cargar, así que en las 5 semillas del README 19 de cada 20 alertas no tienen
+    ninguna carga a la que colgarse. Va aparte, como las facturas.
+
+    Va primero lo que tiene el grupo desactualizado: el aparato ya se retiró y el grupo quedó
+    con el valor anterior, así que en el parte de la flota parece un móvil más dado de baja.
+    """
+    if telemetria is None or "Grupo" not in getattr(telemetria, "columns", []):
+        return pd.DataFrame()
+    # Las alertas de H11 se calculan acá con el padrón y la telemetría: el puntaje de las cargas se arma sin
+    # la telemetría, así que usar sus alertas dejaba la lista siempre vacía
+    if alertas is None:
+        alertas = detectar_dispositivo_activo_en_baja(flota, telemetria)
+    alertas = alertas[alertas["regla"] == "dispositivo_activo_en_baja"]
+    sin_fecha = dispositivos_de_baja_sin_fecha(flota, telemetria)
+    if alertas.empty and sin_fecha.empty:
+        return pd.DataFrame()
+
+    dispositivos = telemetria.drop_duplicates("Alias").set_index("Alias")
+    filas = alertas.drop_duplicates("id_registro").set_index("id_registro")[["detalle"]].join(
+        dispositivos[["Placa", "Grupo", "UltimaConexion"]], how="left")
+    filas["fecha_ilegible"] = False
+    # Los de fecha ilegible no se descartan: no se sabe si transmiten, así que se piden a verificar a mano
+    ilegibles = sin_fecha.drop_duplicates("id").set_index("id")[["Placa", "Grupo", "UltimaConexion"]].assign(
+        detalle="fecha de última conexión ilegible: verificar a mano si transmite", fecha_ilegible=True)
+    filas = pd.concat([filas, ilegibles[~ilegibles.index.isin(filas.index)]])
+    padron = flota.set_index("Dominio")
+    filas = filas.join(padron[["Matricula", "Estado", "TipoVehiculo"]], on="Placa")
+
+    referencia = pd.to_datetime(telemetria["UltimaConexion"], errors="coerce", format="mixed").max()
+    filas["ultima_conexion"] = pd.to_datetime(filas["UltimaConexion"], errors="coerce", format="mixed")
+    filas["dias_sin_transmitir"] = (referencia - filas["ultima_conexion"]).dt.days
+    filas["grupo_desactualizado"] = filas["Grupo"] == GRUPO_DEPOSITO
+    filas["motivo"] = filas["detalle"].fillna("")
+    filas["vehiculo_id"] = filas["Matricula"]
+
+    return (filas[["vehiculo_id", "Placa", "Estado", "TipoVehiculo", "Grupo", "ultima_conexion",
+                   "dias_sin_transmitir", "grupo_desactualizado", "fecha_ilegible", "motivo"]]
+            .rename(columns={"Placa": "dominio"})
+            .sort_values(["fecha_ilegible", "grupo_desactualizado", "dias_sin_transmitir"],
+                         ascending=[True, False, True], ignore_index=True))
