@@ -53,6 +53,8 @@ def con_forma_real(s):
         "ODOMETRO": consumo["odometro"], "REMITO": consumo["id"], "PRODUCTO": consumo["producto"],
         "LITROS UNIDADES": consumo["litros"], "PRECIO PVP ESTABLECIMIENTO": consumo["precio_unitario"],
         "IMP TOT PVP ESTABLECIMIENTO": consumo["importe_total"],
+        "PRECIO EMPRESA": (consumo["precio_unitario"] * 0.98).round(2),
+        "IMP TOT EMPRESA": (consumo["importe_total"] * 0.98).round(2),
         "ORIGEN DE TRANSACCION": consumo["origen_transaccion"]})
     interno = pd.DataFrame({
         "Id": registro["id"], "Fecha": registro["fecha"], "Hora": registro["hora"], "Matricula": registro["vehiculo_id"],
@@ -589,4 +591,91 @@ def test_un_grupo_chico_no_se_recupera_restando_a_las_demas_partes_del_total():
     assert _partes_sin_resta(10, {"a": 10}) == {"a": "1–19"}                           # el total ya está oculto
     # dos partes chicas: restar solo da su suma, que no revela ninguna
     assert _partes_sin_resta(71, {"a": 5, "b": 6, "c": 60}) == {"a": "1–19", "b": "1–19", "c": 60}
+
+
+def test_el_adaptador_expone_los_precios_del_reporte_con_nombres_genericos(sintetico):
+    """H9: todas las columnas de precio del reporte quedan en `precios_reporte` como precio_a, precio_b, ..."""
+    datos, _ = adaptar(con_forma_real(sintetico), proveedor="proveedor zeta")
+    precios = datos["precios_reporte"]
+    assert list(precios.columns) == ["id", "precio_a", "precio_b"]
+    assert len(precios) == int((datos["consumo"]["litros"] > 0).sum())
+
+
+def test_las_bandas_del_cruce_de_tiempo_dejan_el_corte_en_la_banda_de_abajo():
+    from perfilador.auditoria import _bandas_cruce_de_tiempo
+
+    assert list(_bandas_cruce_de_tiempo([0, 180, 181, 360, 361, 720, 1440, 1441, float("inf")])) == [
+        "hasta_3_horas", "hasta_3_horas", "de_3_a_6_horas", "de_3_a_6_horas", "de_6_a_12_horas",
+        "de_6_a_12_horas", "de_12_a_24_horas", "ninguno_a_menos_de_24_horas", "ninguno_a_menos_de_24_horas"]
+
+
+def test_las_bandas_de_los_pares_que_cruzan_usan_el_valor_absoluto():
+    from perfilador.auditoria import _bandas_de_que_cruzan
+
+    assert list(_bandas_de_que_cruzan([-5, 5, 6, 30, 31, 60, 180, 181])) == [
+        "hasta_5", "hasta_5", "de_5_a_30", "de_5_a_30", "de_30_a_60", "de_30_a_60", "de_1_a_3_horas", "mas_de_3_horas"]
+
+
+def test_las_bandas_del_precio_facturado_incluyen_el_corte_de_arriba():
+    from perfilador.auditoria import _bandas_de_precio_facturado
+
+    assert list(_bandas_de_precio_facturado([0.94, 0.95, 0.979, 0.98, 0.999, 1.0, 1.02, 1.021])) == [
+        "menos_de_0_95", "de_0_95_a_0_98", "de_0_95_a_0_98", "de_0_98_a_1_00", "de_0_98_a_1_00",
+        "de_1_00_a_1_02", "de_1_00_a_1_02", "mas_de_1_02"]
+
+
+def test_las_bandas_de_la_razon_entre_precios_tienen_una_banda_en_torno_a_0_98():
+    from perfilador.auditoria import _bandas_de_razon_entre_precios
+
+    assert list(_bandas_de_razon_entre_precios([0.96, 0.97, 0.9794, 0.9796, 0.98, 0.9804, 0.9806, 0.99, 0.991])) == [
+        "menos_de_0_97", "de_0_97_a_0_98", "de_0_97_a_0_98", "exactamente_0_98", "exactamente_0_98",
+        "exactamente_0_98", "de_0_98_a_0_99", "de_0_98_a_0_99", "mas_de_0_99"]
+
+
+def test_las_bandas_de_la_diferencia_de_importes():
+    from perfilador.auditoria import _bandas_diferencia
+
+    assert list(_bandas_diferencia([0.0, 0.0005, 0.001, 0.002, 0.005, 0.006, 0.02, 0.021])) == [
+        "exacta", "hasta_0_1_pct", "hasta_0_1_pct", "de_0_1_a_0_5_pct", "de_0_1_a_0_5_pct",
+        "de_0_5_a_2_pct", "de_0_5_a_2_pct", "mas_de_2_pct"]
+
+
+def test_la_auditoria_informa_el_cruce_de_ventanas_y_los_precios(resultado):
+    """H8/H9 en la auditoría: los pedidos fuera de la ventana de horario y los precios del detalle."""
+    from perfilador.auditoria import (BANDAS_CRUCE_QUE_CRUZAN, BANDAS_CRUCE_TIEMPO, BANDAS_DIFERENCIA_IMPORTES,
+                                      BANDAS_PRECIO_FACTURADO, BANDAS_RAZON_ENTRE_PRECIOS)
+
+    ventanas = resultado["diagnostico"]["cruce_registro_ventanas"]
+    assert ventanas is not None
+    assert set(ventanas["cargas_sin_pedido"]["con_pedido_del_mismo_vehiculo"]) == {"total", *BANDAS_CRUCE_TIEMPO}
+    assert set(ventanas["minutos_de_los_pares_que_cruzan"]) == {"total", *BANDAS_CRUCE_QUE_CRUZAN}
+    assert ventanas["por_mes"] and all(len(m) == 7 and m[4] == "-" for m in ventanas["por_mes"])
+
+    precios = resultado["diagnostico"]["facturacion_detalle_precios"]
+    assert precios is not None
+    assert list(precios["precio_facturado_sobre_cada_precio_unitario"]) == ["precio_a", "precio_b"]
+    ajuste = precios["precio_facturado_sobre_cada_precio_unitario"]["precio_a"]
+    assert set(ajuste) == {"total", "por_mes", "por_producto", *BANDAS_PRECIO_FACTURADO}
+    razon = precios["razon_entre_precios_unitarios"]
+    assert set(razon) == {"total", "por_mes", *BANDAS_RAZON_ENTRE_PRECIOS}
+    assert razon["exactamente_0_98"] != 0      # en el sintético el segundo precio es el 0,98 del primero
+    assert set(precios["diferencias_entre_deuda_y_lineas"]) == {"total", "por_mes", *BANDAS_DIFERENCIA_IMPORTES}
+    assert set(precios["diferencias_entre_pdf_y_deuda"]) == {"total", "por_mes", "sin_pdf", *BANDAS_DIFERENCIA_IMPORTES}
+    assert set(precios["lineas"]) == {"cargas_facturadas_mas_de_una_vez", "lineas_sin_carga_en_el_reporte",
+                                      "lineas_con_concepto_distinto_de_combustible", "mes_de_facturacion"}
+
+
+def test_el_cruce_de_ventanas_y_los_precios_no_revelan_identificadores(resultado, sintetico):
+    bloques = [resultado["diagnostico"]["cruce_registro_ventanas"],
+               resultado["diagnostico"]["facturacion_detalle_precios"]]
+    texto = json.dumps(bloques, ensure_ascii=False)
+    for valor in [sintetico["consumo"]["id"].iloc[0], sintetico["solicitudes"]["id"].iloc[0],
+                  sintetico["flota"]["Dominio"].iloc[0], sintetico["facturacion"]["numero_factura"].iloc[0]]:
+        assert str(valor) not in texto
+
+    def hojas(d):
+        return [h for v in d.values() for h in (hojas(v) if isinstance(v, dict) else [v])]
+    # Ningún conteo suelto entre 1 y 19: los chicos salen como "1–19"
+    assert all(not (isinstance(h, int) and 0 < h < 20) for bloque in bloques for h in hojas(bloque))
+
 
