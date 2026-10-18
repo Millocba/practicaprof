@@ -193,6 +193,14 @@ def adaptar(tablas, proveedor=None):
             "origen_transaccion": origen,
             "contrato": matricula.map(flota.set_index("Matricula")["NumeroContrato"]).astype("Int64"),
         }).dropna(subset=["fecha", "litros"])
+        # Todas las columnas de precio unitario del reporte, en su orden, con nombres genéricos: en el
+        # dominio no se escribe el nombre real de ninguna columna. Los totales por litro no se miran.
+        columnas_precio = [c for c in fuente.columns if "PRECIO" in str(c).upper()]
+        if columnas_precio:
+            precios = pd.DataFrame({"id": consumo["id"]})
+            for i, columna in enumerate(columnas_precio):
+                precios[f"precio_{chr(ord('a') + i)}"] = _numero(fuente[columna])
+            datos["precios_reporte"] = precios.loc[consumo["litros"] > 0].reset_index(drop=True)
         datos["consumo"] = consumo[consumo["litros"] > 0]
         diagnostico["consumo"] = {
             "fechas_legibles_pct": round(100 * instante.notna().mean(), 1),
