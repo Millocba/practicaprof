@@ -479,3 +479,24 @@ def test_la_lista_de_cargas_a_vehiculos_fuera_de_servicio_distingue_las_sin_pedi
     assert sin_pedido == sorted(sin_pedido, reverse=True)           # todas las sin pedido antes que las otras
     assert set(lista.loc[lista["sin_pedido"], "motivo"]) <= {"sin pedido en el registro interno: la tarjeta se usó por fuera del sistema"}
 
+
+
+# --- H12: dos cargas el mismo día a la misma lectura (#54) --------------------
+
+def test_misma_lectura_en_el_dia_son_dos_cargas_del_mismo_vehiculo_y_dia(dataset):
+    legitimas = dataset["casos_legitimos"].query("tipo_caso == 'MISMA_LECTURA_EN_EL_DIA'")
+    assert len(legitimas) == 6
+    consumo = dataset["consumo"].set_index("id")
+    for id_carga, vehiculo in zip(legitimas["id_registro"], legitimas["vehiculo_id"]):
+        fecha = consumo.at[id_carga, "fecha"]
+        del_dia = consumo[(consumo["vehiculo_id"] == vehiculo) & (consumo["fecha"] == fecha)]
+        assert len(del_dia) == 2
+        assert del_dia["odometro"].nunique() == 1
+    assert not set(legitimas["id_registro"]) & set(dataset["ground_truth"]["id_registro"])
+
+
+def test_misma_lectura_en_el_dia_la_marca_la_regla_ingenua_y_no_la_de_contexto(dataset, alertas):
+    ids = set(dataset["casos_legitimos"].query("tipo_caso == 'MISMA_LECTURA_EN_EL_DIA'")["id_registro"])
+    por_regla = alertas[alertas["id_registro"].isin(ids)].groupby("regla").size().to_dict()
+    assert por_regla.get("odometro_sin_avance") == len(ids)
+    assert "sin_avance_sin_excepcion" not in por_regla
