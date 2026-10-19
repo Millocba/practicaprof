@@ -89,3 +89,15 @@ def test_evaluar_varias_comparte_los_datos_y_devuelve_una_entrada_por_hipotesis(
     resumen = baseline.resumen_markdown(resultados)
     assert "| H1 |" in resumen and "| H3b |" in resumen
 
+
+def test_explicar_informa_las_variables_del_modelo_sin_las_de_la_regla_y_la_ablacion():
+    resultado = baseline.explicar("H4", semillas_de_diseno=[1001], semillas_de_evaluacion=[42], n_flota=60,
+                                  n_arboles=20)
+    usadas = set(resultado["importancia_por_permutacion_del_random_forest"])
+    assert usadas.isdisjoint(baseline.VARIABLES_DE_LA_REGLA["H4"])      # las de la regla no entran
+    assert usadas == set(resultado["coeficientes_de_la_regresion_logistica"])
+    assert set(resultado["f1_del_random_forest_al_quitar_las_mas_importantes"]) == {
+        "sin_ninguna", "sin_las_1_mas_importantes", "sin_las_2_mas_importantes", "sin_las_3_mas_importantes"}
+    tabla = baseline.explicar_a_markdown(resultado)
+    assert "| Variable |" in tabla and "F1 del Random Forest" in tabla
+

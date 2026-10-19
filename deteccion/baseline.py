@@ -207,6 +207,78 @@ def evaluar(hipotesis, semillas_de_diseno=None, semillas_de_evaluacion=None, n_f
                           progreso)[hipotesis]
 
 
+def explicar(hipotesis, semillas_de_diseno=None, semillas_de_evaluacion=None, n_flota=200, excluir=None,
+             n_arboles=300, progreso=None):
+    """Qué variables sostienen el modelo de una hipótesis (para justificarlas una por una).
+
+    Con el escenario sin las variables de la regla: los coeficientes estandarizados de la regresión
+    logística, la importancia por permutación de cada variable en el Random Forest (sobre los datos de
+    evaluación, medida con la precisión promedio, que no depende del umbral) y una ablación: el F1 del
+    Random Forest al quitar las `k` variables más importantes. Si el F1 cae casi a cero al quitar una o dos,
+    el modelo depende de ellas y conviene preguntarse si el generador las delata.
+    """
+    from sklearn.inspection import permutation_importance
+
+    entrada = _entrada(hipotesis)
+    diseno = SEMILLAS_DE_DISENO if semillas_de_diseno is None else list(semillas_de_diseno)
+    evaluacion = SEMILLAS_DE_EVALUACION if semillas_de_evaluacion is None else list(semillas_de_evaluacion)
+    if set(diseno) & set(evaluacion):
+        raise ValueError("las semillas de diseño y de evaluación no pueden compartirse")
+    excluidas = tuple(VARIABLES_DE_LA_REGLA.get(hipotesis, ()) if excluir is None else excluir)
+    tipos = entrada["tipos"]
+
+    def datos(semillas, etapa):
+        partes_x, partes_y = [], []
+        for semilla in semillas:
+            dataset = _generar(semilla, n_flota)
+            variables = _variables(dataset)
+            partes_x.append(variables.reset_index(drop=True))
+            partes_y.append(_etiqueta(dataset, variables, tipos).reset_index(drop=True))
+            if progreso:
+                progreso(f"{etapa} {semilla}")
+        return pd.concat(partes_x, ignore_index=True), pd.concat(partes_y, ignore_index=True)
+
+    x_diseno, y_diseno = datos(diseno, "diseño")
+    x_eval, y_eval = datos(evaluacion, "evaluación")
+    columnas = [c for c in x_diseno.columns if c not in excluidas]
+    modelos = _modelos(n_arboles=n_arboles)
+    logistica, bosque = modelos["regresion_logistica"], modelos["random_forest"]
+    logistica.fit(x_diseno[columnas], y_diseno)
+    bosque.fit(x_diseno[columnas], y_diseno)
+    coeficientes = pd.Series(logistica[-1].coef_[0], index=columnas).sort_values(key=abs, ascending=False)
+    importancia = permutation_importance(bosque, x_eval[columnas], y_eval, scoring="average_precision",
+                                         n_repeats=3, random_state=42, n_jobs=-1)
+    por_permutacion = pd.Series(importancia.importances_mean, index=columnas).sort_values(ascending=False)
+
+    ablacion = {"sin_ninguna": metricas(y_eval, bosque.predict_proba(x_eval[columnas])[:, 1] >= UMBRAL)["f1"]}
+    for k in (1, 2, 3):
+        quedan = [c for c in columnas if c not in set(por_permutacion.index[:k])]
+        modelo = _modelos(n_arboles=n_arboles)["random_forest"].fit(x_diseno[quedan], y_diseno)
+        ablacion[f"sin_las_{k}_mas_importantes"] = metricas(
+            y_eval, modelo.predict_proba(x_eval[quedan])[:, 1] >= UMBRAL)["f1"]
+    return {"hipotesis": hipotesis, "variables_excluidas": list(excluidas),
+            "semillas_de_diseno": diseno, "semillas_de_evaluacion": evaluacion,
+            "coeficientes_de_la_regresion_logistica": {k: float(v) for k, v in coeficientes.items()},
+            "importancia_por_permutacion_del_random_forest": {k: float(v) for k, v in por_permutacion.items()},
+            "f1_del_random_forest_al_quitar_las_mas_importantes": ablacion}
+
+
+def explicar_a_markdown(resultado):
+    """Las tres tablas de `explicar`, listas para el informe."""
+    orden = list(resultado["importancia_por_permutacion_del_random_forest"])
+    filas = ["| Variable | Importancia (Random Forest, por permutación) | Coeficiente (regresión logística, estandarizado) |",
+             "|---|---:|---:|"]
+    for v in orden:
+        filas.append(f"| {v} | {resultado['importancia_por_permutacion_del_random_forest'][v]:.4f} | "
+                     f"{resultado['coeficientes_de_la_regresion_logistica'][v]:+.2f} |")
+    ablacion = ["| Se quitan | F1 del Random Forest |", "|---|---:|"]
+    for k, f1 in resultado["f1_del_random_forest_al_quitar_las_mas_importantes"].items():
+        ablacion.append(f"| {k.replace('_', ' ')} | {f1:.2f} |")
+    return (f"**{resultado['hipotesis']}**: variables del modelo sin las de la regla "
+            f"({', '.join(resultado['variables_excluidas']) or 'ninguna excluida'}).\n\n"
+            + "\n".join(filas) + "\n\n" + "\n".join(ablacion))
+
+
 ETIQUETAS = {"linea_base_ingenua": "Línea base ingenua", "regla_con_contexto": "Regla con contexto",
              "isolation_forest": "Isolation Forest (sin etiquetas)",
              "regresion_logistica__todas": "Regresión logística, todas las variables",
@@ -252,7 +324,22 @@ def main():
     parser.add_argument("--n-flota", type=int, default=200)
     parser.add_argument("--n-arboles", type=int, default=300)
     parser.add_argument("--salida", type=Path, help="archivo donde guardar la tabla en Markdown (y el JSON al lado)")
+    parser.add_argument("--explicar", action="store_true",
+                        help="en vez de comparar métodos, muestra qué variables sostienen el modelo (una hipótesis)")
     args = parser.parse_args()
+    if args.explicar:
+        if len(args.hipotesis) != 1:
+            parser.error("--explicar se usa con una sola hipótesis")
+        explicacion = explicar(args.hipotesis[0], n_flota=args.n_flota, n_arboles=args.n_arboles,
+                               excluir=[v for v in args.sin.split(",") if v] if args.sin is not None else None,
+                               progreso=print)
+        texto = explicar_a_markdown(explicacion)
+        print("\n" + texto)
+        if args.salida:
+            args.salida.write_text(texto + "\n", encoding="utf-8")
+            args.salida.with_suffix(".json").write_text(json.dumps(explicacion, indent=2, ensure_ascii=False),
+                                                        encoding="utf-8")
+        return
     lista = HIPOTESIS_POR_CARGA if args.hipotesis == ["todas"] else args.hipotesis
     excluir = [v for v in args.sin.split(",") if v] if args.sin is not None else None
     resultados = evaluar_varias(lista, n_flota=args.n_flota, excluir=excluir, n_arboles=args.n_arboles,
