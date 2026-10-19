@@ -62,3 +62,30 @@ def test_la_tabla_en_markdown_nombra_cada_metodo():
     for etiqueta in baseline.ETIQUETAS.values():
         assert etiqueta in tabla
     assert "Variables excluidas en el segundo escenario: ninguna" in tabla
+
+
+def test_todas_las_hipotesis_por_carga_tienen_su_lista_de_variables_de_la_regla():
+    conocidas = set(VARIABLES) | set(VARIABLES_CONTEXTO)
+    assert set(baseline.HIPOTESIS_POR_CARGA) <= set(baseline.VARIABLES_DE_LA_REGLA)
+    for hipotesis, variables in baseline.VARIABLES_DE_LA_REGLA.items():
+        assert set(variables) <= conocidas, hipotesis
+
+
+def test_excluir_solo_se_puede_pedir_con_una_hipotesis():
+    with pytest.raises(ValueError, match="solo se puede usar con una hipótesis"):
+        baseline.evaluar_varias(["H1", "H3b"], excluir=["km"])
+
+
+def test_evaluar_varias_comparte_los_datos_y_devuelve_una_entrada_por_hipotesis():
+    resultados = baseline.evaluar_varias(["H1", "H3b"], semillas_de_diseno=[1001], semillas_de_evaluacion=[42],
+                                         n_flota=60, n_arboles=20)
+    assert list(resultados) == ["H1", "H3b"]
+    # Cada hipótesis tiene su propio target y las mismas cargas
+    universos = {sum(m[k] for k in ("tp", "fp", "fn", "tn")) for r in resultados.values()
+                 for m in r["metodos"].values()}
+    assert len(universos) == 1
+    assert resultados["H1"]["variables_excluidas"] == []
+    assert resultados["H3b"]["variables_excluidas"] == list(baseline.VARIABLES_DE_LA_REGLA["H3b"])
+    resumen = baseline.resumen_markdown(resultados)
+    assert "| H1 |" in resumen and "| H3b |" in resumen
+

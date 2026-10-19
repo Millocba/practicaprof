@@ -10,11 +10,16 @@ Los datos con que se diseñan los modelos (`SEMILLAS_DE_DISENO`) y los con que s
 
 Si una variable define la propia regla (por ejemplo, litros sobre capacidad en H3b), un modelo que la use
 aprende la regla y no demuestra nada. Por eso cada modelo supervisado se evalúa dos veces: con todas las
-variables y sin las que definen la regla (`VARIABLES_DE_LA_REGLA`).
+variables y sin las que definen la regla (`VARIABLES_DE_LA_REGLA`, un supuesto por hipótesis a revisar).
+
+Solo las hipótesis cuya unidad es la carga (`HIPOTESIS_POR_CARGA`): las de factura (H9), de contrato y mes
+(H10) y de dispositivo (H11) tienen otra unidad. Donde el target incluye registros que no son cargas (por
+ejemplo, pedidos sin carga en H8), solo cuentan los que son una carga.
 
 Uso:
     python -m deteccion.baseline H3b
     python -m deteccion.baseline H1 --sin ratio_litros_tanque --salida resultados.md
+    python -m deteccion.baseline todas --salida resumen.md
 """
 import argparse
 import json
@@ -36,11 +41,22 @@ from deteccion.reglas import reglas_del_dataset
 SEMILLAS_DE_DISENO = [1001, 1002, 1003]
 SEMILLAS_DE_EVALUACION = [42, 7, 123, 2024, 99]
 UMBRAL = 0.5          # fijo y decidido antes de mirar los datos de evaluación: no se ajusta con ellos
+HIPOTESIS_POR_CARGA = ["H1", "H2b", "H2c", "H3b", "H4", "H5", "H6", "H7", "H8", "H12", "H13"]
 
-# Variables que definen la regla de la hipótesis: un modelo que las usa aprende la regla
+# Variables que definen la regla de la hipótesis: un modelo que las usa aprende la regla. Es un supuesto de
+# diseño (qué variables entran en la regla), a revisar con el equipo.
 VARIABLES_DE_LA_REGLA = {
-    "H3b": ("ratio_litros_tanque", "litros_vs_habitual", "tanques_en_el_dia"),
     "H1": (),
+    "H2b": ("km", "exceso_km", "retroceso_km"),
+    "H2c": ("km", "exceso_km", "retroceso_km"),
+    "H3b": ("ratio_litros_tanque", "litros_vs_habitual", "tanques_en_el_dia"),
+    "H4": ("cargas_en_el_dia", "tanques_en_el_dia"),
+    "H5": ("rendimiento_relativo",),
+    "H6": ("vehiculo_inactivo",),
+    "H7": ("distancia_zona_km", "distancia_gps_km", "sin_gps"),
+    "H8": ("sin_solicitud", "litros_vs_autorizado"),
+    "H12": ("km", "odometro_exceptuado"),
+    "H13": (),
 }
 
 
@@ -92,11 +108,11 @@ def _bandera_de_reglas(alertas, variables, nombres):
     return pd.Series(variables.index.isin(list(ids)), index=variables.index)
 
 
-def _modelos(semilla=42):
+def _modelos(semilla=42, n_arboles=300):
     return {
         "regresion_logistica": make_pipeline(StandardScaler(), LogisticRegression(
             max_iter=1000, class_weight="balanced", random_state=semilla)),
-        "random_forest": RandomForestClassifier(n_estimators=300, min_samples_leaf=2, random_state=semilla,
+        "random_forest": RandomForestClassifier(n_estimators=n_arboles, min_samples_leaf=2, random_state=semilla,
                                                 class_weight="balanced_subsample", n_jobs=-1),
     }
 
@@ -114,62 +130,81 @@ def _resumir(por_semilla):
             "f1_desvio": float(np.std(f1s))}
 
 
-def evaluar(hipotesis, semillas_de_diseno=None, semillas_de_evaluacion=None, n_flota=200, excluir=None,
-            progreso=None):
-    """Evalúa la hipótesis con cada método y devuelve un diccionario con las métricas.
+def evaluar_varias(hipotesis, semillas_de_diseno=None, semillas_de_evaluacion=None, n_flota=200, excluir=None,
+                   n_arboles=300, progreso=None):
+    """Evalúa cada hipótesis con cada método y devuelve {hipótesis: resultado}.
 
-    `excluir`: variables que no usa el segundo escenario de cada modelo; por defecto, las que definen la regla.
+    Genera cada dataset una sola vez, sin importar cuántas hipótesis se pidan. `excluir`: variables que no usa el
+    segundo escenario de cada modelo (solo con una hipótesis); por defecto, las de `VARIABLES_DE_LA_REGLA`.
     """
-    entrada = _entrada(hipotesis)
+    hipotesis = list(hipotesis)
+    entradas = {h: _entrada(h) for h in hipotesis}
     diseno = SEMILLAS_DE_DISENO if semillas_de_diseno is None else list(semillas_de_diseno)
     evaluacion = SEMILLAS_DE_EVALUACION if semillas_de_evaluacion is None else list(semillas_de_evaluacion)
     if set(diseno) & set(evaluacion):
         raise ValueError("las semillas de diseño y de evaluación no pueden compartirse")
-    excluir = tuple(VARIABLES_DE_LA_REGLA.get(hipotesis, ()) if excluir is None else excluir)
-    ingenuas, contexto = reglas_de(entrada["reglas"][0][0]), reglas_de(entrada["reglas"][-1][0])
-    tipos = entrada["tipos"]
+    if excluir is not None and len(hipotesis) != 1:
+        raise ValueError("`excluir` solo se puede usar con una hipótesis")
+    excluidas = {h: tuple(VARIABLES_DE_LA_REGLA.get(h, ()) if excluir is None else excluir) for h in hipotesis}
 
-    partes_x, partes_y = [], []
+    partes_x, partes_y = [], {h: [] for h in hipotesis}
     for semilla in diseno:
         dataset = _generar(semilla, n_flota)
         variables = _variables(dataset)
         partes_x.append(variables.reset_index(drop=True))
-        partes_y.append(_etiqueta(dataset, variables, tipos).reset_index(drop=True))
+        for h in hipotesis:
+            partes_y[h].append(_etiqueta(dataset, variables, entradas[h]["tipos"]).reset_index(drop=True))
         if progreso:
             progreso(f"diseño {semilla}")
-    x_diseno, y_diseno = pd.concat(partes_x, ignore_index=True), pd.concat(partes_y, ignore_index=True)
-    columnas = {"todas": list(x_diseno.columns),
-                "sin_las_de_la_regla": [c for c in x_diseno.columns if c not in excluir]}
-    entrenados = {}
-    if int(y_diseno.sum()) > 0:
-        for escenario, cols in columnas.items():
-            for nombre, modelo in _modelos().items():
-                entrenados[(nombre, escenario)] = (modelo.fit(x_diseno[cols], y_diseno), cols)
+    x_diseno = pd.concat(partes_x, ignore_index=True)
 
-    por_metodo = {}
-    positivos = 0
+    entrenados = {h: {} for h in hipotesis}
+    for h in hipotesis:
+        y = pd.concat(partes_y[h], ignore_index=True)
+        if int(y.sum()) == 0:
+            continue
+        columnas = {"todas": list(x_diseno.columns),
+                    "sin_las_de_la_regla": [c for c in x_diseno.columns if c not in excluidas[h]]}
+        for escenario, cols in columnas.items():
+            for nombre, modelo in _modelos(n_arboles=n_arboles).items():
+                entrenados[h][(nombre, escenario)] = (modelo.fit(x_diseno[cols], y), cols)
+        if progreso:
+            progreso(f"modelos {h}")
+
+    por_metodo = {h: {} for h in hipotesis}
+    positivos = {h: 0 for h in hipotesis}
     for semilla in evaluacion:
         dataset = _generar(semilla, n_flota)
         variables = _variables(dataset)
-        real = _etiqueta(dataset, variables, tipos)
-        positivos += int(real.sum())
         alertas = reglas_del_dataset(dataset)
-        predicciones = {"linea_base_ingenua": _bandera_de_reglas(alertas, variables, ingenuas),
-                        "regla_con_contexto": _bandera_de_reglas(alertas, variables, contexto)}
         _, anomalo = entrenar_isolation_forest(variables)
-        predicciones["isolation_forest"] = anomalo.reindex(variables.index).fillna(False)
-        for (nombre, escenario), (modelo, cols) in entrenados.items():
-            probabilidad = modelo.predict_proba(variables.reindex(columns=cols, fill_value=0.0))[:, 1]
-            predicciones[f"{nombre}__{escenario}"] = pd.Series(probabilidad >= UMBRAL, index=variables.index)
-        for metodo, predicho in predicciones.items():
-            por_metodo.setdefault(metodo, []).append(metricas(real, predicho))
+        anomalo = anomalo.reindex(variables.index).fillna(False)
+        for h in hipotesis:
+            real = _etiqueta(dataset, variables, entradas[h]["tipos"])
+            positivos[h] += int(real.sum())
+            reglas = entradas[h]["reglas"]
+            predicciones = {"linea_base_ingenua": _bandera_de_reglas(alertas, variables, reglas_de(reglas[0][0])),
+                            "regla_con_contexto": _bandera_de_reglas(alertas, variables, reglas_de(reglas[-1][0])),
+                            "isolation_forest": anomalo}
+            for (nombre, escenario), (modelo, cols) in entrenados[h].items():
+                probabilidad = modelo.predict_proba(variables.reindex(columns=cols, fill_value=0.0))[:, 1]
+                predicciones[f"{nombre}__{escenario}"] = pd.Series(probabilidad >= UMBRAL, index=variables.index)
+            for metodo, predicho in predicciones.items():
+                por_metodo[h].setdefault(metodo, []).append(metricas(real, predicho))
         if progreso:
             progreso(f"evaluación {semilla}")
 
-    return {"hipotesis": hipotesis, "tipos": tipos, "unidad": "carga", "umbral": UMBRAL,
-            "semillas_de_diseno": diseno, "semillas_de_evaluacion": evaluacion, "n_flota": n_flota,
-            "anomalias_en_evaluacion": positivos, "variables_excluidas": list(excluir),
-            "metodos": {m: _resumir(v) for m, v in por_metodo.items()}}
+    return {h: {"hipotesis": h, "tipos": entradas[h]["tipos"], "unidad": "carga", "umbral": UMBRAL,
+                "semillas_de_diseno": diseno, "semillas_de_evaluacion": evaluacion, "n_flota": n_flota,
+                "anomalias_en_evaluacion": positivos[h], "variables_excluidas": list(excluidas[h]),
+                "metodos": {m: _resumir(v) for m, v in por_metodo[h].items()}} for h in hipotesis}
+
+
+def evaluar(hipotesis, semillas_de_diseno=None, semillas_de_evaluacion=None, n_flota=200, excluir=None,
+            n_arboles=300, progreso=None):
+    """Evalúa una hipótesis (ver `evaluar_varias`)."""
+    return evaluar_varias([hipotesis], semillas_de_diseno, semillas_de_evaluacion, n_flota, excluir, n_arboles,
+                          progreso)[hipotesis]
 
 
 ETIQUETAS = {"linea_base_ingenua": "Línea base ingenua", "regla_con_contexto": "Regla con contexto",
@@ -181,7 +216,7 @@ ETIQUETAS = {"linea_base_ingenua": "Línea base ingenua", "regla_con_contexto": 
 
 
 def a_markdown(resultado):
-    """Tabla de comparación lista para el informe."""
+    """Tabla de comparación de una hipótesis, lista para el informe."""
     filas = ["| Método | Precisión | Recall | F1 | F1 por semilla (media ± desvío) | TP | FP | FN | TN |",
              "|---|---:|---:|---:|---|---:|---:|---:|---:|"]
     for metodo, m in resultado["metodos"].items():
@@ -194,20 +229,40 @@ def a_markdown(resultado):
             f"{', '.join(resultado['variables_excluidas']) or 'ninguna'}.\n\n" + "\n".join(filas))
 
 
+def resumen_markdown(resultados):
+    """Una fila por hipótesis: cuántas anomalías hay y qué F1 logra cada método, sin trampa y con ella."""
+    def f1(r, metodo):
+        m = r["metodos"].get(metodo)
+        return f"{m['f1']:.2f}" if m else "—"
+
+    filas = ["| Hipótesis | Anomalías | Ingenua | Con contexto | Isolation Forest | Logística (sin las de la regla) | "
+             "Random Forest (sin las de la regla) | Random Forest (todas) |", "|---|---:|---:|---:|---:|---:|---:|---:|"]
+    for h, r in resultados.items():
+        filas.append(f"| {h} | {r['anomalias_en_evaluacion']} | {f1(r, 'linea_base_ingenua')} | "
+                     f"{f1(r, 'regla_con_contexto')} | {f1(r, 'isolation_forest')} | "
+                     f"{f1(r, 'regresion_logistica__sin_las_de_la_regla')} | "
+                     f"{f1(r, 'random_forest__sin_las_de_la_regla')} | {f1(r, 'random_forest__todas')} |")
+    return "\n".join(filas)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("hipotesis")
-    parser.add_argument("--sin", help="variables a excluir en el segundo escenario, separadas por coma")
+    parser.add_argument("hipotesis", nargs="+", help="una o varias hipótesis, o 'todas' (las de unidad carga)")
+    parser.add_argument("--sin", help="variables a excluir en el segundo escenario (solo con una hipótesis)")
     parser.add_argument("--n-flota", type=int, default=200)
+    parser.add_argument("--n-arboles", type=int, default=300)
     parser.add_argument("--salida", type=Path, help="archivo donde guardar la tabla en Markdown (y el JSON al lado)")
     args = parser.parse_args()
+    lista = HIPOTESIS_POR_CARGA if args.hipotesis == ["todas"] else args.hipotesis
     excluir = [v for v in args.sin.split(",") if v] if args.sin is not None else None
-    resultado = evaluar(args.hipotesis, n_flota=args.n_flota, excluir=excluir, progreso=print)
-    tabla = a_markdown(resultado)
-    print("\n" + tabla)
+    resultados = evaluar_varias(lista, n_flota=args.n_flota, excluir=excluir, n_arboles=args.n_arboles,
+                                progreso=print)
+    texto = (resumen_markdown(resultados) + "\n\n" if len(resultados) > 1 else "") + "\n\n".join(
+        a_markdown(r) for r in resultados.values())
+    print("\n" + texto)
     if args.salida:
-        args.salida.write_text(tabla + "\n", encoding="utf-8")
-        args.salida.with_suffix(".json").write_text(json.dumps(resultado, indent=2, ensure_ascii=False),
+        args.salida.write_text(texto + "\n", encoding="utf-8")
+        args.salida.with_suffix(".json").write_text(json.dumps(resultados, indent=2, ensure_ascii=False),
                                                     encoding="utf-8")
 
 
