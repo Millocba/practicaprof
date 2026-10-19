@@ -589,8 +589,64 @@ def test_un_grupo_chico_no_se_recupera_restando_a_las_demas_partes_del_total():
     assert _partes_sin_resta(37, {"a": 23, "b": 14, "c": 0}) == {"a": None, "b": "1–19", "c": 0}
     assert _partes_sin_resta(100, {"a": 50, "b": 50}) == {"a": 50, "b": 50}              # nada que ocultar
     assert _partes_sin_resta(10, {"a": 10}) == {"a": "1–19"}                           # el total ya está oculto
-    # dos partes chicas: restar solo da su suma, que no revela ninguna
-    assert _partes_sin_resta(71, {"a": 5, "b": 6, "c": 60}) == {"a": "1–19", "b": "1–19", "c": 60}
+    # dos partes chicas: 71 menos 60 da 11, que también las revela; la visible se oculta y el resto queda en 71
+    assert _partes_sin_resta(71, {"a": 5, "b": 6, "c": 60}) == {"a": "1–19", "b": "1–19", "c": None}
+
+
+def test_el_eje_no_devuelve_un_grupo_chico_restando_una_columna_o_el_total():
+    """Supresión complementaria en el eje: si la resta de una columna (o de todas las celdas) contra
+    el total publicado queda entre 1 y 19, se oculta la celda entera más chica."""
+    from perfilador.auditoria import _eje_sin_resta
+
+    eje = {"2026-01": {"banda": 50, "otra": 30}, "2026-02": {"banda": 40, "otra": 30}}
+    _eje_sin_resta(eje, [("banda", 91), (None, 151)])
+    assert eje["2026-02"]["banda"] is None          # 91 menos 90 da 1: la celda más chica se va
+    assert eje["2026-01"] == {"banda": 50, "otra": 30} and eje["2026-02"]["otra"] == 30
+
+    eje2 = {"2026-01": {"a": 50, "b": 40}, "2026-02": {"a": 40, "b": 40}}
+    _eje_sin_resta(eje2, [("a", 91), (None, 139)])
+    assert eje2["2026-02"]["a"] is None            # 91 menos 90 da 1: la celda más chica de "a" se va
+    assert eje2["2026-01"]["b"] is None            # recién ahí el total contra el eje da 139 - 130 = 9: otra
+    assert eje2["2026-01"]["a"] == 50 and eje2["2026-02"]["b"] == 40
+
+    eje3 = {"2026-01": {"x": 40}}
+    _eje_sin_resta(eje3, [("x", "1–19"), ("total", 41)])   # sin total entero ni celda "total" no hay resta
+    assert eje3 == {"2026-01": {"x": 40}}
+
+
+def test_el_bloque_protege_su_eje_con_los_totales_que_publica():
+    from perfilador.auditoria import _protege_el_eje
+
+    bloque = {"total": 141, "banda": 92, "otra": 50,
+              "por_mes": {"2026-01": {"banda": 50, "otra": 30}, "2026-02": {"banda": 41, "otra": 20}}}
+    _protege_el_eje(bloque, "por_mes")
+    assert bloque["por_mes"]["2026-02"]["banda"] is None     # 92 menos 91 da 1
+    assert bloque["por_mes"]["2026-01"]["banda"] == 50
+
+    cruce = {"cargas_sin_pedido": {"total": 91},
+             "por_tipo": {"camion": {"cargas_sin_pedido": 50}, "mixto": {"cargas_sin_pedido": 40}}}
+    _protege_el_eje(cruce, "por_tipo")
+    assert cruce["por_tipo"]["mixto"]["cargas_sin_pedido"] is None    # el total del hijo: 91 - 90 = 1
+    assert cruce["por_tipo"]["camion"]["cargas_sin_pedido"] == 50
+
+
+def test_un_grupo_con_total_sin_que_la_resta_de_sus_partes_devuelva_un_chico():
+    from perfilador.auditoria import _protege_el_total
+
+    leve = {"total": 288,
+            "por_baja": {"menos_de_10": "1–19", "de_10_a_100": 67, "de_100_a_500": 204},
+            "retoma_desde_el_nuevo": 37, "vuelve_al_valor_viejo": 245}
+    _protege_el_total(leve)
+    assert leve["retoma_desde_el_nuevo"] is None        # 288 - 37 - 245 = 6
+    assert leve["por_baja"]["de_10_a_100"] is None      # 288 - 67 - 204 = 17
+    assert leve["por_baja"]["de_100_a_500"] == 204 and leve["vuelve_al_valor_viejo"] == 245
+
+    abajo = {"total": 68, "vehiculos": 30,
+             "por_caida": {"de_500_a_5000": 50, "de_5000_a_50000": "1–19", "mas_de_50000": 0},
+             "con_excepcion_vigente": 0, "continua_coherente": 18}
+    _protege_el_total(abajo)
+    assert abajo["por_caida"]["de_500_a_5000"] is None  # 68 - 50 = 18
+    assert abajo["vehiculos"] == 30                      # 68 - 30 - 0 - 18 = 20: justo en el límite, se queda
 
 
 def test_el_adaptador_expone_los_precios_del_reporte_con_nombres_genericos(sintetico):
@@ -677,5 +733,67 @@ def test_el_cruce_de_ventanas_y_los_precios_no_revelan_identificadores(resultado
         return [h for v in d.values() for h in (hojas(v) if isinstance(v, dict) else [v])]
     # Ningún conteo suelto entre 1 y 19: los chicos salen como "1–19"
     assert all(not (isinstance(h, int) and 0 < h < 20) for bloque in bloques for h in hojas(bloque))
+
+
+def _residuos_chicos(datos):
+    """Restas de un total publicado menos sus partes visibles que caen entre 1 y 19.
+
+    Cada regla es una resta que alguien podría hacer con lo publicado: (a) un `total` entero menos
+    sus hermanos enteros; (b) lo mismo contra las partes de un grupo hermano de conteos; (c) una
+    clave entera del padre menos esa clave en todas las entradas de un eje (por_mes, por_producto,
+    por_tipo); (d) el `total` del padre menos todas las celdas enteras del eje; (e) el `total` de un
+    hijo menos la clave de ese hijo en cada entrada del eje. Devuelve la lista de restas sospechosas.
+    """
+    malos = []
+
+    def enteros(d, ignora=()):
+        return sum(v for k, v in d.items() if k not in ignora and isinstance(v, int)
+                   and not isinstance(v, bool))
+
+    def caminar(d, ruta):
+        total = d.get("total")
+        publicado = isinstance(total, int) and not isinstance(total, bool)
+        hijos = {k: v for k, v in d.items() if isinstance(v, dict)}
+        if publicado:
+            resto = enteros(d, ignora=("total",))
+            if 1 <= total - resto <= 19:
+                malos.append(f"{ruta}.total - partes = {total - resto}")
+            for nombre, hijo in hijos.items():
+                if not any(isinstance(v, dict) for v in hijo.values()):
+                    resto = enteros(hijo, ignora=("total",))
+                    if 1 <= total - resto <= 19:
+                        malos.append(f"{ruta}.total - {nombre} = {total - resto}")
+        ejes = {k: v for k, v in hijos.items()
+                if v and all(isinstance(entrada, dict) for entrada in v.values())}
+        for nombre, eje in ejes.items():
+            comunes = set.intersection(*(set(entrada) for entrada in eje.values()))
+            for clave in sorted(comunes):
+                if clave in d and isinstance(d[clave], int) and not isinstance(d[clave], bool):
+                    suma = sum(v for v in (entrada[clave] for entrada in eje.values())
+                               if isinstance(v, int) and not isinstance(v, bool))
+                    if 1 <= d[clave] - suma <= 19:
+                        malos.append(f"{ruta}.{clave} - {nombre} = {d[clave] - suma}")
+                hijo = d.get(clave)
+                if isinstance(hijo, dict) and isinstance(hijo.get("total"), int):
+                    suma = sum(v for v in (entrada[clave] for entrada in eje.values())
+                               if isinstance(v, int) and not isinstance(v, bool))
+                    if 1 <= hijo["total"] - suma <= 19:
+                        malos.append(f"{ruta}.{clave}.total - {nombre} = {hijo['total'] - suma}")
+            if publicado:
+                suma = enteros({k: v for entrada in eje.items() for k, v in entrada[1].items()})
+                if 1 <= total - suma <= 19:
+                    malos.append(f"{ruta}.total - {nombre} = {total - suma}")
+        for nombre, hijo in hijos.items():
+            caminar(hijo, f"{ruta}.{nombre}")
+
+    caminar(datos, "raiz")
+    return malos
+
+
+def test_ningun_total_menos_sus_partes_visibles_da_un_grupo_chico(resultado):
+    """Reidentificación por resta entre dimensiones: el total de cada bloque menos sus partes
+    visibles (hermanos, eje completo o una columna del eje) nunca devuelve un conteo de 1 a 19."""
+    violaciones = _residuos_chicos(resultado)
+    assert not violaciones, "\n".join(violaciones)
 
 

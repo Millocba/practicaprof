@@ -189,7 +189,7 @@ def _retrocesos_estudio(datos, alertas):
     tope = (2 * abajo["km_esperados"]).clip(lower=500)
     por_vehiculo = abajo.groupby("vehiculo_id").size()
 
-    return {
+    grupos = {
         "leve_en_dias_distintos": {
             "total": acotar(len(leve)),
             "por_baja": {"menos_de_10": acotar(int((baja < 10).sum())),
@@ -211,6 +211,7 @@ def _retrocesos_estudio(datos, alertas):
                                     "3_o_mas": acotar(int((por_vehiculo >= 3).sum()))},
         },
     }
+    return {nombre: _protege_el_total(grupo) for nombre, grupo in grupos.items()}
 
 
 # Cómo coinciden los litros de cada contingencia con su carga habitual cercana más parecida (H13), en orden:
@@ -303,16 +304,99 @@ def _dominios(serie):
 def _partes_sin_resta(total, partes):
     """Las partes de un total que se informa, sin que un grupo chico se pueda recuperar por resta.
 
-    Un conteo de 1 a 19 sale como "1–19"; pero si el total sale entero y esa es la única parte oculta, restarle
-    las otras lo devolvería. Por eso se oculta también la parte visible más chica (`None`): quien resta solo
-    obtiene la suma de las dos, que no revela ninguna.
+    Un conteo de 1 a 19 sale como "1–19"; pero si el total sale entero, restarle las partes visibles
+    devuelve la suma de las ocultas y, mientras esa suma dé entre 1 y 19, las revela. Por eso se
+    oculta también la parte visible más chica (`None`): quien resta solo obtiene 20 o más.
     """
+    if total < MINIMO_GRUPO:
+        return {k: acotar(v) for k, v in partes.items()}
+    publicadas = {k: v for k, v in partes.items() if v == 0 or v >= MINIMO_GRUPO}
     salida = {k: acotar(v) for k, v in partes.items()}
-    chicas = [k for k, v in partes.items() if 0 < v < MINIMO_GRUPO]
-    visibles = {k: v for k, v in partes.items() if v >= MINIMO_GRUPO}
-    if len(chicas) == 1 and total >= MINIMO_GRUPO and visibles:
-        salida[min(visibles, key=visibles.get)] = None
+    ocultas = set()
+    while True:
+        resto = total - sum(v for k, v in publicadas.items() if k not in ocultas)
+        visibles = {k: v for k, v in publicadas.items() if k not in ocultas and v >= MINIMO_GRUPO}
+        if not visibles or not 0 < resto < MINIMO_GRUPO:
+            break
+        ocultas.add(min(visibles, key=visibles.get))
+    for clave in ocultas:
+        salida[clave] = None
     return salida
+
+
+def _eje_sin_resta(eje, publicados):
+    """Un eje (por_mes, por_producto, por_tipo) sin que la resta contra un total publicado devuelva un conteo de 1 a 19.
+
+    `publicados` es la lista de (campo, total) contra los que alguien podría restar: `None` suma
+    todas las celdas enteras del eje (el total del bloque), un nombre de campo toma esa clave en
+    cada entrada (la columna de una banda o la de un hijo con total). Si la resta queda entre 1 y 19
+    se oculta la celda entera más chica (`None`) y el resto salta a 20 o más; se repite hasta que
+    ninguna resta deje un grupo chico al descubierto.
+    """
+    while True:
+        for campo, total in publicados:
+            if not isinstance(total, int) or isinstance(total, bool):
+                continue
+            celdas = [(clave, valor, entrada) for entrada in eje.values()
+                      for clave, valor in entrada.items()
+                      if (campo is None or clave == campo) and isinstance(valor, int)
+                      and not isinstance(valor, bool)]
+            if not celdas or not 0 < total - sum(valor for _, valor, _ in celdas) < MINIMO_GRUPO:
+                continue
+            elegibles = [celda for celda in celdas if celda[1] >= MINIMO_GRUPO]
+            if not elegibles:
+                continue
+            clave, _, entrada = min(elegibles, key=lambda celda: celda[1])
+            entrada[clave] = None
+            break
+        else:
+            return
+
+
+def _protege_el_eje(bloque, nombre_eje):
+    """El eje de un bloque contra los totales que el bloque publica.
+
+    Deja en (campo, total) los enteros sueltos del bloque (cada banda), el total de cada hijo con
+    total (la columna de ese hijo en el eje) y, al final, el total del bloque contra todas las
+    celdas. Las entradas del eje y los ejes hermanos no publican total y quedan fuera.
+    """
+    publicados = []
+    for clave, valor in bloque.items():
+        if clave == nombre_eje:
+            continue
+        if isinstance(valor, dict):
+            hijo_total = valor.get("total")
+            if isinstance(hijo_total, int) and not isinstance(hijo_total, bool):
+                publicados.append((clave, hijo_total))
+        elif isinstance(valor, int) and not isinstance(valor, bool):
+            publicados.append((clave, valor))
+    publicados.append((None, bloque.get("total")))
+    _eje_sin_resta(bloque[nombre_eje], publicados)
+
+
+def _protege_el_total(grupo):
+    """Un grupo armado a mano con su total, sin que la resta de sus partes visibles devuelva un conteo de 1 a 19.
+
+    Mira las partes sueltas del grupo y, por cada bloque de conteos anidado (por_baja, por_caida),
+    las suyas: mientras la resta dé entre 1 y 19 se oculta la parte entera más chica y se vuelve a
+    mirar. Los grupos sin total entero no se tocan.
+    """
+    total = grupo.get("total")
+    if not isinstance(total, int) or isinstance(total, bool) or total < MINIMO_GRUPO:
+        return grupo
+    bloques = [grupo] + [v for v in grupo.values()
+                         if isinstance(v, dict) and not any(isinstance(x, dict) for x in v.values())]
+    for bloque in bloques:
+        while True:
+            enteros = {k: v for k, v in bloque.items()
+                       if k != "total" and isinstance(v, int) and not isinstance(v, bool)}
+            if not 0 < total - sum(enteros.values()) < MINIMO_GRUPO:
+                break
+            visibles = {k: v for k, v in enteros.items() if v >= MINIMO_GRUPO}
+            if not visibles:
+                break
+            bloque[min(visibles, key=visibles.get)] = None
+    return grupo
 
 
 def _sin_vinculo(identificador, flota, otras, clave=None, nombre_clave=None):
@@ -593,13 +677,16 @@ def _partes_bandas(etiquetas, serie, total):
 
 
 def _partes_bandas_por(etiquetas, serie, claves):
-    """Igual que `_partes_bandas`, una entrada por cada valor de `claves` (sin nulos)."""
+    """Conteo por banda para cada valor de `claves` (sin nulos), con `acotar`.
+
+    La entrada no publica total, así que no hay resta que impedir adentro: la protección contra los
+    totales del bloque (el global, los de las bandas y los de los hijos) vive en `_protege_el_eje`.
+    """
     serie, claves = np.asarray(serie, dtype=object), pd.Series(claves)
     salida = {}
     for clave in sorted(set(claves.dropna())):
         elegidas = (claves == clave).to_numpy()
-        partes = {e: int((serie[elegidas] == e).sum()) for e in etiquetas}
-        salida[str(clave)] = _partes_sin_resta(int(elegidas.sum()), partes)
+        salida[str(clave)] = {e: acotar(int((serie[elegidas] == e).sum())) for e in etiquetas}
     return salida
 
 
@@ -678,7 +765,7 @@ def _cruce_registro_ventanas(datos, pares=None, sin_carga=None):
             salida[str(clave)] = {"cargas_sin_pedido": acotar(propias), "pedidos_sin_carga": acotar(ajenas)}
         return salida
 
-    return {
+    salida = {
         "cargas_sin_pedido": {
             "total": acotar(total_sin_pedido),
             "con_pedido_del_mismo_vehiculo": _partes_bandas(
@@ -690,6 +777,9 @@ def _cruce_registro_ventanas(datos, pares=None, sin_carga=None):
         "por_mes": por_clave(mes_carga[sin_pedido], mes_pedido),
         "por_tipo_de_vehiculo": por_clave(tipo_carga[sin_pedido], tipo_pedido),
     }
+    _protege_el_eje(salida, "por_mes")
+    _protege_el_eje(salida, "por_tipo_de_vehiculo")
+    return salida
 
 
 def _facturacion_detalle_precios(datos):
@@ -723,23 +813,28 @@ def _facturacion_detalle_precios(datos):
             valido = np.isfinite(razon)
             r = razon[valido]
             etiquetas = _bandas_de_precio_facturado(r)
-            cocientes[columna] = {
+            bloque = {
                 **_partes_bandas(BANDAS_PRECIO_FACTURADO, etiquetas, int(valido.sum())),
                 "por_mes": _partes_bandas_por(BANDAS_PRECIO_FACTURADO, etiquetas, mes_factura.to_numpy()[valido]),
                 "por_producto": _partes_bandas_por(BANDAS_PRECIO_FACTURADO, etiquetas,
                                                    referencia.map(producto).to_numpy()[valido]),
             }
+            _protege_el_eje(bloque, "por_mes")
+            _protege_el_eje(bloque, "por_producto")
+            cocientes[columna] = bloque
         resultado["precio_facturado_sobre_cada_precio_unitario"] = cocientes
 
         # La razón entre los dos precios unitarios del reporte (el segundo sobre el primero), por carga
         if len(columnas) >= 2:
             razon = (cargas[columnas[1]] / cargas[columnas[0]]).replace([np.inf, -np.inf], np.nan).dropna()
             etiquetas = _bandas_de_razon_entre_precios(razon)
-            resultado["razon_entre_precios_unitarios"] = {
+            bloque = {
                 **_partes_bandas(BANDAS_RAZON_ENTRE_PRECIOS, etiquetas, len(etiquetas)),
                 "por_mes": _partes_bandas_por(BANDAS_RAZON_ENTRE_PRECIOS, etiquetas,
                                               mes_carga.reindex(razon.index).to_numpy()),
             }
+            _protege_el_eje(bloque, "por_mes")
+            resultado["razon_entre_precios_unitarios"] = bloque
 
     # (b) Deuda contra la suma de las líneas y contra el total del PDF, en bandas de diferencia relativa
     if facturas is not None and len(facturas) and "importe" in detalle.columns:
@@ -750,21 +845,25 @@ def _facturacion_detalle_precios(datos):
 
         con_lineas = suma.notna() & suma.ne(0) & deuda.notna()
         etiquetas_lineas = _bandas_diferencia(((deuda - suma) / suma).abs()[con_lineas])
-        resultado["diferencias_entre_deuda_y_lineas"] = {
+        bloque = {
             **_partes_bandas(BANDAS_DIFERENCIA_IMPORTES, etiquetas_lineas, int(con_lineas.sum())),
             "por_mes": _partes_bandas_por(BANDAS_DIFERENCIA_IMPORTES, etiquetas_lineas,
                                           mes_de_factura[con_lineas].to_numpy()),
         }
+        _protege_el_eje(bloque, "por_mes")
+        resultado["diferencias_entre_deuda_y_lineas"] = bloque
 
         sin_pdf = pdf.isna().to_numpy()
         con_deuda = (deuda.notna() & deuda.ne(0) & ~pdf.isna()).to_numpy()
         etiquetas_pdf = pd.Series("sin_pdf", index=facturas.index, dtype=object)
         etiquetas_pdf[con_deuda] = _bandas_diferencia(((pdf - deuda) / deuda).abs()[con_deuda])
         con_sin_pdf = (*BANDAS_DIFERENCIA_IMPORTES, "sin_pdf")
-        resultado["diferencias_entre_pdf_y_deuda"] = {
+        bloque = {
             **_partes_bandas(con_sin_pdf, etiquetas_pdf.to_numpy(), len(facturas)),
             "por_mes": _partes_bandas_por(con_sin_pdf, etiquetas_pdf.to_numpy(), mes_de_factura.to_numpy()),
         }
+        _protege_el_eje(bloque, "por_mes")
+        resultado["diferencias_entre_pdf_y_deuda"] = bloque
 
     # (c) Líneas: duplicadas, sin carga en el reporte, de otro concepto y de otro mes que su carga
     repetidas = referencia.dropna().value_counts()
