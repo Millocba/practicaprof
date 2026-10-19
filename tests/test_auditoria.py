@@ -991,3 +991,61 @@ def test_el_detalle_de_exceso_oculta_la_banda_que_delataria_un_grupo_chico():
     assert not _restas_del_detalle(detalle), "\n".join(_restas_del_detalle(detalle))
 
 
+def test_la_flota_con_matriculas_repetidas_no_tumba_el_exceso(monkeypatch):
+    """El padrón puede traer una matrícula repetida: el mapa de capacidad no puede reindexar."""
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    monkeypatch.setattr("perfilador.auditoria.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _exceso_volumetrico, _exceso_volumetrico_detalle
+
+    consumo = pd.DataFrame([{"id": f"C-{i}", "vehiculo_id": "S1", "fecha": f"2024-06-{1 + i:02d}",
+                             "litros": 105.0, "odometro": 1000 + 100 * i} for i in range(10)])
+    flota = pd.DataFrame({"Matricula": ["S1", "S1", "S2"], "CapacidadTanque": [100.0, 110.0, 100.0]})
+
+    assert _exceso_volumetrico(consumo, flota)["cargas_evaluables"] == 10
+    detalle = _exceso_volumetrico_detalle(consumo, flota, None)
+    assert detalle["desde_el_inicio"]["cargas_con_exceso"] == 10
+
+
+def test_un_bloque_de_diagnostico_que_falla_se_informa_sanitizado():
+    """Un bloque no puede tumbar la corrida: si falla, solo el tipo y la función y línea, sin datos."""
+    from perfilador.auditoria import _proteger
+
+    def bloque_roto(consumo, flota):
+        raise ValueError("dominio AB123CD de la matrícula XYZ-999")
+
+    fallo = _proteger("bloque_roto", bloque_roto, "consumo", "flota")
+    assert fallo["error"] == "ValueError"
+    assert fallo["donde"].startswith("bloque_roto:")
+    assert "AB123CD" not in json.dumps(fallo) and "XYZ" not in json.dumps(fallo)
+    assert _proteger("bloque_roto", lambda: {"ok": True}) == {"ok": True}
+
+
+def test_correr_solo_un_bloque_saltea_las_reglas_y_los_modelos(sintetico):
+    """`solo` arma los datos con el adaptador y calcula un único bloque, sin reglas ni modelos."""
+    resultado = auditar(con_forma_real(sintetico), proveedor="proveedor zeta",
+                        solo="exceso_volumetrico_detalle")
+    assert set(resultado["diagnostico"]) == {"exceso_volumetrico_detalle"}
+    assert set(resultado["diagnostico"]["exceso_volumetrico_detalle"]) == {"desde_el_inicio", "despues"}
+    assert "error" not in resultado["diagnostico"]["exceso_volumetrico_detalle"]
+    assert resultado["reglas"] == {} and resultado["hipotesis"] == {}
+    assert resultado["modelos"] == {} and resultado["cruce_registro"] == {}
+
+
+def test_la_corrida_informa_un_bloque_que_falla_sin_exponer_el_mensaje(sintetico, monkeypatch):
+    def roto(*argumentos, **opciones):
+        raise KeyError("id 4712 del dominio AB123CD")
+
+    monkeypatch.setattr("perfilador.auditoria._exceso_volumetrico_detalle", roto)
+    resultado = auditar(con_forma_real(sintetico), proveedor="proveedor zeta",
+                        solo="exceso_volumetrico_detalle")
+    bloque = resultado["diagnostico"]["exceso_volumetrico_detalle"]
+    assert bloque["error"] == "KeyError"
+    assert bloque["donde"].startswith("roto:")
+    assert "AB123CD" not in json.dumps(resultado)
+
+
+def test_correr_solo_un_bloque_desconocido_no_arranca(sintetico):
+    with pytest.raises(ValueError):
+        auditar(con_forma_real(sintetico), proveedor="proveedor zeta", solo="no_existe")
+
+

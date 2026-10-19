@@ -10,7 +10,9 @@ Sin etiquetas reales no hay precisión ni recall: lo que se mide es cuánto marc
 se parecen las variables reales a las sintéticas y cuánto coinciden los métodos.
 """
 import tempfile
+import traceback
 from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -250,10 +252,32 @@ def _contingencias(consumo):
             "por_mes": {m: contar((mes == m).sum(), mejor[mejor["mes"] == m]) for m in sorted(mes.unique())}}
 
 
+def _proteger(nombre, bloque, *argumentos):
+    """Corre un bloque de diagnóstico sin que una falla tumbe la corrida (#75).
+
+    Si el bloque falla devuelve solo el tipo de excepción y la función y línea del paquete donde se
+    originó: ni el mensaje ni los valores, que podrían traer datos de la fuente.
+    """
+    try:
+        return bloque(*argumentos)
+    except Exception as error:  # noqa: BLE001 - un bloque de diagnóstico no puede tumbar la corrida
+        marcos = traceback.extract_tb(error.__traceback__)
+        propios = [m for m in marcos if Path(m.filename).parent.name in ("perfilador", "deteccion")
+                   and m.name not in ("_proteger", "<lambda>")]
+        ultimo = propios[-1] if propios else (marcos[-1] if marcos else None)
+        return {"error": type(error).__name__,
+                "donde": f"{ultimo.name}:{ultimo.lineno}" if ultimo else f"{nombre}:0"}
+
+
+def _capacidad_registrada(consumo, flota):
+    """Capacidad de cada carga según el padrón, sin depender de que la matrícula sea única."""
+    por_matricula = flota.drop_duplicates("Matricula").set_index("Matricula")["CapacidadTanque"]
+    return pd.to_numeric(consumo["vehiculo_id"].map(por_matricula), errors="coerce")
+
+
 def _exceso_volumetrico(consumo, flota):
     """Diagnóstico agregado de H3b: ratios, cobertura y momento en que aparece el exceso."""
-    capacidad = pd.to_numeric(consumo["vehiculo_id"].map(
-        flota.set_index("Matricula")["CapacidadTanque"]), errors="coerce")
+    capacidad = _capacidad_registrada(consumo, flota)
     litros = pd.to_numeric(consumo["litros"], errors="coerce")
     evaluable = capacidad.notna() & capacidad.gt(0) & litros.notna()
     datos = consumo.loc[evaluable, ["id", "vehiculo_id", "fecha"]].copy()
@@ -349,8 +373,7 @@ def _exceso_volumetrico_detalle(consumo, flota, alertas):
     (f) las cargas con causa probable de error de carga. Sin identificadores y sin restas entre
     los conteos publicados que devuelvan un grupo de 1 a 19.
     """
-    capacidad = pd.to_numeric(consumo["vehiculo_id"].map(
-        flota.set_index("Matricula")["CapacidadTanque"]), errors="coerce")
+    capacidad = _capacidad_registrada(consumo, flota)
     litros = pd.to_numeric(consumo["litros"], errors="coerce")
     evaluable = capacidad.notna() & capacidad.gt(0) & litros.notna()
     columnas = ["id", "vehiculo_id", "fecha", "litros"] + (["odometro"] if "odometro" in consumo else [])
@@ -1063,8 +1086,37 @@ def _facturacion_detalle_precios(datos):
     return resultado
 
 
-def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200):
+BLOQUES_DE_DIAGNOSTICO = {
+    "exceso_volumetrico": lambda datos, alertas: _exceso_volumetrico(datos["consumo"], datos["flota"]),
+    "exceso_volumetrico_detalle": lambda datos, alertas: _exceso_volumetrico_detalle(
+        datos["consumo"], datos["flota"], alertas),
+}
+
+
+def _sobre_agregado(diagnostico, reglas, hipotesis, cruce, modelos):
+    """El sobre común de la salida: versión, fecha, revisión pendiente y los bloques."""
+    return {"perfilador_version": VERSION, "tipo": "auditoria_agregada",
+            "generado": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            "revision": {"revisado": False, "responsable": None, "fecha": None, "notas": None},
+            "reglas_de_privacidad": f"solo agregados; grupos de menos de {MINIMO_GRUPO} como 1–{MINIMO_GRUPO - 1}",
+            "diagnostico": diagnostico, "reglas": reglas, "hipotesis": hipotesis, "cruce_registro": cruce,
+            "modelos": modelos}
+
+
+def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200, solo=None):
+    """Corre las reglas y los modelos y devuelve la auditoría agregada.
+
+    Con `solo`, en cambio, arma los datos con el adaptador y calcula únicamente ese bloque de
+    diagnóstico, salteando las reglas y los modelos: sirve para probar una tanda sin esperar la
+    corrida entera.
+    """
+    if solo is not None and solo not in BLOQUES_DE_DIAGNOSTICO:
+        raise ValueError(f"bloque desconocido: {solo}. Los disponibles son: "
+                         f"{', '.join(sorted(BLOQUES_DE_DIAGNOSTICO))}.")
     datos, diagnostico = adaptar(tablas, proveedor)
+    if solo is not None:
+        valores = _proteger(solo, BLOQUES_DE_DIAGNOSTICO[solo], datos, None)
+        return _sobre_agregado({solo: valores}, {}, {}, {}, {})
     consumo = datos["consumo"]
     registro = datos.get("solicitudes")
     # Con el registro entero: un dominio que figura en un pedido de otro mes también es de un móvil
@@ -1111,9 +1163,11 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
     diagnostico["odometro"]["retrocesos"] = _retrocesos(datos["consumo"], alertas)
     diagnostico["odometro"]["retrocesos_estudio"] = _retrocesos_estudio(datos, alertas)
     diagnostico["contingencias"] = _contingencias(datos["consumo"])
-    diagnostico["exceso_volumetrico"] = _exceso_volumetrico(datos["consumo"], datos["flota"])
-    diagnostico["exceso_volumetrico_detalle"] = _exceso_volumetrico_detalle(datos["consumo"], datos["flota"],
-                                                                           alertas)
+    diagnostico["exceso_volumetrico"] = _proteger("exceso_volumetrico", _exceso_volumetrico,
+                                                  datos["consumo"], datos["flota"])
+    diagnostico["exceso_volumetrico_detalle"] = _proteger("exceso_volumetrico_detalle",
+                                                          _exceso_volumetrico_detalle, datos["consumo"],
+                                                          datos["flota"], alertas)
     diagnostico["cobertura"] = _cobertura(datos, alertas, registro_del_periodo if registro is not None else None)
     por_regla = {}
     for regla, grupo in alertas.groupby("regla"):
@@ -1196,11 +1250,4 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
         "variables": {c: {"real": _cuantiles(variables[c]), "sintetico": _cuantiles(referencia[c])}
                       for c in variables.columns},
     }
-    return {
-        "perfilador_version": VERSION, "tipo": "auditoria_agregada",
-        "generado": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-        "revision": {"revisado": False, "responsable": None, "fecha": None, "notas": None},
-        "reglas_de_privacidad": f"solo agregados; grupos de menos de {MINIMO_GRUPO} como 1–{MINIMO_GRUPO - 1}",
-        "diagnostico": diagnostico, "reglas": por_regla, "hipotesis": hipotesis, "cruce_registro": cruce,
-        "modelos": modelos,
-    }
+    return _sobre_agregado(diagnostico, por_regla, hipotesis, cruce, modelos)
