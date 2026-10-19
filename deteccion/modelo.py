@@ -68,6 +68,9 @@ def construir_variables(flota, consumo, estaciones=None, telemetria_diaria=None,
     que evaluar. Si la flota trae fecha de estado (escenario realista) se agregan
     las variables de contexto; las de estaciones y GPS, si se pasan esas fuentes.
     """
+    # Una carga sin remito no tiene id y un id repetido no se puede reindexar: no se evalúan por
+    # transacción, así que quedan afuera del modelo en lugar de cortar la corrida
+    consumo = consumo[consumo["id"].notna() & ~consumo["id"].duplicated()]
     capacidad = consumo["vehiculo_id"].map(flota.set_index("Matricula")["CapacidadTanque"])
     # Un doble cobro no es una carga más del vehículo: no cuenta en el odómetro ni en las cargas del día
     duplicados = pd.concat([detectar_duplicados(consumo)["id_registro"], detectar_doble_cobro(consumo)["id_registro"]],
