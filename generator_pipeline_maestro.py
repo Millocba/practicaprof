@@ -42,7 +42,7 @@ DIRECTORIOS_ESCENARIO = {
 SEED = 42
 # Versión de los datos que produce el generador: cambiarla cuando cambie lo que genera, así la
 # aplicación regenera los datos que tenga en disco de una versión anterior
-VERSION_GENERADOR = "3.2"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md); 2.1: horas del día en el orden del odómetro; 2.2: forma de cargar calibrada; 2.3: excepciones de odómetro; 2.4: textos del diccionario; 2.5: origen de la transacción (H13); 2.6: errores de carga en el registro interno; 2.7: observaciones de las alertas; 2.8: H5 pasa de rendimiento imposible a consumo atípico; 2.9: decimal mal colocado en las contingencias (H13); 3.0: H3b con tolerancia e historial (capacidad mal registrada visible desde la primera carga); 3.1: H11 decide por la última conexión del dispositivo; 3.2: H1 vincula por motor y tarjeta (identificación de las cargas)
+VERSION_GENERADOR = "3.3"   # 2.0: escenario realista v2 (docs/DISENO_ESCENARIO_V2.md); 2.1: horas del día en el orden del odómetro; 2.2: forma de cargar calibrada; 2.3: excepciones de odómetro; 2.4: textos del diccionario; 2.5: origen de la transacción (H13); 2.6: errores de carga en el registro interno; 2.7: observaciones de las alertas; 2.8: H5 pasa de rendimiento imposible a consumo atípico; 2.9: decimal mal colocado en las contingencias (H13); 3.0: H3b con tolerancia e historial (capacidad mal registrada visible desde la primera carga); 3.1: H11 decide por la última conexión del dispositivo; 3.2: H1 vincula por motor y tarjeta (identificación de las cargas)
 
 # Ventana temporal de los datos: consumos y solicitudes entre FECHA_INICIO y
 # FECHA_INICIO + DIAS_VENTANA. FECHA_REFERENCIA hace de "ahora" para la telemetría.
@@ -126,6 +126,7 @@ CATALOGO_LEGITIMOS = {
     "TRANSFERENCIA_DE_SALDO": "el contrato recibió saldo de otro porque la proyección del mes no alcanzaba",
     "DISPOSITIVO_EN_DEPOSITO": "el móvil está de baja y su dispositivo quedó en el grupo de depósito, sin transmitir",
     "ODOMETRO_EXCEPTUADO": "el vehículo tiene una excepción de odómetro vigente ese día: la lectura se repite",
+    "MISMA_LECTURA_EN_EL_DIA": "dos cargas del mismo vehículo el mismo día con la misma lectura: el tablero no se vuelve a leer",
     "CONTINGENCIA": "la carga se registró por contingencia (vía alternativa) y no se duplicó",
     "IDENTIFICADA_POR_MOTOR": "sin dominio, la carga se identificó con los últimos 8 dígitos del número de motor",
 }
@@ -248,6 +249,9 @@ EXCEPCIONES_ODOMETRO = {
     "cumplida": 3,         # excepciones que ya vencieron (una de un solo día)
     "sin_excepcion": 3,    # anomalías: la lectura se repite sin excepción (una, después de que venció)
 }
+# Dos cargas del mismo vehículo el mismo día a la misma lectura (H12): no se vuelve a leer el tablero, así que no es
+# una alerta del odómetro. Cantidad de pares cada 200 vehículos.
+PARES_MISMA_LECTURA = 6
 MOTIVOS_EXCEPCION = ["ODOMETRO SIN FUNCIONAR", "TABLERO EN REPARACION", "CAMBIO DE INSTRUMENTAL"]
 
 # Origen de la transacción en el reporte del proveedor (H13): el medio de pago electrónico habitual o una
@@ -2430,6 +2434,43 @@ class GeneradorMaestro:
             excepciones, columns=["id", "patente", "motivo", "activo", "fecha_creacion", "fecha_hasta"])
         logger.info(f"✓ Excepciones de odómetro: {len(vigentes)} vigentes, {len(excepciones) - len(vigentes)} cumplidas")
 
+    def aplicar_misma_lectura_en_el_dia(self):
+        """Realista: dos cargas el mismo día con la misma lectura del odómetro (H12, #54).
+
+        Si la carga anterior es del mismo día, el tablero no se vuelve a leer: repetir la lectura
+        no es una alerta del odómetro (caso legítimo MISMA_LECTURA_EN_EL_DIA, sobre la segunda
+        carga). La regla ingenua, que alerta toda lectura repetida, la marca igual. Toma pares de
+        cargas sin otras etiquetas, de vehículos sin anomalías ni casos de odómetro, y usa un
+        generador aleatorio propio, así que no cambia el resto del escenario.
+        """
+        rng = random.Random(self.seed + 5_000_011)
+        consumo = self.datasets["consumo"]
+        etiquetadas = {a["id_registro"] for a in self.anomalias} | {c["id_registro"] for c in self.casos_legitimos}
+        con_odometro = ({a["vehiculo_id"] for a in self.anomalias if "ODOMETRO" in a["tipo_anomalia"]}
+                        | {c["vehiculo_id"] for c in self.casos_legitimos
+                           if c["tipo_caso"] in ("ODOMETRO_EXCEPTUADO", "CAMBIO_ODOMETRO", "ERROR_TIPEO_ODOMETRO",
+                                                 "VIAJE_LARGO")})
+        orden = consumo.assign(_fecha=pd.to_datetime(consumo["fecha"])).sort_values(
+            ["vehiculo_id", "_fecha", "odometro", "id"])
+        pares = []
+        for (m, _), g in orden.groupby(["vehiculo_id", "_fecha"]):
+            if len(g) == 2 and m not in con_odometro and not set(g["id"]) & etiquetadas                     and g["odometro"].notna().all():
+                pares.append((m, g.index[0], g.index[1]))
+        rng.shuffle(pares)
+        cantidad = max(1, round(PARES_MISMA_LECTURA * self.n_flota / 200))
+        elegidos, usados = [], set()
+        for m, primera, segunda in pares:
+            if m not in usados:
+                usados.add(m)
+                elegidos.append((m, primera, segunda))
+            if len(elegidos) == cantidad:
+                break
+        for m, primera, segunda in elegidos:
+            consumo.at[segunda, "odometro"] = consumo.at[primera, "odometro"]
+            self._registrar_legitimo(consumo.at[segunda, "id"], m, "MISMA_LECTURA_EN_EL_DIA",
+                                     CATALOGO_LEGITIMOS["MISMA_LECTURA_EN_EL_DIA"])
+        logger.info(f"✓ Misma lectura en el día: {len(elegidos)} pares de cargas")
+
     def aplicar_contingencias(self):
         """Realista: origen de cada transacción del reporte y dobles cobros (H13).
 
@@ -2692,6 +2733,7 @@ class GeneradorMaestro:
                 self.aplicar_telemetria_de_bajas()
                 self.aplicar_identificacion_de_cargas()
                 self.aplicar_observaciones()
+                self.aplicar_misma_lectura_en_el_dia()   # al final: no cambia lo que sortean los pasos anteriores
             else:
                 self.generar_solicitudes()
                 self.generar_facturacion()
