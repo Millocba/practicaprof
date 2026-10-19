@@ -50,7 +50,10 @@ VARIABLES_DE_LA_REGLA = {
     "H2b": ("km", "exceso_km", "retroceso_km"),
     "H2c": ("km", "exceso_km", "retroceso_km"),
     "H3b": ("ratio_litros_tanque", "litros_vs_habitual", "tanques_en_el_dia"),
-    "H4": ("cargas_en_el_dia", "tanques_en_el_dia"),
+    # La regla con contexto es "fraccionamiento sin recorrido": el recorrido (km, rendimiento) es parte de la
+    # regla. Sin excluirlo, el modelo veía la mitad de la regla y llegaba a 0,76 de F1; al quitar las 2 más
+    # importantes (rendimiento_relativo y km) cae a 0,05 (ver `explicar`)
+    "H4": ("cargas_en_el_dia", "tanques_en_el_dia", "rendimiento_relativo", "km", "exceso_km"),
     "H5": ("rendimiento_relativo",),
     "H6": ("vehiculo_inactivo",),
     "H7": ("distancia_zona_km", "distancia_gps_km", "sin_gps"),
