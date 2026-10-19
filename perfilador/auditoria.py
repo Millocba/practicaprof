@@ -34,6 +34,25 @@ REVISION = 100          # tamaño de la cola con que se comparan los métodos
 COBERTURA_MES_COMPLETO = 0.9   # un mes está completo si el reporte trae cargas en el 90% de sus días...
 ULTIMOS_DIAS_DEL_MES = 3       # ...y en alguno de sus últimos 3 días (un mes en curso no está completo)
 
+# Bandas de |Δ| (minutos) del cruce con el registro (H8): hasta 3 h, 3-6 h, 6-12 h, 12-24 h y nada
+BANDAS_CRUCE_TIEMPO = ("hasta_3_horas", "de_3_a_6_horas", "de_6_a_12_horas", "de_12_a_24_horas",
+                       "ninguno_a_menos_de_24_horas")
+CORTES_CRUCE_MINUTOS = (180, 360, 720, 1440)
+# Bandas de |Δ| de los pares que sí cruzan (H8)
+BANDAS_CRUCE_QUE_CRUZAN = ("hasta_5", "de_5_a_30", "de_30_a_60", "de_1_a_3_horas", "mas_de_3_horas")
+CORTES_QUE_CRUZAN = (5, 30, 60, 180)
+# Bandas del cociente precio facturado / precio unitario del reporte (H9; el corte es de la banda de arriba)
+BANDAS_PRECIO_FACTURADO = ("menos_de_0_95", "de_0_95_a_0_98", "de_0_98_a_1_00", "de_1_00_a_1_02", "mas_de_1_02")
+CORTES_PRECIO_FACTURADO = (0.95, 0.98, 1.00, 1.02)
+# Bandas de la razón entre los dos precios unitarios del reporte (el segundo sobre el primero)
+BANDAS_RAZON_ENTRE_PRECIOS = ("menos_de_0_97", "de_0_97_a_0_98", "exactamente_0_98", "de_0_98_a_0_99",
+                              "mas_de_0_99")
+VALOR_RAZON_ENTRE_PRECIOS = 0.98
+TOLERANCIA_RAZON_ENTRE_PRECIOS = 0.0005
+# Bandas de la diferencia relativa de importes (H9)
+BANDAS_DIFERENCIA_IMPORTES = ("exacta", "hasta_0_1_pct", "de_0_1_a_0_5_pct", "de_0_5_a_2_pct", "mas_de_2_pct")
+CORTES_DIFERENCIA_IMPORTES = (0.001, 0.005, 0.02)
+
 
 def meses_completos(fechas):
     """Meses que el reporte cubre de principio a fin, según los días con cargas."""
@@ -170,7 +189,7 @@ def _retrocesos_estudio(datos, alertas):
     tope = (2 * abajo["km_esperados"]).clip(lower=500)
     por_vehiculo = abajo.groupby("vehiculo_id").size()
 
-    return {
+    grupos = {
         "leve_en_dias_distintos": {
             "total": acotar(len(leve)),
             "por_baja": {"menos_de_10": acotar(int((baja < 10).sum())),
@@ -192,6 +211,7 @@ def _retrocesos_estudio(datos, alertas):
                                     "3_o_mas": acotar(int((por_vehiculo >= 3).sum()))},
         },
     }
+    return {nombre: _protege_el_total(grupo) for nombre, grupo in grupos.items()}
 
 
 # Cómo coinciden los litros de cada contingencia con su carga habitual cercana más parecida (H13), en orden:
@@ -284,16 +304,99 @@ def _dominios(serie):
 def _partes_sin_resta(total, partes):
     """Las partes de un total que se informa, sin que un grupo chico se pueda recuperar por resta.
 
-    Un conteo de 1 a 19 sale como "1–19"; pero si el total sale entero y esa es la única parte oculta, restarle
-    las otras lo devolvería. Por eso se oculta también la parte visible más chica (`None`): quien resta solo
-    obtiene la suma de las dos, que no revela ninguna.
+    Un conteo de 1 a 19 sale como "1–19"; pero si el total sale entero, restarle las partes visibles
+    devuelve la suma de las ocultas y, mientras esa suma dé entre 1 y 19, las revela. Por eso se
+    oculta también la parte visible más chica (`None`): quien resta solo obtiene 20 o más.
     """
+    if total < MINIMO_GRUPO:
+        return {k: acotar(v) for k, v in partes.items()}
+    publicadas = {k: v for k, v in partes.items() if v == 0 or v >= MINIMO_GRUPO}
     salida = {k: acotar(v) for k, v in partes.items()}
-    chicas = [k for k, v in partes.items() if 0 < v < MINIMO_GRUPO]
-    visibles = {k: v for k, v in partes.items() if v >= MINIMO_GRUPO}
-    if len(chicas) == 1 and total >= MINIMO_GRUPO and visibles:
-        salida[min(visibles, key=visibles.get)] = None
+    ocultas = set()
+    while True:
+        resto = total - sum(v for k, v in publicadas.items() if k not in ocultas)
+        visibles = {k: v for k, v in publicadas.items() if k not in ocultas and v >= MINIMO_GRUPO}
+        if not visibles or not 0 < resto < MINIMO_GRUPO:
+            break
+        ocultas.add(min(visibles, key=visibles.get))
+    for clave in ocultas:
+        salida[clave] = None
     return salida
+
+
+def _eje_sin_resta(eje, publicados):
+    """Un eje (por_mes, por_producto, por_tipo) sin que la resta contra un total publicado devuelva un conteo de 1 a 19.
+
+    `publicados` es la lista de (campo, total) contra los que alguien podría restar: `None` suma
+    todas las celdas enteras del eje (el total del bloque), un nombre de campo toma esa clave en
+    cada entrada (la columna de una banda o la de un hijo con total). Si la resta queda entre 1 y 19
+    se oculta la celda entera más chica (`None`) y el resto salta a 20 o más; se repite hasta que
+    ninguna resta deje un grupo chico al descubierto.
+    """
+    while True:
+        for campo, total in publicados:
+            if not isinstance(total, int) or isinstance(total, bool):
+                continue
+            celdas = [(clave, valor, entrada) for entrada in eje.values()
+                      for clave, valor in entrada.items()
+                      if (campo is None or clave == campo) and isinstance(valor, int)
+                      and not isinstance(valor, bool)]
+            if not celdas or not 0 < total - sum(valor for _, valor, _ in celdas) < MINIMO_GRUPO:
+                continue
+            elegibles = [celda for celda in celdas if celda[1] >= MINIMO_GRUPO]
+            if not elegibles:
+                continue
+            clave, _, entrada = min(elegibles, key=lambda celda: celda[1])
+            entrada[clave] = None
+            break
+        else:
+            return
+
+
+def _protege_el_eje(bloque, nombre_eje):
+    """El eje de un bloque contra los totales que el bloque publica.
+
+    Deja en (campo, total) los enteros sueltos del bloque (cada banda), el total de cada hijo con
+    total (la columna de ese hijo en el eje) y, al final, el total del bloque contra todas las
+    celdas. Las entradas del eje y los ejes hermanos no publican total y quedan fuera.
+    """
+    publicados = []
+    for clave, valor in bloque.items():
+        if clave == nombre_eje:
+            continue
+        if isinstance(valor, dict):
+            hijo_total = valor.get("total")
+            if isinstance(hijo_total, int) and not isinstance(hijo_total, bool):
+                publicados.append((clave, hijo_total))
+        elif isinstance(valor, int) and not isinstance(valor, bool):
+            publicados.append((clave, valor))
+    publicados.append((None, bloque.get("total")))
+    _eje_sin_resta(bloque[nombre_eje], publicados)
+
+
+def _protege_el_total(grupo):
+    """Un grupo armado a mano con su total, sin que la resta de sus partes visibles devuelva un conteo de 1 a 19.
+
+    Mira las partes sueltas del grupo y, por cada bloque de conteos anidado (por_baja, por_caida),
+    las suyas: mientras la resta dé entre 1 y 19 se oculta la parte entera más chica y se vuelve a
+    mirar. Los grupos sin total entero no se tocan.
+    """
+    total = grupo.get("total")
+    if not isinstance(total, int) or isinstance(total, bool) or total < MINIMO_GRUPO:
+        return grupo
+    bloques = [grupo] + [v for v in grupo.values()
+                         if isinstance(v, dict) and not any(isinstance(x, dict) for x in v.values())]
+    for bloque in bloques:
+        while True:
+            enteros = {k: v for k, v in bloque.items()
+                       if k != "total" and isinstance(v, int) and not isinstance(v, bool)}
+            if not 0 < total - sum(enteros.values()) < MINIMO_GRUPO:
+                break
+            visibles = {k: v for k, v in enteros.items() if v >= MINIMO_GRUPO}
+            if not visibles:
+                break
+            bloque[min(visibles, key=visibles.get)] = None
+    return grupo
 
 
 def _sin_vinculo(identificador, flota, otras, clave=None, nombre_clave=None):
@@ -523,6 +626,261 @@ def _cobertura(datos, alertas, registro_del_periodo=None):
     return cobertura
 
 
+def _bandas_diferencia(valores):
+    """Bandas de la diferencia relativa (ya en valor absoluto): exacta, ≤0,1 %, ≤0,5 %, ≤2 %, más."""
+    valores = np.asarray(valores, dtype=float)
+    return np.select([valores == 0, valores <= CORTES_DIFERENCIA_IMPORTES[0],
+                      valores <= CORTES_DIFERENCIA_IMPORTES[1], valores <= CORTES_DIFERENCIA_IMPORTES[2]],
+                     list(BANDAS_DIFERENCIA_IMPORTES[:4]), default=BANDAS_DIFERENCIA_IMPORTES[4])
+
+
+def _bandas_cruce_de_tiempo(minutos):
+    """Banda de |Δ| en minutos de las cargas sin pedido: el corte queda en la banda de abajo (≤)."""
+    minutos = np.asarray(minutos, dtype=float)
+    return np.select([minutos <= CORTES_CRUCE_MINUTOS[0], minutos <= CORTES_CRUCE_MINUTOS[1],
+                      minutos <= CORTES_CRUCE_MINUTOS[2], minutos <= CORTES_CRUCE_MINUTOS[3]],
+                     list(BANDAS_CRUCE_TIEMPO[:4]), default=BANDAS_CRUCE_TIEMPO[4])
+
+
+def _bandas_de_que_cruzan(minutos):
+    """Banda de |Δ| en minutos de los pares que cruzan: el corte queda en la banda de abajo (≤)."""
+    minutos = np.abs(np.asarray(minutos, dtype=float))
+    return np.select([minutos <= CORTES_QUE_CRUZAN[0], minutos <= CORTES_QUE_CRUZAN[1],
+                      minutos <= CORTES_QUE_CRUZAN[2], minutos <= CORTES_QUE_CRUZAN[3]],
+                     list(BANDAS_CRUCE_QUE_CRUZAN[:4]), default=BANDAS_CRUCE_QUE_CRUZAN[4])
+
+
+def _bandas_de_precio_facturado(razones):
+    """Banda del cociente precio unitario facturado / precio unitario del reporte."""
+    r = np.asarray(razones, dtype=float)
+    return np.select([r < CORTES_PRECIO_FACTURADO[0],
+                      (r >= CORTES_PRECIO_FACTURADO[0]) & (r < CORTES_PRECIO_FACTURADO[1]),
+                      (r >= CORTES_PRECIO_FACTURADO[1]) & (r < CORTES_PRECIO_FACTURADO[2]),
+                      (r >= CORTES_PRECIO_FACTURADO[2]) & (r <= CORTES_PRECIO_FACTURADO[3])],
+                     list(BANDAS_PRECIO_FACTURADO[:4]), default=BANDAS_PRECIO_FACTURADO[4])
+
+
+def _bandas_de_razon_entre_precios(razones):
+    """Banda de la razón entre los dos precios unitarios del reporte, con tolerancia en 0,98."""
+    r = np.asarray(razones, dtype=float)
+    bajo = VALOR_RAZON_ENTRE_PRECIOS - TOLERANCIA_RAZON_ENTRE_PRECIOS
+    alto = VALOR_RAZON_ENTRE_PRECIOS + TOLERANCIA_RAZON_ENTRE_PRECIOS
+    return np.select([r < 0.97, (r >= 0.97) & (r < bajo), (r >= bajo) & (r <= alto),
+                      (r > alto) & (r <= 0.99)],
+                     list(BANDAS_RAZON_ENTRE_PRECIOS[:4]), default=BANDAS_RAZON_ENTRE_PRECIOS[4])
+
+
+def _partes_bandas(etiquetas, serie, total):
+    """Conteo por banda con el total visible: ninguna parte chica se puede recuperar por resta."""
+    partes = {e: int((np.asarray(serie) == e).sum()) for e in etiquetas}
+    return {"total": acotar(total), **_partes_sin_resta(total, partes)}
+
+
+def _partes_bandas_por(etiquetas, serie, claves):
+    """Conteo por banda para cada valor de `claves` (sin nulos), con `acotar`.
+
+    La entrada no publica total, así que no hay resta que impedir adentro: la protección contra los
+    totales del bloque (el global, los de las bandas y los de los hijos) vive en `_protege_el_eje`.
+    """
+    serie, claves = np.asarray(serie, dtype=object), pd.Series(claves)
+    salida = {}
+    for clave in sorted(set(claves.dropna())):
+        elegidas = (claves == clave).to_numpy()
+        salida[str(clave)] = {e: acotar(int((serie[elegidas] == e).sum())) for e in etiquetas}
+    return salida
+
+
+def _cruce_registro_ventanas(datos, pares=None, sin_carga=None):
+    """Diagnóstico del cruce con el registro (H8): qué queda fuera por la ventana de horario.
+
+    De las cargas que el cruce con contexto deja sin pedido, cuántas tienen un pedido del mismo
+    vehículo por dominio (normalizado) a menos de 3, 6, 12 y 24 horas; cuántos pedidos rendidos quedan
+    sin carga; cómo se reparten los minutos de los pares que sí cruzan; y todo por mes y por tipo de
+    vehículo. Se agrupa por dominio, sin producto cartesiano.
+    """
+    consumo, flota = datos["consumo"], datos["flota"]
+    registro = datos.get("solicitudes")
+    if registro is None or not len(registro):
+        return None
+    pedidos = registro[registro["estacion_servicio"] != ESTACION_AJENA]
+    if pares is None or sin_carga is None:
+        pares, sin_carga = cruzar_registro(consumo, registro, flota=flota)
+
+    instante_carga = (pd.to_datetime(consumo["fecha"]) + pd.to_timedelta(
+        consumo["hora"].astype("string").fillna("00:00:00"))).to_numpy()
+    instante_pedido = (leer_fecha(pedidos["fecha"]) + pd.to_timedelta(
+        pedidos["hora"].astype("string").fillna("00:00:00"))).to_numpy()
+    tipo_de_matricula = flota.dropna(subset=["Matricula"]).drop_duplicates("Matricula").set_index(
+        "Matricula")["TipoVehiculo"]
+    dominio_de_matricula = flota.dropna(subset=["Matricula"]).drop_duplicates("Matricula").set_index(
+        "Matricula")["Dominio"]
+
+    def series(ids, valores):
+        return pd.Series(np.asarray(valores), index=ids).pipe(
+            lambda s: s[s.index.notna() & ~s.index.duplicated()])
+
+    ic = series(consumo["id"], instante_carga)
+    ip = series(pedidos["id"], instante_pedido)
+
+    # (a) De las cargas sin pedido, la más cercana por dominio del mismo vehículo, en bandas de |Δ|
+    sin_pedido = pares["registro_id"].isna().to_numpy()
+    dominio_carga = normalizar_dominio(consumo["vehiculo_id"].map(dominio_de_matricula).fillna(consumo["dominio"]))
+    por_dominio = {}
+    for dom, sub in pd.DataFrame({"dom": normalizar_dominio(pedidos["dominio"]).values,
+                                  "instante": instante_pedido}).dropna(subset=["dom"]).groupby("dom"):
+        por_dominio[dom] = np.sort(sub["instante"].to_numpy())
+    bandas_carga = np.empty(len(consumo), dtype=object)
+    bandas_carga[:] = BANDAS_CRUCE_TIEMPO[-1]
+    for fila in np.flatnonzero(sin_pedido):
+        instantes = por_dominio.get(dominio_carga.iloc[fila])
+        if instantes is None or not len(instantes):
+            continue
+        ubicacion = int(np.searchsorted(instantes, instante_carga[fila]))
+        minutos = np.inf
+        if ubicacion < len(instantes):
+            minutos = min(minutos, (instantes[ubicacion] - instante_carga[fila]) / np.timedelta64(1, "m"))
+        if ubicacion > 0:
+            minutos = min(minutos, (instante_carga[fila] - instantes[ubicacion - 1]) / np.timedelta64(1, "m"))
+        bandas_carga[fila] = str(_bandas_cruce_de_tiempo([minutos])[0])
+    total_sin_pedido = int(sin_pedido.sum())
+
+    # (c) Minutos de los pares que cruzan, en bandas de |Δ|
+    cruzadas = pares["registro_id"].dropna()
+    minutos = ((ic.reindex(cruzadas.index).to_numpy() - ip.reindex(cruzadas.values).to_numpy())
+               / np.timedelta64(1, "m"))
+    bandas_pares = _bandas_de_que_cruzan(minutos)
+
+    # (d) Cargas sin pedido y pedidos sin carga, por mes y por tipo de vehículo
+    mes_carga = leer_fecha(consumo["fecha"]).dt.strftime("%Y-%m").to_numpy()
+    tipo_carga = consumo["vehiculo_id"].map(tipo_de_matricula).fillna("sin_dato").to_numpy()
+    mes_pedido = leer_fecha(sin_carga["fecha"]).dt.strftime("%Y-%m").to_numpy() if len(sin_carga) else np.array([])
+    tipo_pedido = sin_carga["vehiculo_id"].map(tipo_de_matricula).fillna("sin_dato").to_numpy() if len(sin_carga) else np.array([])
+
+    def por_clave(claves_carga, claves_pedido):
+        salida = {}
+        for clave in sorted(set(np.asarray(claves_carga, dtype=object)) | set(np.asarray(claves_pedido, dtype=object)),
+                            key=str):
+            propias = int((np.asarray(claves_carga, dtype=object) == clave).sum())
+            ajenas = int((np.asarray(claves_pedido, dtype=object) == clave).sum())
+            salida[str(clave)] = {"cargas_sin_pedido": acotar(propias), "pedidos_sin_carga": acotar(ajenas)}
+        return salida
+
+    salida = {
+        "cargas_sin_pedido": {
+            "total": acotar(total_sin_pedido),
+            "con_pedido_del_mismo_vehiculo": _partes_bandas(
+                BANDAS_CRUCE_TIEMPO, bandas_carga[sin_pedido], total_sin_pedido),
+        },
+        "pedidos_sin_carga": {"total": acotar(len(sin_carga))},
+        "minutos_de_los_pares_que_cruzan": _partes_bandas(
+            BANDAS_CRUCE_QUE_CRUZAN, bandas_pares, len(bandas_pares)),
+        "por_mes": por_clave(mes_carga[sin_pedido], mes_pedido),
+        "por_tipo_de_vehiculo": por_clave(tipo_carga[sin_pedido], tipo_pedido),
+    }
+    _protege_el_eje(salida, "por_mes")
+    _protege_el_eje(salida, "por_tipo_de_vehiculo")
+    return salida
+
+
+def _facturacion_detalle_precios(datos):
+    """Diagnóstico del detalle de facturación (H9): precios, importes y líneas.
+
+    Cociente del precio unitario facturado sobre cada precio unitario del reporte, la razón entre los
+    dos precios unitarios del reporte, la diferencia de la deuda con la suma de las líneas y con el
+    total del PDF, y los conteos de líneas duplicadas, sin carga, de otro concepto o de otro mes.
+    """
+    detalle = datos.get("facturacion_detalle")
+    if detalle is None or not len(detalle):
+        return None
+    consumo, facturas = datos["consumo"], datos.get("facturacion")
+    precios = datos.get("precios_reporte")
+    referencia = detalle["referencia_consumo"]
+    mes_factura = (detalle["numero_factura"].map(facturas.set_index("numero_factura")["periodo"])
+                   if facturas is not None else pd.Series(pd.NA, index=detalle.index))
+    mes_carga = pd.Series(leer_fecha(consumo["fecha"]).dt.strftime("%Y-%m").values,
+                          index=consumo["id"]).pipe(lambda s: s[~s.index.duplicated()])
+    resultado = {}
+
+    # (a) El precio facturado contra cada precio unitario del reporte: el cociente, en bandas
+    if precios is not None:
+        columnas = [c for c in precios.columns if c.startswith("precio_")]
+        cargas = precios.set_index("id").pipe(lambda d: d[~d.index.duplicated()])
+        producto = pd.Series(consumo["producto"].values, index=consumo["id"]).pipe(
+            lambda s: s[~s.index.duplicated()])
+        cocientes = {}
+        for columna in columnas:
+            razon = detalle["precio_unitario"].to_numpy() / referencia.map(cargas[columna]).to_numpy()
+            valido = np.isfinite(razon)
+            r = razon[valido]
+            etiquetas = _bandas_de_precio_facturado(r)
+            bloque = {
+                **_partes_bandas(BANDAS_PRECIO_FACTURADO, etiquetas, int(valido.sum())),
+                "por_mes": _partes_bandas_por(BANDAS_PRECIO_FACTURADO, etiquetas, mes_factura.to_numpy()[valido]),
+                "por_producto": _partes_bandas_por(BANDAS_PRECIO_FACTURADO, etiquetas,
+                                                   referencia.map(producto).to_numpy()[valido]),
+            }
+            _protege_el_eje(bloque, "por_mes")
+            _protege_el_eje(bloque, "por_producto")
+            cocientes[columna] = bloque
+        resultado["precio_facturado_sobre_cada_precio_unitario"] = cocientes
+
+        # La razón entre los dos precios unitarios del reporte (el segundo sobre el primero), por carga
+        if len(columnas) >= 2:
+            razon = (cargas[columnas[1]] / cargas[columnas[0]]).replace([np.inf, -np.inf], np.nan).dropna()
+            etiquetas = _bandas_de_razon_entre_precios(razon)
+            bloque = {
+                **_partes_bandas(BANDAS_RAZON_ENTRE_PRECIOS, etiquetas, len(etiquetas)),
+                "por_mes": _partes_bandas_por(BANDAS_RAZON_ENTRE_PRECIOS, etiquetas,
+                                              mes_carga.reindex(razon.index).to_numpy()),
+            }
+            _protege_el_eje(bloque, "por_mes")
+            resultado["razon_entre_precios_unitarios"] = bloque
+
+    # (b) Deuda contra la suma de las líneas y contra el total del PDF, en bandas de diferencia relativa
+    if facturas is not None and len(facturas) and "importe" in detalle.columns:
+        facturas = facturas.set_index("numero_factura")
+        mes_de_factura = facturas["periodo"]
+        suma = detalle.groupby("numero_factura")["importe"].sum().reindex(facturas.index)
+        deuda, pdf = facturas["total_monto"], facturas["total_pdf"]
+
+        con_lineas = suma.notna() & suma.ne(0) & deuda.notna()
+        etiquetas_lineas = _bandas_diferencia(((deuda - suma) / suma).abs()[con_lineas])
+        bloque = {
+            **_partes_bandas(BANDAS_DIFERENCIA_IMPORTES, etiquetas_lineas, int(con_lineas.sum())),
+            "por_mes": _partes_bandas_por(BANDAS_DIFERENCIA_IMPORTES, etiquetas_lineas,
+                                          mes_de_factura[con_lineas].to_numpy()),
+        }
+        _protege_el_eje(bloque, "por_mes")
+        resultado["diferencias_entre_deuda_y_lineas"] = bloque
+
+        sin_pdf = pdf.isna().to_numpy()
+        con_deuda = (deuda.notna() & deuda.ne(0) & ~pdf.isna()).to_numpy()
+        etiquetas_pdf = pd.Series("sin_pdf", index=facturas.index, dtype=object)
+        etiquetas_pdf[con_deuda] = _bandas_diferencia(((pdf - deuda) / deuda).abs()[con_deuda])
+        con_sin_pdf = (*BANDAS_DIFERENCIA_IMPORTES, "sin_pdf")
+        bloque = {
+            **_partes_bandas(con_sin_pdf, etiquetas_pdf.to_numpy(), len(facturas)),
+            "por_mes": _partes_bandas_por(con_sin_pdf, etiquetas_pdf.to_numpy(), mes_de_factura.to_numpy()),
+        }
+        _protege_el_eje(bloque, "por_mes")
+        resultado["diferencias_entre_pdf_y_deuda"] = bloque
+
+    # (c) Líneas: duplicadas, sin carga en el reporte, de otro concepto y de otro mes que su carga
+    repetidas = referencia.dropna().value_counts()
+    mes_carga_linea = referencia.map(mes_carga)
+    con_carga = mes_carga_linea.notna()
+    resultado["lineas"] = {
+        "cargas_facturadas_mas_de_una_vez": acotar(int((repetidas > 1).sum())),
+        "lineas_sin_carga_en_el_reporte": acotar(int((~referencia.isin(set(consumo["id"]))).sum())),
+        "lineas_con_concepto_distinto_de_combustible": acotar(int((detalle["concepto"] != "COMBUSTIBLE").sum())),
+        "mes_de_facturacion": {
+            "en_el_mismo_mes_que_su_carga": acotar(int((con_carga & (mes_factura == mes_carga_linea)).sum())),
+            "en_otro_mes": acotar(int((con_carga & (mes_factura != mes_carga_linea)).sum())),
+        },
+    }
+    return resultado
+
+
 def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200):
     datos, diagnostico = adaptar(tablas, proveedor)
     consumo = datos["consumo"]
@@ -548,6 +906,7 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
         }
 
     facturas = datos.get("facturacion")
+    diagnostico["facturacion_detalle_precios"] = None
     if facturas is not None:
         # Solo las facturas de los meses que el reporte cubre completos: en un mes parcial, las
         # líneas de los días que falta descargar quedarían "sin carga" y el total no conciliaría
@@ -563,6 +922,7 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
         diagnostico["facturacion"]["lineas_con_carga_del_reporte_en_meses_completos_pct"] = _pct(
             int(datos["facturacion_detalle"]["referencia_consumo"].isin(consumo["id"]).sum()),
             len(datos["facturacion_detalle"])) if len(datos["facturacion_detalle"]) else None
+        diagnostico["facturacion_detalle_precios"] = _facturacion_detalle_precios(datos)
 
     alertas = reglas_del_dataset(datos)
     diagnostico["odometro"] = _odometro(datos, alertas)
@@ -613,9 +973,10 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
 
     # Cruce con el registro interno: cuántas cargas cruzan y con qué diferencia de horario
     cruce = {}
+    diagnostico["cruce_registro_ventanas"] = None
     if registro is not None and len(registro):
         voraz, _ = cruzar_registro(consumo, registro, voraz=True)
-        contexto, _ = cruzar_registro(consumo, registro, flota=datos["flota"])
+        contexto, sin_carga_contexto = cruzar_registro(consumo, registro, flota=datos["flota"])
         instante_carga = pd.to_datetime(consumo["fecha"]) + pd.to_timedelta(consumo["hora"])
         instante_pedido = leer_fecha(registro["fecha"]) + pd.to_timedelta(registro["hora"].fillna("00:00:00"))
         pares = voraz["registro_id"].dropna()
@@ -628,6 +989,7 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
         cruce = {"cargas_con_pedido_cruce_voraz_pct": _pct(voraz["registro_id"].notna().sum(), len(voraz)),
                  "cargas_con_pedido_cruce_con_contexto_pct": _pct(contexto["registro_id"].notna().sum(), len(contexto)),
                  "minutos_de_la_carga_despues_del_pedido": _cuantiles(pd.Series(minutos))}
+        diagnostico["cruce_registro_ventanas"] = _cruce_registro_ventanas(datos, contexto, sin_carga_contexto)
 
     # Modelos: el supervisado se entrena con datos sintéticos (no hay etiquetas reales)
     variables = _variables(datos)
