@@ -3,9 +3,9 @@
   "tipo": "auditoria_agregada",
   "generado": "2026-10-19",
   "revision": {
-    "revisado": false,
-    "responsable": null,
-    "fecha": null,
+    "revisado": true,
+    "responsable": "Héctor",
+    "fecha": "2026-10-19",
     "notas": null
   },
   "reglas_de_privacidad": "solo agregados; grupos de menos de 20 como 1–19",
