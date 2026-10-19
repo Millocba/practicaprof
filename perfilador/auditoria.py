@@ -23,8 +23,8 @@ from deteccion.reglas import (ESTACION_AJENA, FRACCION_INICIAL, GRUPO_DEPOSITO, 
                               cargas_exceptuadas, cargas_fuera_del_reporte, cruzar_registro, detectar_doble_cobro,
                               detectar_duplicados, distancia_uno, leer_fecha, moviles_por_sufijo_de_motor,
                               normalizar_dominio, pares_de_contingencia, reglas_del_dataset, secuencia_odometro,
-                              subforma_de_los_retrocesos, vinculos_de_la_carga, vinculos_del_pedido,
-                              vinculos_por_identificador)
+                              subforma_de_los_retrocesos, TOLERANCIA_EXCESO_TANQUE, vinculos_de_la_carga,
+                              vinculos_del_pedido, vinculos_por_identificador)
 from perfilador.adaptador import adaptar
 from perfilador.controles import acotar
 from perfilador.perfil import MINIMO_GRUPO, VERSION, cuantil_publicable, dos_cifras
@@ -276,6 +276,167 @@ def _exceso_volumetrico(consumo, flota):
     }
 
 
+CAUSAS_DE_ERROR_DE_CARGA = ("dominio_equivocado", "proveedor_equivocado", "tarjeta_equivocada")
+
+# Bandas del diagnóstico ampliado (#75): el límite cae en la banda cuyo texto lo contiene
+BANDAS_DE_EXCESO = {"cociente_": ("1_02_a_1_05", "1_05_a_1_10", "1_10_a_1_25", "1_25_a_1_50",
+                                  "mas_de_1_50"),
+                    "vehiculos_con_fraccion_": ("menos_de_0_10", "0_10_a_0_30", "0_30_a_0_60",
+                                                "mas_de_0_60"),
+                    "vehiculos_con_cv_": ("menos_de_0_05", "0_05_a_0_15", "0_15_a_0_30",
+                                          "mas_de_0_30"),
+                    "rendimiento_": ("menos_de_0_5", "0_5_a_0_8", "0_8_a_1_2", "mas_de_1_2")}
+
+
+def _banda_del_cociente(cociente):
+    """Banda de litros sobre capacidad: el límite superior pertenece a la banda que lo nombra."""
+    if cociente <= 1.05:
+        return "1_02_a_1_05"
+    if cociente <= 1.10:
+        return "1_05_a_1_10"
+    if cociente <= 1.25:
+        return "1_10_a_1_25"
+    if cociente <= 1.50:
+        return "1_25_a_1_50"
+    return "mas_de_1_50"
+
+
+def _banda_de_la_fraccion(fraccion):
+    """Banda de la fracción de cargas evaluables del vehículo que excede el 2 %: `≥60 %` es propio."""
+    if fraccion < 0.10:
+        return "menos_de_0_10"
+    if fraccion <= 0.30:
+        return "0_10_a_0_30"
+    if fraccion < 0.60:
+        return "0_30_a_0_60"
+    return "mas_de_0_60"
+
+
+def _banda_de_la_variacion(variacion):
+    """Banda del coeficiente de variación del cociente entre las cargas con exceso del vehículo."""
+    if variacion < 0.05:
+        return "menos_de_0_05"
+    if variacion <= 0.15:
+        return "0_05_a_0_15"
+    if variacion <= 0.30:
+        return "0_15_a_0_30"
+    return "mas_de_0_30"
+
+
+def _banda_del_rendimiento(relacion):
+    """Banda del rendimiento del tramo frente a la mediana del propio vehículo."""
+    if relacion < 0.5:
+        return "menos_de_0_5"
+    if relacion <= 0.8:
+        return "0_5_a_0_8"
+    if relacion <= 1.2:
+        return "0_8_a_1_2"
+    return "mas_de_1_2"
+
+
+def _exceso_volumetrico_detalle(consumo, flota, alertas):
+    """Diagnóstico ampliado de H3b (#75): cada carga con exceso, clasificada por su origen.
+
+    Clasifica con la regla de `detectar_exceso_sin_antecedente`: si el vehículo ya excedía el
+    tanque dentro de sus primeras cargas (FRACCION_INICIAL), todos sus excesos son
+    `desde_el_inicio` (capacidad mal registrada); si el exceso aparece después de un historial
+    normal, es `despues` (posible uso indebido). Por clase informa (a) vehículos y cargas con
+    exceso; (b) la banda del cociente litros/capacidad; (c) la estabilidad del vehículo: la
+    fracción de sus cargas evaluables que excede el 2 % y el coeficiente de variación del
+    cociente entre sus cargas con exceso (solo con 3 o más); (d) cuántos vehículos reúnen la
+    mitad de las cargas de la clase; (e) la banda del rendimiento del tramo (km desde la carga
+    anterior evaluable, dividido por los litros) frente a la mediana del propio vehículo; y
+    (f) las cargas con causa probable de error de carga. Sin identificadores y sin restas entre
+    los conteos publicados que devuelvan un grupo de 1 a 19.
+    """
+    capacidad = pd.to_numeric(consumo["vehiculo_id"].map(
+        flota.set_index("Matricula")["CapacidadTanque"]), errors="coerce")
+    litros = pd.to_numeric(consumo["litros"], errors="coerce")
+    evaluable = capacidad.notna() & capacidad.gt(0) & litros.notna()
+    columnas = ["id", "vehiculo_id", "fecha", "litros"] + (["odometro"] if "odometro" in consumo else [])
+    datos = consumo.loc[evaluable, columnas].copy()
+    datos["cociente"] = (litros[evaluable] / capacidad[evaluable]).values
+    datos = datos.sort_values(["vehiculo_id", "fecha", "id"])
+    if "odometro" in datos:
+        odometro = pd.to_numeric(datos["odometro"], errors="coerce")
+        km = odometro - odometro.groupby(datos["vehiculo_id"]).shift(1)
+        datos["rendimiento"] = (km / datos["litros"]).where(km.notna() & datos["litros"].gt(0))
+    else:
+        datos["rendimiento"] = float("nan")
+    posicion = datos.groupby("vehiculo_id").cumcount()
+    total = datos.groupby("vehiculo_id")["id"].transform("count")
+    iniciales = posicion < (total * FRACCION_INICIAL).clip(lower=1)
+    excede = datos["cociente"] > 1 + TOLERANCIA_EXCESO_TANQUE
+    con_antecedente = set(datos.loc[iniciales & excede, "vehiculo_id"])
+    exceso = datos[excede].copy()
+    exceso["desde_el_inicio"] = exceso["vehiculo_id"].isin(con_antecedente)
+    evaluables = datos.groupby("vehiculo_id").size()
+    centrales = datos.groupby("vehiculo_id")["rendimiento"].median()
+
+    error_de = {}
+    if alertas is not None and len(alertas) and "causa_probable" in alertas.columns:
+        firmas = alertas.loc[alertas["causa_probable"].isin(CAUSAS_DE_ERROR_DE_CARGA),
+                             ["id_registro", "causa_probable"]].drop_duplicates("id_registro")
+        error_de = dict(zip(firmas["id_registro"], firmas["causa_probable"]))
+
+    detalle = {}
+    for clave, desde_el_inicio in (("desde_el_inicio", True), ("despues", False)):
+        clase = exceso[exceso["desde_el_inicio"] == desde_el_inicio]
+        detalle[clave] = _detalle_de_exceso_de_la_clase(clase, evaluables, centrales, error_de)
+    return detalle
+
+
+def _detalle_de_exceso_de_la_clase(clase, evaluables, centrales, error_de):
+    """Una clase del detalle: conteos, bandas y las protecciones de resta entre los publicados."""
+    conteo = {prefijo + banda: 0 for prefijo, bandas in BANDAS_DE_EXCESO.items() for banda in bandas}
+    causas = {f"causa_probable_{c}": 0 for c in CAUSAS_DE_ERROR_DE_CARGA}
+    por_vehiculo = clase.groupby("vehiculo_id")
+    excesos = por_vehiculo.size()
+    for vehiculo, grupo in por_vehiculo:
+        conteo["vehiculos_con_fraccion_" + _banda_de_la_fraccion(
+            len(grupo) / evaluables[vehiculo])] += 1
+        if len(grupo) >= 3:
+            cociente = grupo["cociente"]
+            conteo["vehiculos_con_cv_" + _banda_de_la_variacion(cociente.std(ddof=0) / cociente.mean())] += 1
+        central = centrales.get(vehiculo)
+        if central is not None and not pd.isna(central) and central > 0:
+            for rendimiento in grupo["rendimiento"].dropna():
+                conteo["rendimiento_" + _banda_del_rendimiento(rendimiento / central)] += 1
+        for id_registro in grupo["id"]:
+            causa = error_de.get(id_registro)
+            if causa is not None:
+                causas[f"causa_probable_{causa}"] += 1
+    for cociente in clase["cociente"]:
+        conteo["cociente_" + _banda_del_cociente(cociente)] += 1
+
+    cargas = len(clase)
+    orden = excesos.sort_values(ascending=False, kind="stable")
+    acumulado, mitad = 0, 0
+    for cantidad in orden:
+        acumulado += cantidad
+        mitad += 1
+        if acumulado * 2 >= cargas:
+            break
+    vehiculos = len(excesos)
+    con_3 = int((excesos >= 3).sum())
+
+    def grupo_de(prefijo):
+        return {k: v for k, v in conteo.items() if k.startswith(prefijo)}
+
+    salida = {"vehiculos": acotar(vehiculos), "cargas_con_exceso": acotar(cargas),
+              "vehiculos_con_3_o_mas_cargas_con_exceso": con_3,
+              "vehiculos_para_la_mitad_de_las_cargas": mitad}
+    for partes, totales in ((grupo_de("cociente_"), (cargas,)),
+                            (grupo_de("rendimiento_"), (cargas,)),
+                            (causas, (cargas,)),
+                            (grupo_de("vehiculos_con_fraccion_"), (vehiculos,)),
+                            (grupo_de("vehiculos_con_cv_"), (vehiculos, con_3)),
+                            ({"vehiculos_con_3_o_mas_cargas_con_exceso": con_3}, (vehiculos,)),
+                            ({"vehiculos_para_la_mitad_de_las_cargas": mitad}, (vehiculos,))):
+        salida.update(_partes_sin_resta_de(totales, partes))
+    return salida
+
+
 
 
 CAUSAS_SIN_VINCULO = ("ultimos_8_del_motor", "distancia_1_de_un_dominio", "otra_fuente", "forma_del_identificador",
@@ -322,6 +483,27 @@ def _partes_sin_resta(total, partes):
     for clave in ocultas:
         salida[clave] = None
     return salida
+
+
+def _partes_sin_resta_de(totales, partes):
+    """Las partes, sin que la resta contra ninguno de los totales devuelva un conteo de 1 a 19.
+
+    Como `_partes_sin_resta`, pero contra varios totales a la vez (por ejemplo, las bandas de
+    estabilidad se restan tanto de los vehículos de la clase como de los que llevan 3 o más
+    excesos): mientras alguna resta dé entre 1 y 19 se oculta la parte visible más chica y se
+    vuelve a restar. Los totales de 1 a 19 no se publican enteros, así que no se protegen.
+    """
+    publicables = {k: v for k, v in partes.items() if v == 0 or v >= MINIMO_GRUPO}
+    protegibles = [t for t in totales if isinstance(t, int) and not isinstance(t, bool)
+                   and t >= MINIMO_GRUPO]
+    ocultas = set()
+    while protegibles:
+        activos = {k: v for k, v in publicables.items() if k not in ocultas}
+        visibles = {k: v for k, v in activos.items() if v >= MINIMO_GRUPO}
+        if not visibles or not any(0 < t - sum(activos.values()) < MINIMO_GRUPO for t in protegibles):
+            break
+        ocultas.add(min(visibles, key=visibles.get))
+    return {k: (None if k in ocultas else acotar(v)) for k, v in partes.items()}
 
 
 def _eje_sin_resta(eje, publicados):
@@ -930,6 +1112,8 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
     diagnostico["odometro"]["retrocesos_estudio"] = _retrocesos_estudio(datos, alertas)
     diagnostico["contingencias"] = _contingencias(datos["consumo"])
     diagnostico["exceso_volumetrico"] = _exceso_volumetrico(datos["consumo"], datos["flota"])
+    diagnostico["exceso_volumetrico_detalle"] = _exceso_volumetrico_detalle(datos["consumo"], datos["flota"],
+                                                                           alertas)
     diagnostico["cobertura"] = _cobertura(datos, alertas, registro_del_periodo if registro is not None else None)
     por_regla = {}
     for regla, grupo in alertas.groupby("regla"):
