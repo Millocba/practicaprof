@@ -136,6 +136,45 @@ def buscar(tablas, fuente):
     return tablas[min(candidatas)[1]] if candidatas else None
 
 
+# Palabras del dominio que describen el nivel del tanque antes de cargar (#75): se busca por el
+# significado de los valores, no por el nombre de la columna de la fuente
+PALABRAS_DEL_NIVEL = ("lleno", "tanque", "reserva", "vacio", "1/2", "3/4", "1/4", "medio")
+# Palabras de la bandera con que el registro marca la rendición del pedido (#75)
+PALABRAS_DE_LA_BANDERA = ("amarillo", "verde", "rojo")
+
+
+def _columna_por_valores(registro, palabras, maximo_categorias=12, maximo_largo=40):
+    """La columna de `registro` cuyos valores, en conjunto, se describen con `palabras`, o None.
+
+    Mira solo columnas de texto con pocos valores distintos y cortos (una categoría chica, no un
+    texto libre ni un identificador): la primera cuyos valores normalizados coincidan con alguna
+    de las palabras. Así se reconoce la columna por su contenido y no por su nombre.
+    """
+    for columna in registro.columns:
+        serie = registro[columna]
+        if pd.api.types.is_numeric_dtype(serie):
+            continue
+        valores = serie.dropna().astype("string").str.normalize("NFKD").str.encode(
+            "ascii", "ignore").str.decode("ascii").str.lower().str.strip()
+        valores = valores[valores != ""]
+        distintos = valores.unique()
+        if not len(distintos) or len(distintos) > maximo_categorias:
+            continue
+        if all(len(v) <= maximo_largo for v in distintos) and any(
+                any(p in v for p in palabras) for v in distintos):
+            return columna
+    return None
+
+
+def _categorias(serie, maximo=12):
+    """Los valores de una columna como categorías genéricas: poco distintos, cortos, o todos "otro"."""
+    texto = serie.astype("string").str.strip()
+    valores = texto.dropna().unique()
+    if not len(valores) or len(valores) > maximo or any(len(v) > 40 for v in valores):
+        return pd.Series(pd.NA, index=serie.index, dtype="string")
+    return texto
+
+
 def adaptar(tablas, proveedor=None):
     """Devuelve (datos con el esquema del generador, diagnóstico) a partir de las tablas reales."""
     diagnostico = {"fuentes_encontradas": [f for f in FIRMAS if buscar(tablas, f) is not None]}
@@ -219,6 +258,8 @@ def adaptar(tablas, proveedor=None):
             ajena = estacion.notna() & (estacion.str.strip() != "") & ~estacion.str.contains(
                 re.escape(proveedor), case=False, na=False)
             estacion = estacion.where(~ajena, ESTACION_AJENA)
+        columna_nivel = _columna_por_valores(registro, PALABRAS_DEL_NIVEL)
+        columna_bandera = _columna_por_valores(registro, PALABRAS_DE_LA_BANDERA)
         datos["solicitudes"] = pd.DataFrame({
             "id": _texto(registro["Id"]), "vehiculo_id": _texto(registro["Matricula"]),
             "dominio": _texto(registro["Dominio"]), "fecha": registro["Fecha"].astype("string").str.strip(),
@@ -230,6 +271,10 @@ def adaptar(tablas, proveedor=None):
             "litros_cargados": _numero(registro.get("LitrosCargados")),
             "rendido": registro["Rendido"].astype("string").str.strip().str.upper(),
             "anulado": registro["Anulado"].astype("string").str.strip().str.upper(),
+            "nivel_tanque": _categorias(registro[columna_nivel]) if columna_nivel is not None
+            else pd.Series(pd.NA, index=registro.index, dtype="string"),
+            "bandera_rendicion": _categorias(registro[columna_bandera]) if columna_bandera is not None
+            else pd.Series(pd.NA, index=registro.index, dtype="string"),
             "estacion_servicio": estacion,
         })
         diagnostico["registro"] = {"con_proveedor_informado": bool(proveedor),

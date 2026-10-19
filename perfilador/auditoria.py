@@ -460,6 +460,264 @@ def _detalle_de_exceso_de_la_clase(clase, evaluables, centrales, error_de):
     return salida
 
 
+# Bandas del diagnóstico de fraccionamiento (#75): el límite superior cae en la banda que lo nombra
+BANDAS_DE_CANTIDAD_DE_CARGAS = ("cargas_1", "cargas_2", "cargas_3", "cargas_4_o_mas")
+BANDAS_DE_TANQUE_DEL_DIA = ("hasta_1_00", "1_00_a_1_05", "1_05_a_1_50", "mas_de_1_50")
+BANDAS_DE_RENDIMIENTO_DEL_DIA = ("menos_de_0_5", "0_5_a_0_8", "0_8_a_1_2", "mas_de_1_2")
+BANDAS_DE_DIFERENCIA_DE_LITROS = ("menos_de_0_8", "0_8_a_1_0", "1_0_a_1_2", "mas_de_1_2")
+PEDIDOS_POR_DIA = ("para_todas_las_cargas", "para_algunas_cargas", "para_ninguna_carga")
+BANDERAS_DE_RENDICION = ("amarillo", "verde", "rojo")
+NIVELES_DE_TANQUE = ("tanque lleno", "3/4 tanque", "1/2 tanque", "1/4 tanque", "reserva")
+
+
+def _banda_de_la_cantidad(cantidad):
+    """Banda de la cantidad de cargas de un día-vehículo: la cuarta junta 4 o más."""
+    if cantidad == 1:
+        return "cargas_1"
+    if cantidad == 2:
+        return "cargas_2"
+    if cantidad == 3:
+        return "cargas_3"
+    return "cargas_4_o_mas"
+
+
+def _banda_del_tanque_del_dia(cociente):
+    """Banda de los litros del día sobre la capacidad del tanque: el límite cae en la banda de abajo."""
+    if cociente <= 1.00:
+        return "hasta_1_00"
+    if cociente <= 1.05:
+        return "1_00_a_1_05"
+    if cociente <= 1.50:
+        return "1_05_a_1_50"
+    return "mas_de_1_50"
+
+
+def _banda_de_la_diferencia_de_litros(cociente):
+    """Banda del cociente litros cargados / litros autorizados del pedido: 1 es lo autorizado."""
+    if cociente < 0.8:
+        return "menos_de_0_8"
+    if cociente <= 1.0:
+        return "0_8_a_1_0"
+    if cociente <= 1.2:
+        return "1_0_a_1_2"
+    return "mas_de_1_2"
+
+
+def _banda_de_la_bandera(valor):
+    """La bandera de rendición de la fuente como etiqueta genérica, o None si no es una conocida."""
+    texto = str(valor).strip().lower()
+    return texto if texto in BANDERAS_DE_RENDICION else None
+
+
+def _banda_del_nivel(valor):
+    """El nivel del tanque de la fuente como etiqueta genérica, o None si no es uno de los conocidos."""
+    texto = str(valor).strip().lower()
+    return texto if texto in NIVELES_DE_TANQUE else None
+
+
+def _fraccionamiento_detalle(datos, alertas):
+    """Diagnóstico de H4 (#75): qué son los días con dos o más cargas del mismo vehículo.
+
+    Por día-vehículo (misma fecha y vehículo) informa (a) cuántos tienen 1, 2, 3 y 4 o más cargas,
+    y los de 2 o más por tipo de vehículo; (b) en los de 2 o más, los litros del día sobre la
+    capacidad del tanque en bandas; (c) el rendimiento del día (km entre la primera y la última
+    carga, o hasta la primera del día siguiente, sobre los litros) frente a la mediana del propio
+    vehículo, con los días de km no evaluables aparte; (d) cuántos tienen pedido propio en el
+    registro para todas, algunas o ninguna de sus cargas (cruce con contexto); (e) frente a los
+    días de una sola carga, la distribución de la bandera de rendición, del nivel del tanque
+    declarado y de la diferencia entre litros autorizados y cargados, en bandas; (f) cuántos
+    tienen al menos un reclamo vinculado con alguna de sus cargas; y (g) los km por hora de motor
+    por tipo de vehículo, si la fuente los trae. Todo en agregado y sin restas que recuperen un
+    grupo de 1 a 19.
+    """
+    consumo, flota = datos["consumo"], datos["flota"]
+    registro = datos.get("solicitudes")
+    litros = pd.to_numeric(consumo["litros"], errors="coerce")
+    capacidad = _capacidad_registrada(consumo, flota)
+    tipo_de = flota.dropna(subset=["Matricula"]).drop_duplicates("Matricula").set_index("Matricula")["TipoVehiculo"]
+    odometro = pd.to_numeric(consumo.get("odometro", pd.Series(pd.NA, index=consumo.index)), errors="coerce")
+
+    cargas = pd.DataFrame({
+        "id": consumo["id"].values, "vehiculo_id": consumo["vehiculo_id"].values,
+        "fecha": pd.to_datetime(consumo["fecha"]).dt.normalize().values,
+        "litros": litros.values, "capacidad": capacidad.values, "odometro": odometro.values,
+    }).dropna(subset=["vehiculo_id", "fecha"]).sort_values(["vehiculo_id", "fecha", "id"])
+
+    # (a) Cantidad de cargas por día-vehículo
+    dias = cargas.groupby(["vehiculo_id", "fecha"], sort=False).agg(
+        cargas=("id", "size"), litros=("litros", "sum"), capacidad=("capacidad", "first"),
+        odometro_primera=("odometro", "first"), odometro_ultima=("odometro", "last"),
+        ids=("id", list)).reset_index()
+    dias["tipo"] = dias["vehiculo_id"].map(tipo_de).fillna("sin_dato")
+    dias["banda"] = dias["cargas"].map(_banda_de_la_cantidad)
+
+    # (b) Litros del día sobre la capacidad del tanque (solo los días con capacidad registrada)
+    dias["cociente"] = (dias["litros"] / dias["capacidad"]).where(dias["capacidad"].gt(0))
+    dias["banda_tanque"] = dias["cociente"].map(
+        lambda c: _banda_del_tanque_del_dia(c) if pd.notna(c) else None)
+
+    # (c) Rendimiento del día contra la mediana del propio vehículo; los km no evaluables, aparte.
+    # El día de una sola carga cierra su tramo en la primera carga del día siguiente.
+    dias = dias.sort_values(["vehiculo_id", "fecha"])
+    siguiente = dias.groupby("vehiculo_id")["odometro_primera"].shift(-1)
+    km = (dias["odometro_ultima"] - dias["odometro_primera"]).astype(float).where(
+        dias["cargas"] >= 2, (siguiente - dias["odometro_primera"]).astype(float))
+    dias["km_evaluable"] = km.notna() & km.gt(0)
+    rendimiento = (km / dias["litros"]).where(dias["km_evaluable"])
+    mediana = rendimiento.groupby(dias["vehiculo_id"].values).transform("median")
+    dias["relacion"] = (rendimiento / mediana).replace([np.inf, -np.inf], np.nan)
+    dias["banda_rendimiento"] = dias["relacion"].map(
+        lambda r: _banda_del_rendimiento(r) if pd.notna(r) else None)
+    dias["rendimiento_evaluable"] = dias["km_evaluable"] & mediana.gt(0)
+
+    # (d) Pedido propio del registro para cada carga del día (cruce con contexto), y (e) lo que el
+    # propio pedido declara: bandera de rendición, nivel del tanque y litros cargados/autorizados
+    del_registro = _datos_del_registro_por_carga(consumo, registro, flota)
+    dias["pedidos"] = dias["ids"].map(
+        lambda ids: _clase_de_pedidos(sum(bool(del_registro["pedido"].get(i, False)) for i in ids), len(ids)))
+    dias["banderas"] = dias["ids"].map(lambda ids: [del_registro["bandera"].get(i) for i in ids])
+    dias["niveles"] = dias["ids"].map(lambda ids: [del_registro["nivel"].get(i) for i in ids])
+    dias["diferencias"] = dias["ids"].map(
+        lambda ids: [d for d in (del_registro["cociente"].get(i) for i in ids) if d is not None])
+
+    # (f) Reclamos vinculados con alguna carga del día
+    con_reclamo = _cargas_con_reclamo(datos.get("reclamos"))
+    dias["con_reclamo"] = dias["ids"].map(lambda ids: any(i in con_reclamo for i in ids))
+
+    return _resumen_de_fraccionamiento(dias)
+
+
+def _clase_de_pedidos(con_pedido, cantidad):
+    """Para todas, algunas o ninguna carga del día tienen pedido propio en el registro."""
+    if con_pedido == 0:
+        return PEDIDOS_POR_DIA[2]
+    if con_pedido == cantidad:
+        return PEDIDOS_POR_DIA[0]
+    return PEDIDOS_POR_DIA[1]
+
+
+def _datos_del_registro_por_carga(consumo, registro, flota):
+    """Por id de carga, qué trae el cruce con el registro: si tiene pedido y lo que el pedido declara.
+
+    Devuelve tres diccionarios por id de carga: `pedido` (si el cruce con contexto le encontró un
+    pedido propio), `bandera` (la bandera de rendición como etiqueta genérica o None), `nivel` (el
+    nivel del tanque declarado o None) y `cociente` (litros cargados sobre autorizados o None).
+    """
+    vacios = {"pedido": {}, "bandera": {}, "nivel": {}, "cociente": {}}
+    if registro is None or not len(registro):
+        return vacios
+    pares, _ = cruzar_registro(consumo, registro, flota=flota)
+    pedidos = registro.set_index("id")
+    bandera = _texto_categorias(registro, "bandera_rendicion", _banda_de_la_bandera)
+    nivel = _texto_categorias(registro, "nivel_tanque", _banda_del_nivel)
+    cargados = pd.to_numeric(pedidos.get("litros_cargados"), errors="coerce")
+    autorizados = pd.to_numeric(pedidos.get("litros_autorizados"), errors="coerce")
+    cociente = (cargados / autorizados.where(autorizados > 0))
+    salida = {"pedido": {}, "bandera": {}, "nivel": {}, "cociente": {}}
+    for carga_id, pedido_id in pares["registro_id"].items():
+        tiene = pd.notna(pedido_id)
+        salida["pedido"][carga_id] = tiene
+        if not tiene or pedido_id not in pedidos.index:
+            continue
+        salida["bandera"][carga_id] = bandera.get(pedido_id)
+        salida["nivel"][carga_id] = nivel.get(pedido_id)
+        valor = cociente.get(pedido_id)
+        salida["cociente"][carga_id] = float(valor) if pd.notna(valor) else None
+    return salida
+
+
+def _texto_categorias(registro, columna, traductor):
+    """La columna del registro como etiquetas genéricas por id de pedido, o vacío si no está."""
+    if columna not in registro.columns:
+        return {}
+    return dict(zip(registro["id"], registro[columna].map(traductor)))
+
+
+def _cargas_con_reclamo(reclamos):
+    """Los ids de carga que tienen al menos un reclamo vinculado."""
+    if reclamos is None:
+        return set()
+    return set(reclamos["carga_id"].dropna())
+
+
+def _resumen_de_fraccionamiento(dias):
+    """Arma el bloque de H4 a partir de los días-vehículo ya clasificados, sin restas que recuperen 1–19.
+
+    El eje del bloque es la cantidad de cargas del día-vehículo, contra el que se protegen los
+    demás conteos. El total del bloque es la cantidad de días-vehículo con vehículo y fecha
+    conocidos: ninguna banda ni ninguna resta entre bandas publicadas puede dejar al descubierto un
+    grupo de 1 a 19.
+    """
+    fragmentados = dias[dias["cargas"] >= 2]
+    de_una = dias[dias["cargas"] == 1]
+    salida = {
+        "por_cantidad_de_cargas": _partes_bandas(BANDAS_DE_CANTIDAD_DE_CARGAS, dias["banda"], len(dias)),
+        "dias_solo_con_una_carga": acotar(len(de_una)),
+        "dias_con_dos_o_mas_cargas": acotar(len(fragmentados)),
+    }
+
+    # (a) Por tipo de vehículo, solo los días fragmentados
+    salida["fragmentados_por_tipo_de_vehiculo"] = _partes_bandas_por(
+        BANDAS_DE_CANTIDAD_DE_CARGAS[1:], fragmentados["banda"], fragmentados["tipo"])
+
+    # (b) Litros del día sobre la capacidad del tanque
+    con_capacidad = fragmentados[fragmentados["banda_tanque"].notna()]
+    salida["litros_del_dia_sobre_la_capacidad"] = _partes_bandas(
+        BANDAS_DE_TANQUE_DEL_DIA, con_capacidad["banda_tanque"], len(con_capacidad))
+
+    # (c) Rendimiento del día frente a la mediana del propio vehículo, con los no evaluables aparte
+    evaluables = fragmentados[fragmentados["rendimiento_evaluable"]]
+    salida["rendimiento_del_dia"] = _partes_bandas(
+        BANDAS_DE_RENDIMIENTO_DEL_DIA, evaluables["banda_rendimiento"], len(evaluables))
+    salida["rendimiento_del_dia"]["km_no_evaluable"] = acotar(len(fragmentados) - len(evaluables))
+
+    # (d) Pedido propio del registro para todas, algunas o ninguna carga del día
+    salida["pedido_para"] = _partes_bandas(PEDIDOS_POR_DIA, fragmentados["pedidos"], len(fragmentados))
+
+    # (e) Distribución de la bandera, del nivel del tanque y de los litros cargados sobre los
+    # autorizados, en los días fragmentados frente a los de una sola carga
+    salida["bandera_de_rendicion"] = _banderas_de_los_dias(dias, "banderas", BANDERAS_DE_RENDICION)
+    salida["nivel_del_tanque"] = _banderas_de_los_dias(dias, "niveles", NIVELES_DE_TANQUE)
+    salida["litros_cargados_sobre_autorizados"] = _bandas_de_las_diferencias(dias)
+
+    # (f) Días fragmentados con al menos un reclamo vinculado con alguna de sus cargas
+    salida["con_reclamo_vinculado"] = _partes_bandas(
+        ("si", "no"), fragmentados["con_reclamo"].map({True: "si", False: "no"}), len(fragmentados))
+
+    # (g) Kilómetros por hora de motor: la fuente no trae el horómetro
+    salida["km_por_hora_de_motor"] = "no_disponible"
+    _protege_el_eje(salida, "fragmentados_por_tipo_de_vehiculo")
+    return salida
+
+
+def _banderas_de_los_dias(dias, columna, etiquetas):
+    """Distribución de una etiqueta categórica de las cargas, en los días fragmentados y en los de una.
+
+    Cuenta las cargas (no los días) por etiqueta, porque la etiqueta es del pedido de cada carga;
+    solo aparecen las etiquetas conocidas. Si en la fuente no había columna, devuelve `no_disponible`.
+    """
+    valores = {}
+    for nombre, sub in (("fragmentados", dias[dias["cargas"] >= 2]), ("de_una_carga", dias[dias["cargas"] == 1])):
+        series = [e for lista in sub[columna] for e in lista if e is not None]
+        if not series:
+            continue
+        total = len(series)
+        valores[nombre] = {"cargas_con_el_dato": acotar(total),
+                           **_partes_sin_resta(total, {e: series.count(e) for e in etiquetas})}
+    return valores if valores else "no_disponible"
+
+
+def _bandas_de_las_diferencias(dias):
+    """Litros cargados sobre autorizados en bandas, en los días fragmentados y en los de una carga."""
+    valores = {}
+    for nombre, sub in (("fragmentados", dias[dias["cargas"] >= 2]), ("de_una_carga", dias[dias["cargas"] == 1])):
+        series = [d for lista in sub["diferencias"] for d in lista]
+        if not series:
+            continue
+        bandas = pd.Series(series).map(_banda_de_la_diferencia_de_litros)
+        partes = {e: int((bandas == e).sum()) for e in BANDAS_DE_DIFERENCIA_DE_LITROS}
+        valores[nombre] = {"cargas_con_el_dato": acotar(len(series)), **_partes_sin_resta(len(series), partes)}
+    return valores if valores else "no_disponible"
 
 
 CAUSAS_SIN_VINCULO = ("ultimos_8_del_motor", "distancia_1_de_un_dominio", "otra_fuente", "forma_del_identificador",
@@ -1090,6 +1348,7 @@ BLOQUES_DE_DIAGNOSTICO = {
     "exceso_volumetrico": lambda datos, alertas: _exceso_volumetrico(datos["consumo"], datos["flota"]),
     "exceso_volumetrico_detalle": lambda datos, alertas: _exceso_volumetrico_detalle(
         datos["consumo"], datos["flota"], alertas),
+    "fraccionamiento_detalle": lambda datos, alertas: _fraccionamiento_detalle(datos, alertas),
 }
 
 
@@ -1168,6 +1427,8 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
     diagnostico["exceso_volumetrico_detalle"] = _proteger("exceso_volumetrico_detalle",
                                                           _exceso_volumetrico_detalle, datos["consumo"],
                                                           datos["flota"], alertas)
+    diagnostico["fraccionamiento_detalle"] = _proteger("fraccionamiento_detalle", _fraccionamiento_detalle,
+                                                       datos, alertas)
     diagnostico["cobertura"] = _cobertura(datos, alertas, registro_del_periodo if registro is not None else None)
     por_regla = {}
     for regla, grupo in alertas.groupby("regla"):
