@@ -720,8 +720,187 @@ def _bandas_de_las_diferencias(dias):
     return valores if valores else "no_disponible"
 
 
+# Categorías del contraste de H3b (#75), en orden de prioridad: gana la primera que corresponde
+CATEGORIAS_DE_CAUSA = ("error_de_vinculacion", "capacidad_del_padron_inconsistente",
+                       "capacidad_consistente_con_exceso_repetido", "exceso_aislado", "no_evaluable")
+# Un vehículo se aparta del padrón si su capacidad registrada difiere de la mediana de sus pares más que esto
+DESVIO_DE_CAPACIDAD = 0.20
+# El exceso es "repetido y de cociente parecido" con al menos estas cargas y hasta este coeficiente de variación
+CARGAS_PARA_EXCESO_REPETIDO = 2
+VARIACION_MAXIMA_DEL_COCIENTE = 0.10
+# La carga máxima sobrepasa la capacidad registrada en forma repetida recién pasado este margen (un 20 %)
+MARGEN_DE_LA_CARGA_MAXIMA = 1 + DESVIO_DE_CAPACIDAD
+# Las causas de no-vínculo que la auditoría ya sabe asignar: si una carga excedida las trae, es error de vinculación
 CAUSAS_SIN_VINCULO = ("ultimos_8_del_motor", "distancia_1_de_un_dominio", "otra_fuente", "forma_del_identificador",
                       "sin_explicacion")
+
+
+def _pares_de_capacidad(flota):
+    """Mediana de la capacidad de los otros vehículos con la misma marca y modelo (o el mismo tipo).
+
+    Por matrícula devuelve la mediana de la capacidad registrada de sus pares, con la columna por la
+    que se armó el par (marca y modelo, con respaldo al tipo cuando no hay otro vehículo del mismo
+    par) o `None` si no hay pares ni tipo con capacidad. No usa las columnas de la fuente en la
+    salida: solo la mediana por vehículo.
+    """
+    datos = flota.drop_duplicates("Matricula").copy()
+    datos["capacidad"] = pd.to_numeric(datos["CapacidadTanque"], errors="coerce")
+    for columna in ("Marca", "Modelo", "TipoVehiculo"):
+        if columna not in datos:
+            datos[columna] = pd.NA
+    datos["marca_modelo"] = datos["Marca"].astype("string") + "|" + datos["Modelo"].astype("string")
+    mediana = {}
+    for indice, fila in datos.iterrows():
+        for columna, clave in (("marca_modelo", fila["marca_modelo"]), ("TipoVehiculo", fila["TipoVehiculo"])):
+            if pd.isna(clave):
+                continue
+            otros = datos[(datos[columna] == clave) & (datos["Matricula"] != fila["Matricula"])]["capacidad"]
+            otros = otros[otros > 0]
+            if len(otros):
+                mediana[fila["Matricula"]] = float(otros.median())
+                break
+    return mediana
+
+
+def _exceso_por_causa(datos, alertas):
+    """Contraste de H3b (#75): los vehículos con exceso, clasificados por causas ajenas a la regla.
+
+    Toma los vehículos con alguna carga cuyo cociente litros/capacidad supera el 2 % (o sin capacidad
+    registrada para poder evaluarlo) y los clasifica, en este orden, por la primera causa que
+    corresponde: (1) error de vinculación (la misma tarjeta cargó a otro vehículo el mismo día, o la
+    auditoría ya le asignó una causa de no-vínculo); (2) capacidad del padrón inconsistente (se aparta
+    más del 20 % de la mediana de sus pares, o su carga máxima supera la capacidad registrada en forma
+    repetida, con exceso repetido); (3) capacidad consistente con exceso repetido (coincide con sus
+    pares pero repite el exceso); (4) exceso aislado (pocas cargas y cociente irregular, sin las
+    explicaciones anteriores); (5) no evaluable (faltan pares o capacidad). Informa la cantidad de
+    vehículos y de cargas por categoría y un resumen de explicados (1 y 2) y no explicados (3, 4 y 5),
+    siempre en agregado y sin restas que devuelvan un grupo de 1 a 19.
+    """
+    litros = pd.to_numeric(datos["consumo"]["litros"], errors="coerce")
+    capacidad = _capacidad_registrada(datos["consumo"], datos["flota"])
+    evaluable = litros.notna() & capacidad.gt(0)
+    cargas = pd.DataFrame({
+        "id": datos["consumo"]["id"].values, "vehiculo_id": datos["consumo"]["vehiculo_id"].values,
+        "fecha": pd.to_datetime(datos["consumo"]["fecha"], errors="coerce").dt.normalize().values,
+        "litros": litros.values, "capacidad": capacidad.values,
+        "tarjeta": datos["consumo"].get("numero_tarjeta", pd.Series(pd.NA, index=datos["consumo"].index)).values,
+    })
+    cargas["cociente"] = (cargas["litros"] / cargas["capacidad"]).where(cargas["capacidad"].gt(0))
+    cargas["excede"] = cargas["cociente"] > 1 + TOLERANCIA_EXCESO_TANQUE
+
+    de_la_auditoria = _causa_probable_por_carga(alertas)
+    pares = _pares_de_capacidad(datos["flota"])
+    tarjetas_de_la_flota = _tarjetas_por_otro_vehiculo(cargas)
+
+    por_categoria = {c: {"vehiculos": 0, "cargas": 0} for c in CATEGORIAS_DE_CAUSA}
+    for vehiculo, grupo in cargas[cargas["litros"].notna()].groupby("vehiculo_id"):
+        categoria, cantidad = _clasifica_el_vehiculo(grupo, pares.get(vehiculo), de_la_auditoria, tarjetas_de_la_flota)
+        if categoria is None:
+            continue
+        por_categoria[categoria]["vehiculos"] += 1
+        por_categoria[categoria]["cargas"] += cantidad
+    return _resumen_de_causas(por_categoria)
+
+
+def _causa_probable_por_carga(alertas):
+    """{id de carga: True} para las cargas a las que la auditoría les asignó una causa de no-vínculo."""
+    if alertas is None or not len(alertas) or "causa_probable" not in alertas.columns:
+        return {}
+    no_vinculo = alertas["causa_probable"].isin(CAUSAS_SIN_VINCULO)
+    firmas = alertas.loc[no_vinculo, "id_registro"].dropna()
+    return dict.fromkeys(firmas, True)
+
+
+def _tarjetas_por_otro_vehiculo(cargas):
+    """{(tarjeta, fecha): True} para las tarjetas que en un día aparecen en más de un vehículo.
+
+    Es la firma de un error de vinculación: la misma tarjeta cargando a otro móvil el mismo día.
+    """
+    con_tarjeta = cargas.dropna(subset=["tarjeta", "fecha"])
+    repartidas = con_tarjeta.groupby(["tarjeta", "fecha"])["vehiculo_id"].nunique()
+    return dict.fromkeys(repartidas[repartidas >= 2].index, True)
+
+
+def _clasifica_el_vehiculo(grupo, mediana_de_los_pares, de_la_auditoria, tarjetas_repartidas):
+    """La categoría del vehículo y cuántas cargas con exceso aporta, o (None, 0) si no aplica.
+
+    El vehículo entra si tiene alguna carga que excede el 2 % de su capacidad registrada (o alguna
+    carga sin capacidad registrada, que no se puede evaluar). Se clasifica por la primera categoría
+    de `CATEGORIAS_DE_CAUSA` que corresponde a sus señales.
+    """
+    exceso = grupo[grupo["excede"]]
+    sin_capacidad = grupo["capacidad"].isna() | grupo["capacidad"].le(0)
+    if not len(exceso) and not sin_capacidad.any():
+        return None, 0
+
+    if _es_error_de_vinculacion(grupo, exceso, de_la_auditoria, tarjetas_repartidas):
+        return CATEGORIAS_DE_CAUSA[0], len(exceso)
+
+    if mediana_de_los_pares is None or pd.isna(mediana_de_los_pares):
+        return CATEGORIAS_DE_CAUSA[4], len(exceso) or int(sin_capacidad.sum())
+
+    registrada = float(grupo["capacidad"].dropna().median()) if grupo["capacidad"].notna().any() else None
+    apartado = registrada is not None and abs(registrada - mediana_de_los_pares) / mediana_de_los_pares \
+        > DESVIO_DE_CAPACIDAD
+    repetido = _exceso_repetido(exceso)
+    maxima_repite = _la_maxima_supera_la_capacidad(exceso, registrada)
+    if apartado or (maxima_repite and repetido):
+        return CATEGORIAS_DE_CAUSA[1], len(exceso)
+    if repetido:
+        return CATEGORIAS_DE_CAUSA[2], len(exceso)
+    return CATEGORIAS_DE_CAUSA[3], len(exceso)
+
+
+def _es_error_de_vinculacion(grupo, exceso, de_la_auditoria, tarjetas_repartidas):
+    """Si alguna carga con exceso del vehículo es de una tarjeta repartida o tiene causa de no-vínculo."""
+    for _, carga in exceso.iterrows():
+        if de_la_auditoria.get(carga["id"]):
+            return True
+        if pd.notna(carga["tarjeta"]) and (carga["tarjeta"], carga["fecha"]) in tarjetas_repartidas:
+            return True
+    return False
+
+
+def _exceso_repetido(exceso):
+    """El exceso es repetido si hay al menos dos cargas y su cociente varía poco (capacidad parecida)."""
+    if len(exceso) < CARGAS_PARA_EXCESO_REPETIDO:
+        return False
+    cociente = exceso["cociente"].dropna()
+    if len(cociente) < CARGAS_PARA_EXCESO_REPETIDO or cociente.mean() == 0:
+        return False
+    return float(cociente.std(ddof=0) / cociente.mean()) <= VARIACION_MAXIMA_DEL_COCIENTE
+
+
+def _la_maxima_supera_la_capacidad(exceso, registrada):
+    """Si la carga máxima con exceso sobrepasa la capacidad registrada más allá del margen.
+
+    Un exceso chico sobre la capacidad registrada no alcanza: la capacidad puede estar bien y el
+    tanque llenarse algo de más. Solo cuenta cuando la máxima pide un tanque sensiblemente mayor.
+    """
+    if registrada is None or not len(exceso):
+        return False
+    return bool(exceso["litros"].max() > registrada * MARGEN_DE_LA_CARGA_MAXIMA)
+
+
+def _resumen_de_causas(por_categoria):
+    """El bloque de causa ya contado, en agregado y sin que ninguna resta devuelva un grupo de 1 a 19."""
+    total_vehiculos = sum(c["vehiculos"] for c in por_categoria.values())
+    total_cargas = sum(c["cargas"] for c in por_categoria.values())
+    vehiculos = {c: por_categoria[c]["vehiculos"] for c in CATEGORIAS_DE_CAUSA}
+    cargas = {c: por_categoria[c]["cargas"] for c in CATEGORIAS_DE_CAUSA}
+    explicados = vehiculos[CATEGORIAS_DE_CAUSA[0]] + vehiculos[CATEGORIAS_DE_CAUSA[1]]
+    no_explicados = sum(vehiculos[c] for c in CATEGORIAS_DE_CAUSA[2:])
+    # La resta contra el total de vehículos, el de cargas y el resumen no puede dejar un grupo de 1 a 19
+    totales = [total_vehiculos, total_cargas, explicados, no_explicados]
+    salida = {
+        "por_categoria": {"total": acotar(total_vehiculos), **_partes_sin_resta_de(totales, vehiculos)},
+        "cargas_por_categoria": {"total": acotar(total_cargas), **_partes_sin_resta_de(totales, cargas)},
+        "resumen": {"total": acotar(total_vehiculos), "explicados": acotar(explicados),
+                    "no_explicados": acotar(no_explicados)},
+    }
+    return salida
+
+
 EDICIONES = ("confusion_visual", "letra_cambiada", "transposicion", "letra_de_mas_o_de_menos")
 FORMAS = ("vacio", "solo_digitos", "solo_letras", "largo_distinto", "forma_de_dominio")
 
@@ -1349,6 +1528,7 @@ BLOQUES_DE_DIAGNOSTICO = {
     "exceso_volumetrico_detalle": lambda datos, alertas: _exceso_volumetrico_detalle(
         datos["consumo"], datos["flota"], alertas),
     "fraccionamiento_detalle": lambda datos, alertas: _fraccionamiento_detalle(datos, alertas),
+    "exceso_por_causa": lambda datos, alertas: _exceso_por_causa(datos, alertas),
 }
 
 
@@ -1429,6 +1609,7 @@ def auditar(tablas, proveedor=None, semillas=SEMILLAS_ENTRENAMIENTO, n_flota=200
                                                           datos["flota"], alertas)
     diagnostico["fraccionamiento_detalle"] = _proteger("fraccionamiento_detalle", _fraccionamiento_detalle,
                                                        datos, alertas)
+    diagnostico["exceso_por_causa"] = _proteger("exceso_por_causa", _exceso_por_causa, datos, alertas)
     diagnostico["cobertura"] = _cobertura(datos, alertas, registro_del_periodo if registro is not None else None)
     por_regla = {}
     for regla, grupo in alertas.groupby("regla"):
