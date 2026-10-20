@@ -1124,6 +1124,9 @@ def test_el_fraccionamiento_marca_los_dias_de_km_no_evaluables(monkeypatch):
     assert detalle["dias_con_dos_o_mas_cargas"] == 2
     assert detalle["rendimiento_del_dia"]["total"] == 1
     assert detalle["rendimiento_del_dia"]["km_no_evaluable"] == 1
+
+
+def test_el_fraccionamiento_cuenta_los_pedidos_por_dia(monkeypatch):
     """Con cruce por dominio y día: un día con pedido para todas, uno para algunas y uno para ninguna."""
     monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
     monkeypatch.setattr("perfilador.auditoria.MINIMO_GRUPO", 1)
