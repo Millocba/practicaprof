@@ -883,22 +883,82 @@ def _la_maxima_supera_la_capacidad(exceso, registrada):
 
 
 def _resumen_de_causas(por_categoria):
-    """El bloque de causa ya contado, en agregado y sin que ninguna resta devuelva un grupo de 1 a 19."""
+    """El bloque de causa ya contado, en agregado y sin que ninguna resta devuelva un grupo de 1 a 19.
+
+    Las tres vistas (vehículos por categoría, cargas por categoría y el resumen de explicados y no
+    explicados) salen del mismo conteo y se solapan: restar entre ellas también revelaría un grupo
+    chico. Por eso, además de ocultar la parte visible más chica mientras una resta contra los totales
+    quede entre 1 y 19, se revisan las restas entre un total y cualquier suma de partes visibles de la
+    misma unidad (por ejemplo el total menos explicados, o explicados menos sus dos categorías).
+    """
     total_vehiculos = sum(c["vehiculos"] for c in por_categoria.values())
     total_cargas = sum(c["cargas"] for c in por_categoria.values())
     vehiculos = {c: por_categoria[c]["vehiculos"] for c in CATEGORIAS_DE_CAUSA}
     cargas = {c: por_categoria[c]["cargas"] for c in CATEGORIAS_DE_CAUSA}
     explicados = vehiculos[CATEGORIAS_DE_CAUSA[0]] + vehiculos[CATEGORIAS_DE_CAUSA[1]]
     no_explicados = sum(vehiculos[c] for c in CATEGORIAS_DE_CAUSA[2:])
-    # La resta contra el total de vehículos, el de cargas y el resumen no puede dejar un grupo de 1 a 19
-    totales = [total_vehiculos, total_cargas, explicados, no_explicados]
+    # Restas a cuidar por unidad: (agregado, partes que lo suman). Una resta da un grupo chico si el
+    # agregado menos la suma de un subconjunto de partes visibles cae entre 1 y 19.
+    restas = [
+        (total_vehiculos, vehiculos), (total_cargas, cargas),
+        (explicados, {c: vehiculos[c] for c in CATEGORIAS_DE_CAUSA[:2]}),
+        (no_explicados, {c: vehiculos[c] for c in CATEGORIAS_DE_CAUSA[2:]}),
+        (total_vehiculos, {"explicados": explicados, "no_explicados": no_explicados}),
+        (total_vehiculos, {"explicados": explicados}),
+        (total_vehiculos, {"no_explicados": no_explicados}),
+    ]
+    ocultas = _ocultas_de_las_restas(restas)
     salida = {
-        "por_categoria": {"total": acotar(total_vehiculos), **_partes_sin_resta_de(totales, vehiculos)},
-        "cargas_por_categoria": {"total": acotar(total_cargas), **_partes_sin_resta_de(totales, cargas)},
+        "por_categoria": {"total": acotar(total_vehiculos), **_partes_con_ocultas(vehiculos, ocultas)},
+        "cargas_por_categoria": {"total": acotar(total_cargas), **_partes_con_ocultas(cargas, ocultas)},
         "resumen": {"total": acotar(total_vehiculos), "explicados": acotar(explicados),
                     "no_explicados": acotar(no_explicados)},
     }
+    for clave in ("explicados", "no_explicados"):
+        if clave in ocultas:
+            salida["resumen"][clave] = None
     return salida
+
+
+def _ocultas_de_las_restas(restas):
+    """Las partes visibles que hay que ocultar para que ninguna resta deje un grupo de 1 a 19.
+
+    Arranca sin ocultas y, mientras alguna resta (agregado menos la suma de un subconjunto de partes
+    visibles) caiga entre 1 y 19, oculta la parte visible más chica. Como ocultar cambia los
+    subconjuntos visibles, se repite hasta que ninguna resta deje un grupo chico.
+    """
+    publicables = {}
+    for _, partes in restas:
+        for clave, valor in partes.items():
+            if valor == 0 or valor >= MINIMO_GRUPO:
+                publicables.setdefault(clave, valor)
+    ocultas = set()
+    while True:
+        visibles = {k: v for k, v in publicables.items() if k not in ocultas and v >= MINIMO_GRUPO}
+        if not visibles or not _hay_resta_chica(restas, ocultas):
+            break
+        ocultas.add(min(visibles, key=visibles.get))
+    return ocultas
+
+
+def _hay_resta_chica(restas, ocultas):
+    """Si alguna resta (agregado menos la suma de un subconjunto de sus partes visibles) cae entre 1 y 19."""
+    for agregado, partes in restas:
+        if not isinstance(agregado, int) or isinstance(agregado, bool) or agregado < MINIMO_GRUPO:
+            continue
+        visibles = [v for k, v in partes.items() if k not in ocultas and v >= MINIMO_GRUPO]
+        for combinacion in range(1 << len(visibles)):
+            suma = sum(v for indice, v in enumerate(visibles) if combinacion & (1 << indice))
+            if 0 < agregado - suma < MINIMO_GRUPO:
+                return True
+    return False
+
+
+def _partes_con_ocultas(partes, ocultas):
+    """Las partes publicables, con `None` en las que hay que ocultar para que la resta no revele un grupo chico."""
+    return {k: (None if k in ocultas else acotar(v)) for k, v in partes.items()}
+
+
 
 
 EDICIONES = ("confusion_visual", "letra_cambiada", "transposicion", "letra_de_mas_o_de_menos")

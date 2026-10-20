@@ -1312,6 +1312,59 @@ def test_la_causa_del_exceso_resume_explicados_y_no_explicados(monkeypatch):
     assert bloque["resumen"]["no_explicados"] == 1
 
 
+def _restas_de_las_causas(bloque):
+    """Restas entre las tres vistas del bloque que podrían revelar un grupo de 1 a 19.
+
+    Las vistas salen del mismo conteo y se solapan: total menos cualquier suma de partes visibles de la
+    misma unidad (por categoría de vehículos, por categoría de cargas y el resumen), y el total de una
+    vista menos la clave de esa categoría en la otra.
+    """
+    chicas = []
+    de_vehiculos = bloque["por_categoria"]
+    de_cargas = bloque["cargas_por_categoria"]
+    resumen = bloque["resumen"]
+    vistas = {"por_categoria": (de_vehiculos["total"], de_vehiculos),
+              "cargas_por_categoria": (de_cargas["total"], de_cargas),
+              "resumen": (resumen["total"], resumen)}
+    for nombre, (total, vista) in vistas.items():
+        if not isinstance(total, int) or isinstance(total, bool):
+            continue
+        visibles = [valor for clave, valor in vista.items()
+                    if clave != "total" and isinstance(valor, int) and not isinstance(valor, bool)]
+        for combinacion in range(1 << len(visibles)):
+            suma = sum(v for indice, v in enumerate(visibles) if combinacion & (1 << indice))
+            if 0 < total - suma < 20:
+                chicas.append(f"{nombre}.total - partes = {total - suma}")
+    for clave in bloque["por_categoria"]:
+        if clave == "total":
+            continue
+        en_vehiculos = de_vehiculos[clave]
+        en_cargas = de_cargas[clave]
+        if isinstance(en_vehiculos, int) and isinstance(en_cargas, int):
+            if 0 < en_vehiculos - en_cargas < 20:
+                chicas.append(f"por_categoria.{clave} - cargas_por_categoria.{clave} = {en_vehiculos - en_cargas}")
+    return chicas
+
+
+def test_la_causa_del_exceso_no_deja_restar_entre_sus_vistas(monkeypatch):
+    """Con explicados chico y no explicados grande, ninguna resta entre vistas revela el grupo chico."""
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 20)
+    monkeypatch.setattr("perfilador.auditoria.MINIMO_GRUPO", 20)
+    from perfilador.auditoria import _exceso_por_causa
+
+    # Un vehículo aislado (explicados = 0) y 21 vehículos con exceso aislado (no explicados = 21)
+    flota = [{"Matricula": f"S{i}", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"}
+             for i in range(30)]
+    cargas = [{"id": f"S{i}-0", "vehiculo_id": f"S{i}", "fecha": "2024-05-10", "litros": 130.0}
+              for i in range(21)]
+    cargas += [{"id": "S29-0", "vehiculo_id": "S29", "fecha": "2024-05-10", "litros": 130.0},
+               {"id": "S29-1", "vehiculo_id": "S29", "fecha": "2024-05-11", "litros": 50.0}]
+    bloque = _exceso_por_causa(_datos_de_causa(cargas, flota), None)
+    assert "error" not in bloque
+    chicas = _restas_de_las_causas(bloque)
+    assert not chicas, "\n".join(chicas)
+
+
 def test_la_causa_del_exceso_no_publica_un_entero_del_1_al_19(sintetico):
     """El bloque real, en agregado: ningún entero de 1 a 19 suelto ni recuperable por resta."""
     bloque = auditar(con_forma_real(sintetico), proveedor="proveedor zeta", semillas=(1001,),
@@ -1319,6 +1372,6 @@ def test_la_causa_del_exceso_no_publica_un_entero_del_1_al_19(sintetico):
     assert "error" not in bloque
     chicos = _enteros_chicos_del_detalle(bloque)
     assert not chicos, "\n".join(chicos)
-    malos = _residuos_chicos({"exceso_por_causa": bloque})
+    malos = _residuos_chicos({"exceso_por_causa": bloque}) + _restas_de_las_causas(bloque)
     assert not malos, "\n".join(malos)
 
