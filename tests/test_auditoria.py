@@ -1195,3 +1195,130 @@ def test_el_fraccionamiento_no_publica_un_entero_del_1_al_19_ni_deja_restarlo(si
     assert not malos, "\n".join(malos)
 
 
+def _datos_de_causa(cargas, flota, pedidos=None, alertas=None):
+    """Un `datos` con lo justo para el bloque de causa del exceso, con las columnas que lee el adaptador."""
+    consumo = pd.DataFrame(cargas)
+    completo = {"hora": "08:00:00", "dominio": "AAA111", "tipo_identificacion": "PATENTE",
+                "numero_tarjeta": None, "conductor": None, "odometro": None}
+    for columna, valor in completo.items():
+        if columna not in consumo:
+            consumo[columna] = valor
+    padron = pd.DataFrame(flota)
+    for columna in ("NumeroTarjeta", "Dominio", "NumeroMotor", "Marca", "Modelo", "TipoVehiculo"):
+        if columna not in padron:
+            padron[columna] = None
+    return {"consumo": consumo, "flota": padron,
+            "solicitudes": pd.DataFrame(pedidos) if pedidos is not None else None,
+            "reclamos": None, "alertas": pd.DataFrame(alertas) if alertas is not None else None}
+
+
+def test_la_causa_del_exceso_clasifica_por_capacidad_del_padron(monkeypatch):
+    """Un vehículo muy apartado de la mediana de sus pares va a capacidad del padrón inconsistente."""
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    monkeypatch.setattr("perfilador.auditoria.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _exceso_por_causa
+
+    # S1 registra 50 L pero sus pares (mismo marca+modelo) tienen 100 L: se aparta 50 % (inconsistente).
+    # Sus cargas exceden el 2 % en forma repetida y de cociente parecido.
+    flota = [{"Matricula": "S1", "CapacidadTanque": 50.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S2", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S3", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S4", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"}]
+    cargas = [{"id": f"S1-{i}", "vehiculo_id": "S1", "fecha": f"2024-05-{10 + i:02d}", "litros": 52.0}
+              for i in range(4)]
+    cargas += [{"id": f"S2-{i}", "vehiculo_id": "S2", "fecha": f"2024-05-{10 + i:02d}", "litros": 50.0}
+               for i in range(4)]
+    bloque = _exceso_por_causa(_datos_de_causa(cargas, flota), None)
+    assert bloque["por_categoria"]["total"] == 1
+    assert bloque["por_categoria"]["capacidad_del_padron_inconsistente"] == 1
+    assert bloque["por_categoria"]["error_de_vinculacion"] == 0
+
+
+def test_la_causa_del_exceso_marca_el_error_de_vinculacion(monkeypatch):
+    """La misma tarjeta cargando a dos vehículos el mismo día es error de vinculación."""
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    monkeypatch.setattr("perfilador.auditoria.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _exceso_por_causa
+
+    flota = [{"Matricula": "S1", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S2", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"}]
+    cargas = [{"id": "S1-a", "vehiculo_id": "S1", "fecha": "2024-05-10", "litros": 130.0, "numero_tarjeta": "T-9"},
+              {"id": "S2-a", "vehiculo_id": "S2", "fecha": "2024-05-10", "litros": 130.0, "numero_tarjeta": "T-9"}]
+    bloque = _exceso_por_causa(_datos_de_causa(cargas, flota), None)
+    assert bloque["por_categoria"]["error_de_vinculacion"] == 2
+
+
+def test_la_causa_del_exceso_marca_el_exceso_repetido_con_capacidad_consistente(monkeypatch):
+    """Coincide con sus pares pero excede en forma repetida: capacidad consistente con exceso repetido."""
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    monkeypatch.setattr("perfilador.auditoria.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _exceso_por_causa
+
+    flota = [{"Matricula": "S1", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S2", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S3", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"}]
+    cargas = [{"id": f"S1-{i}", "vehiculo_id": "S1", "fecha": f"2024-05-{10 + i:02d}", "litros": 103.0}
+              for i in range(4)]
+    bloque = _exceso_por_causa(_datos_de_causa(cargas, flota), None)
+    assert bloque["por_categoria"]["capacidad_consistente_con_exceso_repetido"] == 1
+
+
+def test_la_causa_del_exceso_marca_el_exceso_aislado(monkeypatch):
+    """Una sola carga con exceso y cociente irregular, sin explicación: exceso aislado."""
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    monkeypatch.setattr("perfilador.auditoria.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _exceso_por_causa
+
+    flota = [{"Matricula": "S1", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S2", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S3", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"}]
+    cargas = [{"id": "S1-0", "vehiculo_id": "S1", "fecha": "2024-05-10", "litros": 130.0},
+              {"id": "S1-1", "vehiculo_id": "S1", "fecha": "2024-05-11", "litros": 50.0}]
+    bloque = _exceso_por_causa(_datos_de_causa(cargas, flota), None)
+    assert bloque["por_categoria"]["exceso_aislado"] == 1
+
+
+def test_la_causa_del_exceso_marca_no_evaluable_sin_capacidad(monkeypatch):
+    """Sin capacidad en el padrón no se puede evaluar: no evaluable, y el bloque sigue."""
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    monkeypatch.setattr("perfilador.auditoria.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _exceso_por_causa
+
+    flota = [{"Matricula": "S1", "CapacidadTanque": None, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S2", "CapacidadTanque": None, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"}]
+    cargas = [{"id": "S1-0", "vehiculo_id": "S1", "fecha": "2024-05-10", "litros": 130.0}]
+    bloque = _exceso_por_causa(_datos_de_causa(cargas, flota), None)
+    assert "error" not in bloque
+    assert bloque["por_categoria"]["total"] == 1
+    assert bloque["por_categoria"]["no_evaluable"] == 1
+
+
+def test_la_causa_del_exceso_resume_explicados_y_no_explicados(monkeypatch):
+    """El resumen junta las categorías 1 y 2 como explicados y las 3, 4 y 5 como no explicados."""
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    monkeypatch.setattr("perfilador.auditoria.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _exceso_por_causa
+
+    flota = [{"Matricula": "S1", "CapacidadTanque": 50.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S2", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S3", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S4", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S5", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"}]
+    cargas = [{"id": "S1-a", "vehiculo_id": "S1", "fecha": "2024-05-10", "litros": 52.0},
+              {"id": "S2-a", "vehiculo_id": "S2", "fecha": "2024-05-10", "litros": 130.0},
+              {"id": "S2-b", "vehiculo_id": "S2", "fecha": "2024-05-11", "litros": 50.0}]
+    bloque = _exceso_por_causa(_datos_de_causa(cargas, flota), None)
+    assert bloque["resumen"]["explicados"] == 1
+    assert bloque["resumen"]["no_explicados"] == 1
+
+
+def test_la_causa_del_exceso_no_publica_un_entero_del_1_al_19(sintetico):
+    """El bloque real, en agregado: ningún entero de 1 a 19 suelto ni recuperable por resta."""
+    bloque = auditar(con_forma_real(sintetico), proveedor="proveedor zeta", semillas=(1001,),
+                     solo="exceso_por_causa")["diagnostico"]["exceso_por_causa"]
+    assert "error" not in bloque
+    chicos = _enteros_chicos_del_detalle(bloque)
+    assert not chicos, "\n".join(chicos)
+    malos = _residuos_chicos({"exceso_por_causa": bloque})
+    assert not malos, "\n".join(malos)
+
