@@ -131,14 +131,30 @@ Limitación: los resultados provienen de datos sintéticos etiquetados. La preva
 
 ### 4.1 Estado y madurez de la hipótesis rectora
 
-H3b fue seleccionada como hipótesis rectora del Sprint 4 y alcanza una madurez Diagnóstica inicial para esta etapa. La evidencia real agregada permite diferenciar un patrón persistente desde las primeras cargas, casos con evidencia de error de asignación o carga, excesos posteriores a un historial normal y operaciones no evaluables por falta de capacidad. Esta clasificación avanza desde la descripción hacia una explicación contextual, sin confirmar fraude ni atribuir responsabilidades.
+H3b se selecciona como hipótesis rectora y el equipo la declara **Diagnóstica**. El nivel Diagnóstico exige una explicación sustentada de los factores que producen el hallazgo, y el equipo fijó este criterio antes de mirar el resultado: la mayoría de las cargas con exceso debe tener una causa explicada por fuentes ajenas a la regla.
+
+**Evidencia real (agregados, sin filas):** en los datos reales hay 66 cargas con exceso volumétrico, en 23 vehículos. Se las clasificó por causa con fuentes distintas de la propia regla (padrón, vinculación por tarjeta y dominio, historial de capacidad):
+
+| Causa | Cargas | Proporción |
+|---|---:|---:|
+| Error de vinculación (tarjeta o dominio equivocado) | 39 | 59 % |
+| Sin explicación por fuentes ajenas a la regla | 27 | 41 % |
+
+- La causa dominante es el error de vinculación, que se corrige en la carga y no es una conducta del conductor.
+- La causa "capacidad del padrón inconsistente" no aparece en los datos reales. En el generador sintético, en cambio, es la causa principal de la anomalía; esa diferencia se declara como límite y no se corrige en el generador.
+- Las cargas sin explicación se declaran **casos para revisión por posible uso indebido**. La evidencia descarta las causas administrativas conocidas, pero no prueba intención: pueden ser un error puntual de tipeo o de medición, y solo una revisión documental puede calificarlas.
+- Los grupos de menos de 20 vehículos o cargas no se detallan (regla de grupos chicos).
+- La corrida real que respalda esta tabla está en revisión (PR #80) y no está aprobada todavía.
+
+La hipótesis queda respaldada y diagnosticada, pero su rendimiento no está validado sobre datos reales etiquetados. La diferencia entre la prevalencia sintética (1,1 %) y la real (66 cargas en unas 217 mil, 0,03 %), junto con la forma en que se generaron las etiquetas, impide considerar las métricas sintéticas como una medición del desempeño operativo.
 
 La lectura diagnóstica se apoya únicamente en resultados publicables. Los grupos pequeños se informan de manera agrupada y no se combinan totales que permitan reconstruirlos por resta. Tanto la elección de H3b como su clasificación y madurez quedan sujetas a revisión si nuevos datos o evaluaciones modifican la evidencia disponible.
 
 | Hipótesis | Estado al cierre del Sprint 4 | Madurez | Decisión |
 |---|---|---|---|
-| H3b | Seleccionada como hipótesis rectora para esta etapa | Diagnóstica inicial | Conservar la regla y revisar la decisión ante nueva evidencia |
+| H3b | Rectora: regla evaluada en sintético y causas del exceso explicadas en datos reales (59 % de las cargas) | Diagnóstica (decisión del equipo) | Conservar la regla contextual; revisar el residuo como posible uso indebido |
 | H1 | Validada de manera condicionada; condición habilitante | Diagnóstica | Mantener controles de normalización y vinculación |
+| H9 | Con evidencia real sólida: la factura toma el precio de empresa y el PDF coincide con la deuda | Sin actualizar en este sprint | Evaluar su madurez con el equipo |
 | Restantes | Pendientes de evidencia suficiente | Descriptiva | Permanecen en el backlog |
 
 
@@ -152,19 +168,23 @@ La lectura diagnóstica se apoya únicamente en resultados publicables. Los grup
 | Preparación de los datos | Se construyeron variables contextuales y se separaron semillas de diseño y evaluación. |
 | Modelado | Se compararon la línea ingenua, la regla contextual, Isolation Forest, regresión logística y Random Forest. |
 | Evaluación | Se utilizaron precisión, recall, F1, precisión promedio y precisión en las primeras k operaciones. |
-| Decisión | Se seleccionó H3b y se recomendó conservar la regla contextual frente a los modelos evaluados. |
+| Decisión | Se seleccionó H3b, se la declaró Diagnóstica con evidencia real y se recomendó conservar la regla contextual frente a los modelos evaluados. |
 
 ### 4.3 Backlog actualizado
 
 | Elemento del backlog | Estado al cierre del Sprint 4 | Próxima acción | Prioridad |
 |---|---|---|---|
-| H3b — Exceso volumétrico con contexto | Hipótesis rectora; madurez Diagnóstica inicial respaldada por evidencia sintética y agregados reales | Validar la estabilidad del diagnóstico y revisar la clasificación ante nueva evidencia | Alta |
+| H3b — Exceso volumétrico con contexto | Rectora y Diagnóstica; 59 % de las cargas con exceso explicadas por error de vinculación | Revisar documentalmente el 41 % restante (posible uso indebido) y aprobar la corrida real del PR #80 | Alta |
 | H1 — Vinculación de cargas con la flota | Validada de manera condicionada; condición habilitante | Mantener controles sobre vínculos ambiguos y no resueltos | Alta |
 | H2b y H2c — Retrocesos y saltos de odómetro | Pendientes de mayor evidencia | Contrastar secuencias, lecturas inválidas y excepciones vigentes | Media |
 | H4, H5 y H7 | Descartadas como candidatas rectoras independientes para PP1; no se descartan como reglas operativas | Conservar la evidencia de ablación; solo podrían reevaluarse con etiquetas reales independientes | Media |
 | H6, H8, H9, H10, H11 y H12 | Pendientes de evidencia suficiente | Evaluar su viabilidad según la disponibilidad y calidad de las fuentes | Media |
 | H13 — Cargas asociadas con contingencias | Inconclusa: la señal no cae al retirar las variables principales | Revisar el generador y posibles variables que anticipen la etiqueta antes de continuar | Alta |
 | Validación de H3b | Pendiente sobre datos reales etiquetados | Comparar prevalencia, precisión y cobertura sin extrapolar métricas sintéticas | Alta |
+| Brecha de causas sintético-real | El generador modela la capacidad mal registrada como causa principal; en lo real domina el error de vinculación | Documentar y, si el equipo lo decide, ajustar el escenario sintético sin tocar el origen de los datos | Alta |
+| Fuga entre bloques de H3b en el agregado aprobado | La resta entre bloques deja deducir un grupo chico | Decidir si se corrige el agregado aprobado | Media |
+| Variables nuevas para el modelo | Con las 15 actuales el modelo no supera la regla al quitar las variables que la definen | Incorporar variables independientes de la regla | Media |
+| Pull requests abiertos | #76 (H12) y #80 (exceso por causa y fraccionamiento de H4); #73 (pruebas de excepciones) y #81 (orden del odómetro) en revisión | Revisar y fusionar por separado | Media |
 | Pipeline reproducible | Completado para la evaluación sintética | Conservar código, semillas, resultados y pruebas automáticas | Alta |
 | Informe técnico | En elaboración | Incorporar método, resultados, limitaciones y recomendación final | Alta |
 
@@ -174,7 +194,7 @@ Los criterios cuantitativos de éxito de H7 a H13 no se fijan retroactivamente. 
 
 Problema: priorizar operaciones de combustible que requieren revisión humana.
 
-Hipótesis rectora: H3b, exceso volumétrico respecto de la capacidad registrada, con tolerancia del 2 % y clasificado según el historial del vehículo. H1 se conserva como condición habilitante validada de manera condicionada; H4, H5 y H7 se descartan solamente como candidatas rectoras independientes, y H13 permanece inconclusa.
+Hipótesis rectora: H3b, exceso volumétrico respecto de la capacidad registrada, con tolerancia del 2 % y clasificado según el historial del vehículo. H1 se conserva como condición habilitante validada de manera condicionada; H4, H5 y H7 se descartan solamente como candidatas rectoras independientes, y H13 permanece inconclusa. Madurez: Diagnóstica (decisión del equipo), con la causa del exceso explicada por error de vinculación en el 59 % de las cargas reales con exceso.
 
 Datos de evaluación: 34.826 cargas sintéticas correspondientes a cinco semillas, con 375 casos etiquetados para H3b. Las semillas utilizadas para diseñar los métodos fueron diferentes de las empleadas para evaluarlos.
 
@@ -183,6 +203,8 @@ Métodos comparados: línea base ingenua, regla contextual, Isolation Forest, re
 Resultado principal: la regla contextual obtuvo un F1 de 0,98 y una precisión en las primeras k operaciones de 0,97. Los modelos no lograron superarla cuando se excluyeron las variables que componen esa regla.
 
 Recomendación: utilizar la regla contextual como mecanismo inicial de priorización por su rendimiento, reproducibilidad e interpretación, y mantener los modelos como evidencia experimental hasta disponer de datos reales etiquetados de forma independiente.
+
+Diagnóstico con datos reales: de 66 cargas con exceso, 39 (59 %) se explican por error de vinculación y 27 (41 %) quedan como casos para revisión por posible uso indebido.
 
 Limitación principal: la evaluación utiliza etiquetas sintéticas y presenta una prevalencia diferente de la observada en los agregados reales. Por ello, los resultados no representan todavía una validación operativa.
 
@@ -197,6 +219,7 @@ Limitación principal: la evaluación utiliza etiquetas sintéticas y presenta u
 
 ## 5. Pendientes para el Sprint 5
 
+Revisar el residuo sin explicación de H3b (posible uso indebido) con la fuente documental.
 Validar H3b con evidencia real o agregados aprobados sin extrapolar las métricas sintéticas.
 Evaluar la viabilidad operativa de la regla contextual y definir sus límites de aplicación.
 Documentar el pipeline reproducible desde la preparación de los datos hasta la priorización.
