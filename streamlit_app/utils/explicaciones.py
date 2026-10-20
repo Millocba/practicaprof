@@ -27,6 +27,7 @@ RECORRIDO = [
     ("hipotesis", "🧪", "Probar ideas"),
     ("modelo", "🤖", "La compu aprende"),
     ("documentacion", "📚", "Cuaderno"),
+    ("evaluacion", "📏", "Medir en vivo"),
 ]
 
 TARJETAS = {
@@ -89,7 +90,14 @@ TARJETAS = {
         "que": "Está anotado qué se hizo, qué se decidió y cómo salieron los resultados.",
         "para": "Para que cualquiera pueda entender y repetir el trabajo.",
         "flujo": "Es la última página: resume todas las demás.",
+    },    "evaluacion": {
+        "titulo": "10. Medir en vivo",
+        "que": "Se enfrentan, delante de todos, la regla simple, la regla con contexto y la computadora que "
+               "aprende, y se cuenta cuántas trampas encuentra cada una.",
+        "para": "Para ver con números si hace falta la computadora o alcanza con la regla.",
+        "flujo": "Usa los mismos datos inventados de la página 1 y las reglas de las páginas 6 y 7.",
     },
+
 }
 
 

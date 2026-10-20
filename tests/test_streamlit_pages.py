@@ -198,3 +198,16 @@ def test_modelo_ml_lista_las_cargas_a_vehiculos_fuera_de_servicio():
     assert not any("Ninguna carga a un vehículo fuera de servicio" in s.value for s in at.success)
     assert any(m.label == "Cargas a revisar" for m in at.metric)
 
+
+
+def test_evaluacion_en_vivo_compara_los_metodos_al_ejecutar():
+    at = AppTest.from_file(str(APP_DIR / "pages/10_evaluacion_en_vivo.py"), default_timeout=900)
+    at.run()
+    assert not at.exception
+    at.slider[0].set_value(30)
+    at.slider[1].set_value(20)
+    next(b for b in at.button if "Ejecutar" in b.label).click()
+    at.run()
+    assert not at.exception
+    assert [m.label for m in at.metric] == ["F1 línea base ingenua", "F1 regla con contexto",
+                                           "F1 Random Forest sin las de la regla"]
