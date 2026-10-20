@@ -185,6 +185,7 @@ def adaptar(tablas, proveedor=None):
         "Matricula": _texto(padron["Matricula"]), "Dominio": _texto(padron["Dominio"]),
         "Estado": padron["Estado"].astype("string").str.strip().str.upper(),
         "SubEstado": padron.get("SubEstado"), "TipoVehiculo": padron.get("TipoVehiculo"),
+        "Marca": padron.get("Marca"), "Modelo": padron.get("Modelo"),
         "TipoCombustible": padron.get("TipoCombustible"),
         "CapacidadTanque": _numero(padron["CapacidadTanque"]).where(lambda s: s > 0),
         "NumeroTarjeta": _texto(padron["NumeroTarjeta"]), "NumeroContrato": _numero(padron.get("NumeroContrato")),
