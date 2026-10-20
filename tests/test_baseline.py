@@ -101,3 +101,12 @@ def test_explicar_informa_las_variables_del_modelo_sin_las_de_la_regla_y_la_abla
     tabla = baseline.explicar_a_markdown(resultado)
     assert "| Variable |" in tabla and "F1 del Random Forest" in tabla
 
+
+def test_ordenamiento_mide_la_precision_promedio_y_la_precision_en_las_primeras_k():
+    real = [True, True, False, False, False]
+    perfecto = baseline.ordenamiento(real, [0.9, 0.8, 0.3, 0.2, 0.1])
+    assert perfecto["ap"] == pytest.approx(1.0) and perfecto["precision_en_k"] == pytest.approx(1.0)
+    peor = baseline.ordenamiento(real, [0.1, 0.2, 0.3, 0.8, 0.9])
+    assert peor["precision_en_k"] == 0.0 and peor["ap"] < 0.5
+    assert baseline.ordenamiento([False, False], [0.5, 0.4]) == {"ap": 0.0, "precision_en_k": 0.0}
+

@@ -30,6 +30,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import average_precision_score
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -81,6 +82,19 @@ def metricas(real, predicho):
     return {"tp": tp, "fp": fp, "fn": fn, "tn": tn, "precision": precision, "recall": recall, "f1": f1}
 
 
+def ordenamiento(real, puntaje):
+    """Qué tan bien ordena el método (sin umbral): precisión promedio y precisión en las primeras k cargas.
+
+    k es la cantidad de anomalías reales: si el método ordenara perfecto, las k primeras serían todas anómalas.
+    """
+    real, puntaje = np.asarray(real, dtype=bool), np.asarray(puntaje, dtype=float)
+    k = int(real.sum())
+    if k == 0:
+        return {"ap": 0.0, "precision_en_k": 0.0}
+    primeras = np.argsort(-puntaje, kind="stable")[:k]
+    return {"ap": float(average_precision_score(real, puntaje)), "precision_en_k": float(real[primeras].mean())}
+
+
 def _generar(semilla, n_flota):
     from generator_pipeline_maestro import GeneradorMaestro
 
@@ -127,7 +141,9 @@ def _resumir(por_semilla):
     precision = tp / (tp + fp) if tp + fp else 0.0
     recall = tp / (tp + fn) if tp + fn else 0.0
     f1s = [m["f1"] for m in por_semilla]
-    return {**suma, "precision": precision, "recall": recall,
+    return {**suma, "ap_media": float(np.mean([m["ap"] for m in por_semilla])),
+            "precision_en_k_media": float(np.mean([m["precision_en_k"] for m in por_semilla])),
+            "precision": precision, "recall": recall,
             "f1": 2 * precision * recall / (precision + recall) if precision + recall else 0.0,
             "f1_por_semilla": [round(f, 3) for f in f1s], "f1_media": float(np.mean(f1s)),
             "f1_desvio": float(np.std(f1s))}
@@ -180,7 +196,7 @@ def evaluar_varias(hipotesis, semillas_de_diseno=None, semillas_de_evaluacion=No
         dataset = _generar(semilla, n_flota)
         variables = _variables(dataset)
         alertas = reglas_del_dataset(dataset)
-        _, anomalo = entrenar_isolation_forest(variables)
+        puntaje_if, anomalo = entrenar_isolation_forest(variables)
         anomalo = anomalo.reindex(variables.index).fillna(False)
         for h in hipotesis:
             real = _etiqueta(dataset, variables, entradas[h]["tipos"])
@@ -189,11 +205,16 @@ def evaluar_varias(hipotesis, semillas_de_diseno=None, semillas_de_evaluacion=No
             predicciones = {"linea_base_ingenua": _bandera_de_reglas(alertas, variables, reglas_de(reglas[0][0])),
                             "regla_con_contexto": _bandera_de_reglas(alertas, variables, reglas_de(reglas[-1][0])),
                             "isolation_forest": anomalo}
+            puntajes = {"linea_base_ingenua": predicciones["linea_base_ingenua"].astype(float),
+                        "regla_con_contexto": predicciones["regla_con_contexto"].astype(float),
+                        "isolation_forest": puntaje_if.reindex(variables.index).fillna(0.0)}
             for (nombre, escenario), (modelo, cols) in entrenados[h].items():
                 probabilidad = modelo.predict_proba(variables.reindex(columns=cols, fill_value=0.0))[:, 1]
                 predicciones[f"{nombre}__{escenario}"] = pd.Series(probabilidad >= UMBRAL, index=variables.index)
+                puntajes[f"{nombre}__{escenario}"] = pd.Series(probabilidad, index=variables.index)
             for metodo, predicho in predicciones.items():
-                por_metodo[h].setdefault(metodo, []).append(metricas(real, predicho))
+                por_metodo[h].setdefault(metodo, []).append({**metricas(real, predicho),
+                                                              **ordenamiento(real, puntajes[metodo])})
         if progreso:
             progreso(f"evaluación {semilla}")
 
@@ -292,11 +313,12 @@ ETIQUETAS = {"linea_base_ingenua": "Línea base ingenua", "regla_con_contexto": 
 
 def a_markdown(resultado):
     """Tabla de comparación de una hipótesis, lista para el informe."""
-    filas = ["| Método | Precisión | Recall | F1 | F1 por semilla (media ± desvío) | TP | FP | FN | TN |",
-             "|---|---:|---:|---:|---|---:|---:|---:|---:|"]
+    filas = ["| Método | Precisión | Recall | F1 | F1 por semilla (media ± desvío) | Precisión promedio (sin umbral) | "
+             "Precisión en las primeras k | TP | FP | FN | TN |", "|---|---:|---:|---:|---|---:|---:|---:|---:|---:|---:|"]
     for metodo, m in resultado["metodos"].items():
         filas.append(f"| {ETIQUETAS.get(metodo, metodo)} | {m['precision']:.2f} | {m['recall']:.2f} | {m['f1']:.2f} | "
-                     f"{m['f1_media']:.2f} ± {m['f1_desvio']:.2f} | {m['tp']} | {m['fp']} | {m['fn']} | {m['tn']} |")
+                     f"{m['f1_media']:.2f} ± {m['f1_desvio']:.2f} | {m['ap_media']:.2f} | "
+                     f"{m['precision_en_k_media']:.2f} | {m['tp']} | {m['fp']} | {m['fn']} | {m['tn']} |")
     return (f"**{resultado['hipotesis']}** ({', '.join(resultado['tipos'])}), unidad: {resultado['unidad']}. "
             f"Diseño con las semillas {resultado['semillas_de_diseno']}; evaluación con "
             f"{resultado['semillas_de_evaluacion']} ({resultado['anomalias_en_evaluacion']} anomalías en total). "
