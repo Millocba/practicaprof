@@ -797,3 +797,255 @@ def test_ningun_total_menos_sus_partes_visibles_da_un_grupo_chico(resultado):
     assert not violaciones, "\n".join(violaciones)
 
 
+CLAVES_DEL_DETALLE_DE_EXCESO = {
+    "vehiculos", "cargas_con_exceso", "vehiculos_con_3_o_mas_cargas_con_exceso",
+    "vehiculos_para_la_mitad_de_las_cargas",
+    *(f"cociente_{b}" for b in ("1_02_a_1_05", "1_05_a_1_10", "1_10_a_1_25", "1_25_a_1_50", "mas_de_1_50")),
+    *(f"vehiculos_con_fraccion_{b}" for b in ("menos_de_0_10", "0_10_a_0_30", "0_30_a_0_60", "mas_de_0_60")),
+    *(f"vehiculos_con_cv_{b}" for b in ("menos_de_0_05", "0_05_a_0_15", "0_15_a_0_30", "mas_de_0_30")),
+    *(f"rendimiento_{b}" for b in ("menos_de_0_5", "0_5_a_0_8", "0_8_a_1_2", "mas_de_1_2")),
+    *(f"causa_probable_{c}" for c in ("dominio_equivocado", "proveedor_equivocado", "tarjeta_equivocada")),
+}
+
+
+def _detalle_de_exceso_sintetico():
+    """Dos vehículos de tanque de 100 L: uno excede desde su primera carga y el otro después."""
+    flota = pd.DataFrame({"Matricula": ["S1", "S2"], "CapacidadTanque": [100.0, 100.0]})
+    filas = [{"id": f"E1-{i}", "vehiculo_id": "S1", "fecha": f"2024-05-{10 + i:02d}",
+              "litros": 105.0, "odometro": 1000 + 100 * i} for i in range(10)]
+    filas += [{"id": f"E2-{i}", "vehiculo_id": "S2", "fecha": f"2024-05-{10 + i:02d}",
+               "litros": 50.0 if i < 5 else 130.0, "odometro": 5000 + 100 * i} for i in range(10)]
+    consumo = pd.DataFrame(filas)
+    alertas = pd.DataFrame({"id_registro": ["E2-5"], "causa_probable": ["tarjeta_equivocada"]})
+    return consumo, flota, alertas
+
+
+def test_el_detalle_de_exceso_clasifica_por_el_origen_y_abre_las_bandas(monkeypatch):
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    monkeypatch.setattr("perfilador.auditoria.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _exceso_volumetrico_detalle
+
+    consumo, flota, alertas = _detalle_de_exceso_sintetico()
+    detalle = _exceso_volumetrico_detalle(consumo, flota, alertas)
+    assert set(detalle) == {"desde_el_inicio", "despues"}
+    assert set(detalle["desde_el_inicio"]) == CLAVES_DEL_DETALLE_DE_EXCESO
+
+    desde = detalle["desde_el_inicio"]
+    assert desde["vehiculos"] == 1 and desde["cargas_con_exceso"] == 10
+    assert desde["cociente_1_02_a_1_05"] == 10     # 1,05 exacto: borde de la primera banda
+    assert desde["cociente_1_05_a_1_10"] == 0 and desde["cociente_1_10_a_1_25"] == 0
+    assert desde["vehiculos_con_fraccion_mas_de_0_60"] == 1   # 10 de 10 cargas evaluables
+    assert desde["vehiculos_con_3_o_mas_cargas_con_exceso"] == 1
+    assert desde["vehiculos_con_cv_menos_de_0_05"] == 1       # cociente constante: CV = 0
+    assert desde["vehiculos_para_la_mitad_de_las_cargas"] == 1
+    assert desde["rendimiento_0_8_a_1_2"] == 9               # la primera carga no tiene tramo
+    assert desde["causa_probable_tarjeta_equivocada"] == 0
+
+    despues = detalle["despues"]
+    assert despues["vehiculos"] == 1 and despues["cargas_con_exceso"] == 5
+    assert despues["cociente_1_25_a_1_50"] == 5              # 1,30: litros/capacidad
+    assert despues["vehiculos_con_fraccion_0_30_a_0_60"] == 1  # 5 excesos sobre 10 evaluables: 50 %
+    assert despues["vehiculos_con_3_o_mas_cargas_con_exceso"] == 1
+    assert despues["vehiculos_con_cv_menos_de_0_05"] == 1
+    assert despues["vehiculos_para_la_mitad_de_las_cargas"] == 1
+    assert despues["rendimiento_0_8_a_1_2"] == 5
+    assert despues["causa_probable_tarjeta_equivocada"] == 1
+    assert despues["causa_probable_dominio_equivocado"] == 0
+    assert despues["causa_probable_proveedor_equivocado"] == 0
+
+    crudo = json.dumps(detalle)
+    for secreto in ("S1", "S2", "E1-", "E2-", "vehiculo_id", "odometro", "fecha"):
+        assert secreto not in crudo
+
+
+def test_las_bandas_del_detalle_de_exceso_tienen_sus_bordes_fijos():
+    from perfilador.auditoria import (_banda_de_la_fraccion, _banda_de_la_variacion, _banda_del_cociente,
+                                      _banda_del_rendimiento)
+
+    assert _banda_del_cociente(1.05) == "1_02_a_1_05"
+    assert _banda_del_cociente(1.050001) == "1_05_a_1_10"
+    assert _banda_del_cociente(1.10) == "1_05_a_1_10"
+    assert _banda_del_cociente(1.100001) == "1_10_a_1_25"
+    assert _banda_del_cociente(1.25) == "1_10_a_1_25"
+    assert _banda_del_cociente(1.250001) == "1_25_a_1_50"
+    assert _banda_del_cociente(1.50) == "1_25_a_1_50"
+    assert _banda_del_cociente(1.500001) == "mas_de_1_50"
+
+    assert _banda_de_la_fraccion(0.0999) == "menos_de_0_10"
+    assert _banda_de_la_fraccion(0.10) == "0_10_a_0_30"
+    assert _banda_de_la_fraccion(0.30) == "0_10_a_0_30"
+    assert _banda_de_la_fraccion(0.300001) == "0_30_a_0_60"
+    assert _banda_de_la_fraccion(0.599999) == "0_30_a_0_60"
+    assert _banda_de_la_fraccion(0.60) == "mas_de_0_60"
+
+    assert _banda_de_la_variacion(0.0499) == "menos_de_0_05"
+    assert _banda_de_la_variacion(0.05) == "0_05_a_0_15"
+    assert _banda_de_la_variacion(0.15) == "0_05_a_0_15"
+    assert _banda_de_la_variacion(0.150001) == "0_15_a_0_30"
+    assert _banda_de_la_variacion(0.30) == "0_15_a_0_30"
+    assert _banda_de_la_variacion(0.300001) == "mas_de_0_30"
+
+    assert _banda_del_rendimiento(0.4999) == "menos_de_0_5"
+    assert _banda_del_rendimiento(0.5) == "0_5_a_0_8"
+    assert _banda_del_rendimiento(0.8) == "0_5_a_0_8"
+    assert _banda_del_rendimiento(0.800001) == "0_8_a_1_2"
+    assert _banda_del_rendimiento(1.2) == "0_8_a_1_2"
+    assert _banda_del_rendimiento(1.200001) == "mas_de_1_2"
+
+
+def test_el_detalle_de_exceso_usa_el_historial_para_definir_el_origen(monkeypatch):
+    """El exceso dentro de las primeras cargas (FRACCION_INICIAL) marca el origen del vehículo."""
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    monkeypatch.setattr("perfilador.auditoria.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _exceso_volumetrico_detalle
+    from deteccion.reglas import FRACCION_INICIAL
+
+    flota = pd.DataFrame({"Matricula": ["S1", "S2"], "CapacidadTanque": [100.0, 100.0]})
+    total = 8                                  # primeras cargas: posición < 8 * 0.25 = 2 (pos 0 y 1)
+    filas = []
+    for i in range(total):
+        exceso_bajo = i == 1                    # exceso justo dentro de las iniciales
+        exceso_tarde = i == 2                   # exceso solo después de las iniciales
+        filas.append({"id": f"B1-{i}", "vehiculo_id": "S1", "fecha": f"2024-06-{10 + i:02d}",
+                      "litros": 105.0 if exceso_bajo else 50.0, "odometro": 1000 + 100 * i})
+        filas.append({"id": f"B2-{i}", "vehiculo_id": "S2", "fecha": f"2024-06-{10 + i:02d}",
+                      "litros": 105.0 if exceso_tarde else 50.0, "odometro": 5000 + 100 * i})
+    assert int(max(total * FRACCION_INICIAL, 1)) == 2   # el cálculo de las iniciales es el de la regla
+    detalle = _exceso_volumetrico_detalle(pd.DataFrame(filas), flota, pd.DataFrame(
+        columns=["id_registro", "causa_probable"]))
+    assert detalle["desde_el_inicio"]["cargas_con_exceso"] == 1
+    assert detalle["despues"]["cargas_con_exceso"] == 1
+
+
+def _enteros_chicos_del_detalle(bloque):
+    """Cualquier entero de 1 a 19 publicado en el bloque, sin importar dónde."""
+    chicos = []
+
+    def caminar(d, ruta):
+        for clave, valor in d.items():
+            if isinstance(valor, dict):
+                caminar(valor, f"{ruta}.{clave}")
+            elif isinstance(valor, int) and not isinstance(valor, bool) and 1 <= valor <= 19:
+                chicos.append(f"{ruta}.{clave} = {valor}")
+
+    caminar(bloque, "detalle")
+    return chicos
+
+
+def _restas_del_detalle(bloque):
+    """Restas entre conteos de la misma unidad que publica cada clase: total menos partes visibles."""
+    parejas = [(("cargas_con_exceso",), ("cociente_",)),
+               (("cargas_con_exceso",), ("rendimiento_",)),
+               (("cargas_con_exceso",), ("causa_probable_",)),
+               (("vehiculos",), ("vehiculos_con_fraccion_",)),
+               (("vehiculos",), ("vehiculos_con_cv_",)),
+               (("vehiculos",), ("vehiculos_con_3_o_mas_cargas_con_exceso",)),
+               (("vehiculos",), ("vehiculos_para_la_mitad_de_las_cargas",)),
+               (("vehiculos_con_3_o_mas_cargas_con_exceso",), ("vehiculos_con_cv_",))]
+    malos = []
+
+    def suma(detalle, prefijos):
+        return sum(v for k, v in detalle.items() if any(k.startswith(p) for p in prefijos)
+                   and isinstance(v, int) and not isinstance(v, bool))
+
+    for nombre, detalle in bloque.items():
+        for totales, partes in parejas:
+            for total in totales:
+                valor = detalle.get(total)
+                if not isinstance(valor, int) or isinstance(valor, bool):
+                    continue
+                resto = valor - suma(detalle, partes)
+                if 1 <= resto <= 19:
+                    malos.append(f"{nombre}.{total} - {partes} = {resto}")
+    return malos
+
+
+def test_el_detalle_de_exceso_no_publica_un_entero_del_1_al_19(resultado):
+    bloque = resultado["diagnostico"]["exceso_volumetrico_detalle"]
+    chicos = _enteros_chicos_del_detalle(bloque)
+    assert not chicos, "\n".join(chicos)
+
+
+def test_el_detalle_de_exceso_no_deja_restar_un_grupo_chico(resultado):
+    bloque = resultado["diagnostico"]["exceso_volumetrico_detalle"]
+    malos = _restas_del_detalle(bloque)
+    assert not malos, "\n".join(malos)
+
+
+def test_el_detalle_de_exceso_oculta_la_banda_que_delataria_un_grupo_chico():
+    """Sin protección, 45 cargas con exceso menos una banda de 30 devolvería 15."""
+    from perfilador.auditoria import _exceso_volumetrico_detalle
+
+    flota = pd.DataFrame({"Matricula": ["S1", "S2"], "CapacidadTanque": [100.0, 100.0]})
+    filas = [{"id": f"C1-{i}", "vehiculo_id": "S1", "fecha": f"2024-07-{1 + i:02d}",
+              "litros": 130.0, "odometro": 1000 + 100 * i} for i in range(30)]
+    filas += [{"id": f"C2-{i}", "vehiculo_id": "S2", "fecha": f"2024-07-{1 + i:02d}",
+               "litros": 105.0, "odometro": 5000 + 100 * i} for i in range(15)]
+    detalle = _exceso_volumetrico_detalle(pd.DataFrame(filas), flota, pd.DataFrame(
+        columns=["id_registro", "causa_probable"]))
+    desde = detalle["desde_el_inicio"]
+    assert desde["cargas_con_exceso"] == 45
+    assert desde["cociente_1_25_a_1_50"] is None   # 45 - 30 = 15: la banda se oculta
+    assert desde["cociente_1_02_a_1_05"] == "1–19"
+    assert not _enteros_chicos_del_detalle(detalle), "\n".join(_enteros_chicos_del_detalle(detalle))
+    assert not _restas_del_detalle(detalle), "\n".join(_restas_del_detalle(detalle))
+
+
+def test_la_flota_con_matriculas_repetidas_no_tumba_el_exceso(monkeypatch):
+    """El padrón puede traer una matrícula repetida: el mapa de capacidad no puede reindexar."""
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    monkeypatch.setattr("perfilador.auditoria.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _exceso_volumetrico, _exceso_volumetrico_detalle
+
+    consumo = pd.DataFrame([{"id": f"C-{i}", "vehiculo_id": "S1", "fecha": f"2024-06-{1 + i:02d}",
+                             "litros": 105.0, "odometro": 1000 + 100 * i} for i in range(10)])
+    flota = pd.DataFrame({"Matricula": ["S1", "S1", "S2"], "CapacidadTanque": [100.0, 110.0, 100.0]})
+
+    assert _exceso_volumetrico(consumo, flota)["cargas_evaluables"] == 10
+    detalle = _exceso_volumetrico_detalle(consumo, flota, None)
+    assert detalle["desde_el_inicio"]["cargas_con_exceso"] == 10
+
+
+def test_un_bloque_de_diagnostico_que_falla_se_informa_sanitizado():
+    """Un bloque no puede tumbar la corrida: si falla, solo el tipo y la función y línea, sin datos."""
+    from perfilador.auditoria import _proteger
+
+    def bloque_roto(consumo, flota):
+        raise ValueError("dominio AB123CD de la matrícula XYZ-999")
+
+    fallo = _proteger("bloque_roto", bloque_roto, "consumo", "flota")
+    assert fallo["error"] == "ValueError"
+    assert fallo["donde"].startswith("bloque_roto:")
+    assert "AB123CD" not in json.dumps(fallo) and "XYZ" not in json.dumps(fallo)
+    assert _proteger("bloque_roto", lambda: {"ok": True}) == {"ok": True}
+
+
+def test_correr_solo_un_bloque_saltea_las_reglas_y_los_modelos(sintetico):
+    """`solo` arma los datos con el adaptador y calcula un único bloque, sin reglas ni modelos."""
+    resultado = auditar(con_forma_real(sintetico), proveedor="proveedor zeta",
+                        solo="exceso_volumetrico_detalle")
+    assert set(resultado["diagnostico"]) == {"exceso_volumetrico_detalle"}
+    assert set(resultado["diagnostico"]["exceso_volumetrico_detalle"]) == {"desde_el_inicio", "despues"}
+    assert "error" not in resultado["diagnostico"]["exceso_volumetrico_detalle"]
+    assert resultado["reglas"] == {} and resultado["hipotesis"] == {}
+    assert resultado["modelos"] == {} and resultado["cruce_registro"] == {}
+
+
+def test_la_corrida_informa_un_bloque_que_falla_sin_exponer_el_mensaje(sintetico, monkeypatch):
+    def roto(*argumentos, **opciones):
+        raise KeyError("id 4712 del dominio AB123CD")
+
+    monkeypatch.setattr("perfilador.auditoria._exceso_volumetrico_detalle", roto)
+    resultado = auditar(con_forma_real(sintetico), proveedor="proveedor zeta",
+                        solo="exceso_volumetrico_detalle")
+    bloque = resultado["diagnostico"]["exceso_volumetrico_detalle"]
+    assert bloque["error"] == "KeyError"
+    assert bloque["donde"].startswith("roto:")
+    assert "AB123CD" not in json.dumps(resultado)
+
+
+def test_correr_solo_un_bloque_desconocido_no_arranca(sintetico):
+    with pytest.raises(ValueError):
+        auditar(con_forma_real(sintetico), proveedor="proveedor zeta", solo="no_existe")
+
+
