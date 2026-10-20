@@ -1,0 +1,172 @@
+{
+  "H3b": {
+    "hipotesis": "H3b",
+    "tipos": [
+      "EXCESO_VOLUMETRICO",
+      "CAPACIDAD_MAL_REGISTRADA"
+    ],
+    "unidad": "carga",
+    "umbral": 0.5,
+    "semillas_de_diseno": [
+      1001,
+      1002,
+      1003
+    ],
+    "semillas_de_evaluacion": [
+      42,
+      7,
+      123,
+      2024,
+      99
+    ],
+    "n_flota": 200,
+    "anomalias_en_evaluacion": 375,
+    "variables_excluidas": [
+      "ratio_litros_tanque",
+      "litros_vs_habitual",
+      "tanques_en_el_dia"
+    ],
+    "metodos": {
+      "linea_base_ingenua": {
+        "tp": 375,
+        "fp": 153,
+        "fn": 0,
+        "tn": 34298,
+        "ap_media": 0.6918512971825169,
+        "precision_en_k_media": 0.705267209312648,
+        "precision": 0.7102272727272727,
+        "recall": 1.0,
+        "f1": 0.8305647840531561,
+        "f1_por_semilla": [
+          0.785,
+          0.879,
+          0.805,
+          0.856,
+          0.756
+        ],
+        "f1_media": 0.816116087117296,
+        "f1_desvio": 0.04534380861313026
+      },
+      "regla_con_contexto": {
+        "tp": 375,
+        "fp": 19,
+        "fn": 0,
+        "tn": 34432,
+        "ap_media": 0.9438857839786634,
+        "precision_en_k_media": 0.970388098885104,
+        "precision": 0.9517766497461929,
+        "recall": 1.0,
+        "f1": 0.9752925877763329,
+        "f1_por_semilla": [
+          0.953,
+          0.992,
+          0.969,
+          0.971,
+          0.97
+        ],
+        "f1_media": 0.9709804948153448,
+        "f1_desvio": 0.012491041460082114
+      },
+      "isolation_forest": {
+        "tp": 157,
+        "fp": 2585,
+        "fn": 218,
+        "tn": 31866,
+        "ap_media": 0.05796318014885545,
+        "precision_en_k_media": 0.03990619909712579,
+        "precision": 0.05725747629467542,
+        "recall": 0.4186666666666667,
+        "f1": 0.10073788899582932,
+        "f1_por_semilla": [
+          0.067,
+          0.151,
+          0.072,
+          0.096,
+          0.111
+        ],
+        "f1_media": 0.09930142357478984,
+        "f1_desvio": 0.03031885267154727
+      },
+      "regresion_logistica__todas": {
+        "tp": 375,
+        "fp": 875,
+        "fn": 0,
+        "tn": 33576,
+        "ap_media": 0.7707321698836902,
+        "precision_en_k_media": 0.7447747098887023,
+        "precision": 0.3,
+        "recall": 1.0,
+        "f1": 0.4615384615384615,
+        "f1_por_semilla": [
+          0.427,
+          0.627,
+          0.36,
+          0.608,
+          0.274
+        ],
+        "f1_media": 0.4591200997785963,
+        "f1_desvio": 0.1382239770536238
+      },
+      "random_forest__todas": {
+        "tp": 373,
+        "fp": 1,
+        "fn": 2,
+        "tn": 34450,
+        "ap_media": 0.9999422820369258,
+        "precision_en_k_media": 0.9975903614457831,
+        "precision": 0.9973262032085561,
+        "recall": 0.9946666666666667,
+        "f1": 0.9959946595460616,
+        "f1_por_semilla": [
+          0.99,
+          1.0,
+          1.0,
+          0.988,
+          1.0
+        ],
+        "f1_media": 0.9956192280369406,
+        "f1_desvio": 0.0054226335918417835
+      },
+      "regresion_logistica__sin_las_de_la_regla": {
+        "tp": 262,
+        "fp": 8121,
+        "fn": 113,
+        "tn": 26330,
+        "ap_media": 0.0607711345116683,
+        "precision_en_k_media": 0.1490855836108604,
+        "precision": 0.03125372778241679,
+        "recall": 0.6986666666666667,
+        "f1": 0.05983101164649464,
+        "f1_por_semilla": [
+          0.048,
+          0.087,
+          0.051,
+          0.072,
+          0.039
+        ],
+        "f1_media": 0.059612897318303215,
+        "f1_desvio": 0.017318020586679094
+      },
+      "random_forest__sin_las_de_la_regla": {
+        "tp": 31,
+        "fp": 29,
+        "fn": 344,
+        "tn": 34422,
+        "ap_media": 0.3136726503987618,
+        "precision_en_k_media": 0.3382114687875014,
+        "precision": 0.5166666666666667,
+        "recall": 0.08266666666666667,
+        "f1": 0.1425287356321839,
+        "f1_por_semilla": [
+          0.258,
+          0.042,
+          0.216,
+          0.167,
+          0.136
+        ],
+        "f1_media": 0.16364145720351295,
+        "f1_desvio": 0.07396421344421661
+      }
+    }
+  }
+}
