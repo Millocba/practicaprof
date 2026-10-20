@@ -84,7 +84,7 @@ def cmd_auditar(args):
         except Exception as error:  # noqa: BLE001 - el mensaje podría incluir datos de conexión
             raise SystemExit(f"No se pudo leer la base ({type(error).__name__}).") from None
         tablas.update(de_base)
-    resultado = auditar(tablas, proveedor=args.proveedor)
+    resultado = auditar(tablas, proveedor=args.proveedor, solo=args.solo)
     if args.reemplazar:
         resultado = reemplazar_textos(resultado, dict(r.split("=", 1) for r in args.reemplazar))
     destino = Path(args.salida) if args.salida else PENDIENTES / f"auditoria_{date.today().isoformat()}.json"
@@ -139,6 +139,9 @@ def main():
     u.add_argument("--proveedor", metavar="TEXTO",
                    help="texto que identifica las estaciones del proveedor en el registro interno (no se guarda)")
     u.add_argument("--reemplazar", action="append", default=[], metavar="TEXTO=NUEVO")
+    u.add_argument("--solo", metavar="BLOQUE",
+                   help="corre solo un bloque de diagnóstico: arma los datos con el adaptador y saltea las "
+                        "reglas y los modelos (para probar una tanda sin esperar la corrida entera)")
     u.add_argument("--salida")
     u.set_defaults(funcion=cmd_auditar)
     a = sub.add_parser("aprobar", help="registrar la revisión manual de un perfil")

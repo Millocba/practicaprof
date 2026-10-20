@@ -53,3 +53,29 @@ def test_reglas_son_el_techo_de_referencia(datos):
     assert metodos.loc["Reglas (línea base)", "f1"] == 1.0
     assert metodos.loc["Reglas (línea base)", "f1"] >= metodos.loc["Isolation Forest", "f1"]
     assert set(por_tipo["tipo_anomalia"]) == {"EXCESO_VOLUMETRICO", "ODOMETRO_REGRESIVO", "ODOMETRO_SALTO"}
+
+
+def test_la_carga_sin_id_o_con_id_repetido_no_entra_al_modelo():
+    # El reporte real trae cargas sin remito (sin id) y remitos repetidos: una carga sin id
+    # no se puede evaluar por transacción, así que no entra al modelo en lugar de romper la corrida.
+    flota = pd.DataFrame({"Matricula": ["AAA"], "CapacidadTanque": [100.0]})
+    consumo = pd.DataFrame({
+        "id": ["R1", "R1", None, "R2"],
+        "vehiculo_id": ["AAA"] * 4,
+        "dominio": ["AAA"] * 4,
+        "fecha": ["2026-01-01"] * 4,
+        "hora": ["08:00:00", "09:00:00", "10:00:00", "11:00:00"],
+        "estacion": ["1"] * 4,
+        "producto": ["DIESEL"] * 4,
+        "litros": [10.0] * 4,
+        "precio_unitario": [1.0] * 4,
+        "importe_total": [10.0] * 4,
+        "numero_tarjeta": ["T1"] * 4,
+        "conductor": [None] * 4,
+        "odometro": pd.array([100, 200, 300, 400], dtype="Int64"),
+        "tipo_identificacion": ["PATENTE"] * 4,
+        "origen_transaccion": ["POSNET"] * 4,
+        "contrato": pd.array([1] * 4, dtype="Int64"),
+    })
+    variables = construir_variables(flota, consumo)
+    assert list(variables.index) == ["R1", "R2"]
