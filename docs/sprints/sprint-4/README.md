@@ -35,7 +35,7 @@ H1 continúa siendo una condición habilitante fundamental para integrar las fue
 
 ### 2.3 Decisión que se busca apoyar
 
-La decisión que SIFAD busca apoyar es qué operaciones de combustible deben priorizarse para una revisión humana. En H3b, una carga se prioriza cuando supera en más de 2 % la capacidad registrada del tanque, y el historial del vehículo distingue el exceso que aparece desde sus primeras cargas (probable capacidad mal registrada) del que aparece después de un historial normal (posible uso indebido de la tarjeta).
+La decisión que SIFAD busca apoyar es qué operaciones de combustible deben priorizarse para una revisión humana. En H3b, una carga se prioriza cuando supera en más de 2 % la capacidad registrada del tanque, y el historial del vehículo distingue el exceso que aparece desde sus primeras cargas —patrón persistente compatible con una capacidad mal registrada u otra inconsistencia de asignación— del que aparece después de un historial normal —exceso posterior sin causa identificada que requiere revisión—.
 
 El resultado no determina fraude ni confirma una irregularidad. Su función es ordenar los casos para que el equipo responsable concentre la revisión en las operaciones con mayor evidencia contextual.
 
@@ -61,7 +61,7 @@ Las etiquetas ground_truth, tipo_anomalia y casos_legitimos se utilizaron exclus
 
 Se selecciona H3b como hipótesis rectora porque vincula directamente la evidencia disponible con la decisión de priorizar cargas para revisión. Además, permite comprobar cuánto aporta el contexto del negocio frente a una regla volumétrica simple y frente a modelos de aprendizaje automático.
 
-Se propone elevar su madurez a nivel Diagnóstico dentro del escenario sintético evaluado, porque el análisis separa los excesos según el historial del vehículo (desde las primeras cargas o después de un historial normal) y compara la regla con modelos. La propuesta está pendiente de confirmación por el dueño del proyecto: el diagnóstico real de H3b, de 66 cargas en 23 vehículos, deja casi todos sus detalles ocultos por la regla de grupos chicos ("1–19") y no alcanza para separar con evidencia real la capacidad mal registrada del posible uso indebido. No implica validación sobre datos reales ni confirma irregularidades.
+H3b alcanza una madurez Diagnóstica inicial para esta etapa. La evidencia sintética reproducible y los agregados reales publicables permiten diferenciar un patrón persistente desde las primeras cargas, casos con evidencia de error de asignación o carga, excesos posteriores a un historial normal y operaciones no evaluables por falta de capacidad. Esta lectura avanza desde la descripción hacia una explicación contextual, pero no implica validación operativa sobre datos reales, no confirma irregularidades ni atribuye responsabilidades. La selección y la madurez quedan sujetas a revisión si nueva evidencia modifica la interpretación.
 
 ### 3.3 Variables seleccionadas y justificación
 
@@ -87,7 +87,7 @@ Los modelos usan las 15 variables que construye `deteccion/modelo.py` para cada 
 
 (*) Variables derivadas de los litros. Se excluyeron en el segundo escenario para comprobar si los modelos encuentran señal propia. Es un criterio de diseño del equipo: la regla contextual de H3b se define con la capacidad registrada (con tolerancia del 2 %) y el historial del vehículo, y estas tres variables están estrechamente relacionadas con ella.
 
-**Qué sostiene al modelo sin esas tres variables.** Con el Random Forest sin las variables derivadas de los litros, las que más pesan (importancia por permutación) son `km` (0,22), `rendimiento_relativo` (0,15) y `litros_vs_autorizado` (0,11); el resto pesa menos de 0,02. Al quitar la más importante, el F1 baja de 0,14 a 0,10, y al quitar las dos primeras, a 0,00. El desempeño residual de ese modelo depende, entonces, de variables de recorrido y de respaldo en el pedido, no de los litros. La tabla se genera con `python -m deteccion.baseline H3b --explicar`.
+**Qué sostiene al modelo sin esas tres variables.** Con el Random Forest sin las variables derivadas de los litros, las que más pesan (importancia por permutación) son `km` (0,22), `rendimiento_relativo` (0,15) y `litros_vs_autorizado` (0,12); el resto pesa menos de 0,02. Al quitar la más importante, el F1 baja de 0,14 a 0,10, y al quitar las dos primeras, a 0,00. El desempeño residual de ese modelo depende, entonces, de variables de recorrido y de respaldo en el pedido, no de los litros. La tabla se genera con `python -m deteccion.baseline H3b --explicar`.
 
 ### 3.4 Línea base ingenua
 
@@ -131,15 +131,14 @@ Limitación: los resultados provienen de datos sintéticos etiquetados. La preva
 
 ### 4.1 Estado y madurez de la hipótesis rectora
 
-H3b se selecciona como hipótesis rectora. Se propone que pase de madurez Descriptiva a Diagnóstica dentro del escenario sintético evaluado, porque el análisis separa los excesos según el historial del vehículo y compara la regla con modelos. La propuesta queda pendiente de confirmación por el dueño del proyecto, y conviene sumar la evidencia real: en los datos reales aprobados el diagnóstico de H3b cubre 66 cargas en 23 vehículos y casi todos sus detalles quedan ocultos por la regla de grupos chicos.
+H3b fue seleccionada como hipótesis rectora del Sprint 4 y alcanza una madurez Diagnóstica inicial para esta etapa. La evidencia real agregada permite diferenciar un patrón persistente desde las primeras cargas, casos con evidencia de error de asignación o carga, excesos posteriores a un historial normal y operaciones no evaluables por falta de capacidad. Esta clasificación avanza desde la descripción hacia una explicación contextual, sin confirmar fraude ni atribuir responsabilidades.
 
-La hipótesis queda respaldada para continuar, pero no validada sobre datos reales. La diferencia entre la prevalencia sintética y el agregado real aprobado, junto con la forma en que se generaron las etiquetas, impide considerar los resultados como una medición del desempeño operativo definitivo.
+La lectura diagnóstica se apoya únicamente en resultados publicables. Los grupos pequeños se informan de manera agrupada y no se combinan totales que permitan reconstruirlos por resta. Tanto la elección de H3b como su clasificación y madurez quedan sujetas a revisión si nuevos datos o evaluaciones modifican la evidencia disponible.
 
 | Hipótesis | Estado al cierre del Sprint 4 | Madurez | Decisión |
 |---|---|---|---|
-| H3b | Rectora, respaldada en el escenario sintético | Diagnóstica (propuesta, a confirmar) | Continuar con regla contextual y validar externamente |
-| H1 | Resuelta como condición habilitante | Diagnóstica | Mantener normalización y controles de vinculación |
-| H9 | Con evidencia real sólida: la factura toma el precio de empresa y el PDF coincide con la deuda | Sin actualizar en este sprint | Evaluar su madurez con el equipo |
+| H3b | Seleccionada como hipótesis rectora para esta etapa | Diagnóstica inicial | Conservar la regla y revisar la decisión ante nueva evidencia |
+| H1 | Validada de manera condicionada; condición habilitante | Diagnóstica | Mantener controles de normalización y vinculación |
 | Restantes | Pendientes de evidencia suficiente | Descriptiva | Permanecen en el backlog |
 
 
@@ -159,23 +158,23 @@ La hipótesis queda respaldada para continuar, pero no validada sobre datos real
 
 | Elemento del backlog | Estado al cierre del Sprint 4 | Próxima acción | Prioridad |
 |---|---|---|---|
-| H3b — Exceso volumétrico con contexto | Seleccionada como hipótesis rectora; respaldada en el escenario sintético | Validar la regla contextual con datos y criterios independientes | Alta |
-| H1 — Vinculación de cargas con la flota | Resuelta como condición habilitante | Mantener controles de normalización, vínculos ambiguos y no resueltos | Alta |
-| H2b y H2c — Retrocesos y saltos de odómetro | Pendientes de mayor evidencia | Contrastar secuencias y excepciones vigentes | Media |
-| H4, H5 y H6 | No seleccionadas como rectoras; en H4 y H5 el desempeño de los modelos cae a casi cero al quitar una o dos variables de recorrido | Revisar su formulación y buscar evidencia independiente de las reglas | Media |
-| H7, H8, H9, H10, H11 y H12 | No seleccionadas como rectoras | Mantener en el backlog y revisar su viabilidad con fuentes reales; H9 ya tiene evidencia real sólida | Media |
-| H13 — Cargas por contingencia | Su modelo conserva señal al quitar las variables más importantes (F1 de 0,39 contra 0,22 de la línea ingenua); las variables del modelo no incluyen el origen de la transacción | Investigar de dónde sale esa señal, posiblemente de los litros alterados en los dobles cobros del generador | Alta |
+| H3b — Exceso volumétrico con contexto | Hipótesis rectora; madurez Diagnóstica inicial respaldada por evidencia sintética y agregados reales | Validar la estabilidad del diagnóstico y revisar la clasificación ante nueva evidencia | Alta |
+| H1 — Vinculación de cargas con la flota | Validada de manera condicionada; condición habilitante | Mantener controles sobre vínculos ambiguos y no resueltos | Alta |
+| H2b y H2c — Retrocesos y saltos de odómetro | Pendientes de mayor evidencia | Contrastar secuencias, lecturas inválidas y excepciones vigentes | Media |
+| H4, H5 y H7 | Descartadas como candidatas rectoras independientes para PP1; no se descartan como reglas operativas | Conservar la evidencia de ablación; solo podrían reevaluarse con etiquetas reales independientes | Media |
+| H6, H8, H9, H10, H11 y H12 | Pendientes de evidencia suficiente | Evaluar su viabilidad según la disponibilidad y calidad de las fuentes | Media |
+| H13 — Cargas asociadas con contingencias | Inconclusa: la señal no cae al retirar las variables principales | Revisar el generador y posibles variables que anticipen la etiqueta antes de continuar | Alta |
 | Validación de H3b | Pendiente sobre datos reales etiquetados | Comparar prevalencia, precisión y cobertura sin extrapolar métricas sintéticas | Alta |
 | Pipeline reproducible | Completado para la evaluación sintética | Conservar código, semillas, resultados y pruebas automáticas | Alta |
 | Informe técnico | En elaboración | Incorporar método, resultados, limitaciones y recomendación final | Alta |
 
-Las hipótesis no seleccionadas no se consideran descartadas. Permanecen en el backlog porque todavía no cuentan con evidencia suficiente o porque requieren fuentes y validaciones adicionales. La prioridad inmediata se concentra en validar H3b y conservar H1 como control indispensable de integración.
+Los criterios cuantitativos de éxito de H7 a H13 no se fijan retroactivamente. Para esas hipótesis aún no se definieron la unidad de análisis, la métrica, el umbral ni la evidencia mínima aceptable. Las hipótesis sin evidencia suficiente permanecen pendientes. H4, H5 y H7 se descartan únicamente como candidatas rectoras independientes para PP1 porque la ablación no sostiene señal propia; pueden conservarse como reglas operativas y reevaluarse con datos reales independientes. Descartar una candidatura con evidencia no implica que la situación de negocio sea inexistente.
 
 ### 4.4 Borrador del informe técnico
 
 Problema: priorizar operaciones de combustible que requieren revisión humana.
 
-Hipótesis rectora: H3b, exceso volumétrico respecto de la capacidad registrada, con tolerancia del 2 % y clasificado según el historial del vehículo.
+Hipótesis rectora: H3b, exceso volumétrico respecto de la capacidad registrada, con tolerancia del 2 % y clasificado según el historial del vehículo. H1 se conserva como condición habilitante validada de manera condicionada; H4, H5 y H7 se descartan solamente como candidatas rectoras independientes, y H13 permanece inconclusa.
 
 Datos de evaluación: 34.826 cargas sintéticas correspondientes a cinco semillas, con 375 casos etiquetados para H3b. Las semillas utilizadas para diseñar los métodos fueron diferentes de las empleadas para evaluarlos.
 
@@ -219,3 +218,4 @@ Los resultados fueron obtenidos mediante:
 python -m deteccion.baseline H3b --salida resultados_h3b.md
 
 Las etiquetas se utilizaron exclusivamente para evaluar los métodos. No fueron incorporadas como variables predictoras.
+
