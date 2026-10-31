@@ -28,23 +28,28 @@ Pendiente de obtener y documentar una devolución del referente de la organizaci
 
 ### 3.1 Prueba de concepto
 
-Pendiente de documentar el alcance final de la POC.
+La prueba de concepto integra generación reproducible de datos sintéticos, preparación e integración de fuentes, construcción de variables, aplicación de reglas contextuales, comparación con modelos baseline y presentación de resultados mediante Streamlit.
+
+La POC no determina la existencia de fraude ni automatiza decisiones operativas. Su alcance consiste en demostrar que SIFAD puede generar una cola explicable de operaciones priorizadas para revisión humana.
 
 ### 3.2 Pipeline reproducible
 
-Pendiente de verificar y documentar el recorrido completo desde la preparación de las fuentes hasta la generación de la cola priorizada.
+El recorrido técnico verificado comprende:
 
-### 3.3 Resultados técnicos consolidados
+1. instalación de las dependencias;
+2. ejecución de las pruebas automáticas;
+3. generación reproducible de los escenarios mediante semillas;
+4. construcción de variables para cada carga;
+5. aplicación de la línea base ingenua y de la regla contextual de H3b;
+6. evaluación de los modelos baseline;
+7. generación de resultados en Markdown y JSON;
+8. consulta de los resultados mediante la aplicación Streamlit.
 
-Pendiente de completar únicamente con resultados reproducibles y aprobados.
+La instalación y verificación general se realizan mediante:
 
-### 3.4 Limitaciones técnicas
-
-- Evaluación principal realizada sobre datos sintéticos etiquetados.
-- Ausencia de etiquetas reales independientes para medir el desempeño operativo.
-- Diferencia entre la prevalencia sintética y los agregados reales.
-- Posible dependencia entre las reglas utilizadas para generar y evaluar los casos.
-- Necesidad de preservar la revisión humana.
+```bash
+pip install -r requirements.txt
+python -m pytest -q
 
 ## 4. Producto y Gestión
 
