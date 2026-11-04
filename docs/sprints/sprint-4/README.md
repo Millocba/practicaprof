@@ -184,7 +184,7 @@ La lectura diagnóstica se apoya únicamente en resultados publicables. Los grup
 | Brecha de causas sintético-real | El generador modela la capacidad mal registrada como causa principal; en lo real domina el error de vinculación | Documentar y, si el equipo lo decide, ajustar el escenario sintético sin tocar el origen de los datos | Alta |
 | Fuga entre bloques de H3b en el agregado aprobado | La resta entre bloques deja deducir un grupo chico | Decidir si se corrige el agregado aprobado | Media |
 | Variables nuevas para el modelo | Con las 15 actuales el modelo no supera la regla al quitar las variables que la definen | Incorporar variables independientes de la regla | Media |
-| Pull requests abiertos | #76 (H12) y #80 (exceso por causa y fraccionamiento de H4); #73 (pruebas de excepciones) y #81 (orden del odómetro) en revisión | Revisar y fusionar por separado | Media |
+| Pull requests abiertos | #76 (H12) y #80 (exceso por causa y fraccionamiento de H4); #73 (pruebas de excepciones) y #81 (orden del odómetro) ya fusionados | Revisar y fusionar por separado | Media |
 | Pipeline reproducible | Completado para la evaluación sintética | Conservar código, semillas, resultados y pruebas automáticas | Alta |
 | Informe técnico | En elaboración | Incorporar método, resultados, limitaciones y recomendación final | Alta |
 
