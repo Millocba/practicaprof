@@ -321,7 +321,11 @@ def secuencia_odometro(consumo, excluir_ids=(), fuera=None, sin_repetidas=False)
     datos = consumo[consumo["odometro"].notna() & ~consumo["id"].isin(set(excluir_ids))].copy()
     datos["fecha"] = pd.to_datetime(datos["fecha"])
     if fuera is None:
-        datos = datos.sort_values(["vehiculo_id", "fecha", "id"])
+        # Dentro de un mismo día el orden es el del horario: el identificador (por ejemplo, un remito) no
+        # tiene por qué seguirlo y, ordenando por él, la secuencia se desordena y aparecen retrocesos falsos
+        horas = datos["hora"].astype("string") if "hora" in datos.columns else pd.Series(pd.NA, index=datos.index)
+        datos["_instante"] = datos["fecha"] + pd.to_timedelta(horas.fillna("00:00:00"), errors="coerce").fillna(pd.Timedelta(0))
+        datos = datos.sort_values(["vehiculo_id", "_instante", "id"]).drop(columns="_instante")
     else:
         datos = _con_cargas_fuera(datos, fuera[fuera["odometro"].notna()])
         horas = datos["hora"].astype("string").fillna("00:00:00") if "hora" in datos.columns else "00:00:00"

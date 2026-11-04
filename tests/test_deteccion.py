@@ -751,3 +751,21 @@ def test_las_cargas_a_vehiculos_fuera_de_servicio_van_en_su_lista_con_las_mas_an
     assert (lista["motivo"] == "vehículo fuera de servicio: no puede cargar").all()
     assert cargas_a_vehiculos_fuera_de_servicio(consumo[consumo["id"].isin(["C3", "C4"])], flota).empty
 
+
+def test_la_secuencia_de_odometro_ordena_el_mismo_dia_por_hora_y_no_por_identificador():
+    """Un remito que no sigue el horario no debe desordenar las lecturas ni crear un retroceso falso."""
+    consumo = pd.DataFrame({
+        "id": ["R3", "R1", "R2", "R4"], "vehiculo_id": "V1",
+        "fecha": ["2026-01-01", "2026-01-01", "2026-01-01", "2026-01-02"],
+        "hora": ["18:00:00", "08:00:00", "12:00:00", "09:00:00"],
+        "odometro": [100_300, 100_000, 100_150, 100_400]})
+    secuencia = secuencia_odometro(consumo)
+    assert secuencia["id"].tolist() == ["R2", "R3", "R4"]
+    assert (secuencia["km"] >= 0).all()
+    assert secuencia["dias"].tolist() == [0, 0, 1]
+
+
+def test_la_secuencia_de_odometro_sin_hora_ordena_por_identificador_como_antes():
+    consumo = pd.DataFrame({"id": ["R2", "R1"], "vehiculo_id": "V1", "fecha": ["2026-01-01"] * 2,
+                            "odometro": [100_100, 100_000]})
+    assert secuencia_odometro(consumo)["id"].tolist() == ["R2"]
