@@ -29,7 +29,7 @@ A partir de la evaluación reproducible, se selecciona H3b como hipótesis recto
 
 H3b fue elegida por el equipo porque responde directamente a la decisión principal de SIFAD y permite comparar, en el escenario sintético etiquetado (375 casos), una regla simple, una regla contextual y distintos modelos baseline. La regla contextual mejoró el F1 de 0,83 a 0,98 y la precisión en las primeras k operaciones de 0,71 a 0,97.
 
-En los datos reales aprobados el volumen de H3b es mucho menor: 66 cargas con exceso de más de 2 %, en 23 vehículos, frente a 288 alertas con contexto de H1, 2.065 de H4 y 6.535 cargas sin registro de H8. H1 tiene la evidencia real más sólida y madurez Diagnóstica; H3b se elige por su relación con la decisión de priorización y por su explicabilidad, no por tener más casos reales.
+En los datos reales aprobados el volumen de H3b es mucho menor: 66 cargas con exceso de más de 2 %, en 23 vehículos (fuente del 19/10; la auditoría del 4/11 da 76 cargas en 28 vehículos), frente a 288 alertas con contexto de H1, 2.065 de H4 y 6.535 cargas sin registro de H8. H1 tiene la evidencia real más sólida y madurez Diagnóstica; H3b se elige por su relación con la decisión de priorización y por su explicabilidad, no por tener más casos reales.
 
 H1 continúa siendo una condición habilitante fundamental para integrar las fuentes mediante identificadores normalizados. Sin embargo, no se selecciona como rectora porque su problema ya puede resolverse mediante una regla determinística y se relaciona principalmente con la calidad y vinculación de los datos, no directamente con la priorización de cargas.
 
@@ -133,7 +133,7 @@ Limitación: los resultados provienen de datos sintéticos etiquetados. La preva
 
 H3b se selecciona como hipótesis rectora y el equipo la declara **Diagnóstica**. El nivel Diagnóstico exige una explicación sustentada de los factores que producen el hallazgo, y el equipo fijó este criterio antes de mirar el resultado: la mayoría de las cargas con exceso debe tener una causa explicada por fuentes ajenas a la regla.
 
-**Evidencia real (agregados, sin filas):** en los datos reales hay 66 cargas con exceso volumétrico, en 23 vehículos. Se las clasificó por causa con fuentes distintas de la propia regla (padrón, vinculación por tarjeta y dominio, historial de capacidad):
+**Evidencia real (agregados, sin filas):** en la fuente real del 19/10 había 66 cargas con exceso volumétrico, en 23 vehículos. La auditoría aprobada del 4/11 (`perfiles/aprobados/auditoria_2026-11-04.json`, otra ventana y otro volumen) da 76 cargas en 28 vehículos, de las cuales 21 vehículos y 26 cargas aparecen después de un historial normal; el reordenamiento por hora no cambia ningún agregado de H3b. La apertura por causa de la tabla siguiente se hizo sobre la fuente del 19/10 y no se recalculó con la del 4/11. Se clasificó por causa con fuentes distintas de la propia regla (padrón, vinculación por tarjeta y dominio, historial de capacidad):
 
 | Causa | Cargas | Proporción |
 |---|---:|---:|
@@ -144,7 +144,7 @@ H3b se selecciona como hipótesis rectora y el equipo la declara **Diagnóstica*
 - La causa "capacidad del padrón inconsistente" no aparece en los datos reales. En el generador sintético, en cambio, es la causa principal de la anomalía; esa diferencia se declara como límite y no se corrige en el generador.
 - Las cargas sin explicación se declaran **casos para revisión por posible uso indebido**. La evidencia descarta las causas administrativas conocidas, pero no prueba intención: pueden ser un error puntual de tipeo o de medición, y solo una revisión documental puede calificarlas.
 - Los grupos de menos de 20 vehículos o cargas no se detallan (regla de grupos chicos).
-- La corrida real que respalda esta tabla está en revisión (PR #80) y no está aprobada todavía.
+- La corrida real que respalda esta tabla está en revisión (PR #80) y no está aprobada todavía. Los porcentajes (59 % y 41 %) son de la fuente del 19/10: la apertura sobre la del 4/11 está pendiente.
 
 La hipótesis queda respaldada y diagnosticada, pero su rendimiento no está validado sobre datos reales etiquetados. La diferencia entre la prevalencia sintética (1,1 %) y la real (66 cargas en unas 217 mil, 0,03 %), junto con la forma en que se generaron las etiquetas, impide considerar las métricas sintéticas como una medición del desempeño operativo.
 
@@ -204,7 +204,7 @@ Resultado principal: la regla contextual obtuvo un F1 de 0,98 y una precisión e
 
 Recomendación: utilizar la regla contextual como mecanismo inicial de priorización por su rendimiento, reproducibilidad e interpretación, y mantener los modelos como evidencia experimental hasta disponer de datos reales etiquetados de forma independiente.
 
-Diagnóstico con datos reales: de 66 cargas con exceso, 39 (59 %) se explican por error de vinculación y 27 (41 %) quedan como casos para revisión por posible uso indebido.
+Diagnóstico con datos reales: de 66 cargas con exceso (fuente del 19/10), 39 (59 %) se explican por error de vinculación y 27 (41 %) quedan como casos para revisión por posible uso indebido.
 
 Limitación principal: la evaluación utiliza etiquetas sintéticas y presenta una prevalencia diferente de la observada en los agregados reales. Por ello, los resultados no representan todavía una validación operativa.
 
