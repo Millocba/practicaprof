@@ -325,6 +325,7 @@ Cargas que una regla ingenua marcaría como anomalía pero no lo son. No están 
 | `DOMINIO_CON_FORMATO` | 0,5% de las cargas | El dominio llega en minúsculas, con espacios o guiones, o con un espacio al final (`za123bc`, `ZA 123 BC`, `ZA-123-BC`); normalizado es el del vehículo |
 | `TRANSFERENCIA_DE_SALDO` | ~25 contratos-mes (`tabla` = contrato_mes) | El contrato recibió saldo porque la proyección del mes no alcanzaba |
 | `ODOMETRO_EXCEPTUADO` | ~100 cargas de 6 vehículos | La carga repite la lectura del odómetro con una excepción vigente ese día |
+| `MISMA_LECTURA_EN_EL_DIA` | 6 cargas cada 200 vehículos | Dos cargas del mismo vehículo el mismo día con la misma lectura del odómetro: no se vuelve a leer el tablero, así que no es una alerta de H12 (la regla ingenua sí la marca). Desde la versión 3.3 |
 | `CONTINGENCIA` | ~1,1% de las cargas | La carga se registró por contingencia y no se duplicó; en el 30% hay otra carga del vehículo a menos de 12 horas, pero con otros litros. En 2 cada 200 vehículos (desde la 2.8), un **par parecido**: con el decimal corrido, sus litros quedan a 5%-15% de los de una carga habitual cercana (la descripción lo indica) |
 | `IDENTIFICADA_POR_MOTOR` | 0,1% de las cargas | Sin dominio, la carga trae los últimos 8 dígitos del número de motor del vehículo. Desde la versión 3.2 |
 
