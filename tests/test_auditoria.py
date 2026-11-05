@@ -63,6 +63,7 @@ def con_forma_real(s):
         "Rendido": registro["rendido"], "Anulado": registro["anulado"],
         "LitrosAutorizados": registro["litros_autorizados"], "LitrosCargados": registro["litros_cargados"],
         "TarjetaDni": registro["tarjeta_personal"],
+        "CapacidadTanque": registro["nivel_tanque"], "BanderaRendicion": registro["bandera_rendicion"],
         "EstacionServicio": registro["estacion_servicio"].where(registro["estacion_servicio"] == "ESTACION AJENA",
                                                                 "PROVEEDOR ZETA").replace("ESTACION AJENA", "OTRA RED")})
     contratos = s["contratos"].assign(numero=lambda d: d["numero"].str.replace("CTO-", ""))
@@ -1048,4 +1049,329 @@ def test_correr_solo_un_bloque_desconocido_no_arranca(sintetico):
     with pytest.raises(ValueError):
         auditar(con_forma_real(sintetico), proveedor="proveedor zeta", solo="no_existe")
 
+
+def _datos_de_fraccionamiento(cargas, flota, pedidos=None, reclamos=None):
+    """Un `datos` con lo justo para el bloque de fraccionamiento, con las etiquetas genéricas del adaptador."""
+    consumo = pd.DataFrame(cargas)
+    # El cruce con el registro lee columnas que las cargas armadas a mano no traen: se completan
+    completo = {"hora": "08:00:00", "dominio": "AAA111", "tipo_identificacion": "PATENTE",
+                "numero_tarjeta": None, "conductor": None}
+    for columna, valor in completo.items():
+        if columna not in consumo:
+            consumo[columna] = valor
+    padron = pd.DataFrame(flota)
+    for columna in ("NumeroTarjeta", "Dominio", "NumeroMotor"):
+        if columna not in padron:
+            padron[columna] = None
+    return {"consumo": consumo, "flota": padron,
+            "solicitudes": pd.DataFrame(pedidos) if pedidos is not None else None,
+            "reclamos": pd.DataFrame(reclamos) if reclamos is not None else None}
+
+
+def test_el_fraccionamiento_abre_cada_banda_y_respeta_los_bordes(monkeypatch):
+    """Días armados a mano: cada banda de cantidad, del tanque del día y del rendimiento, y sus bordes."""
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    monkeypatch.setattr("perfilador.auditoria.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _fraccionamiento_detalle
+
+    # C1: un día de 1 carga; C2: un día de 2; C3: un día de 3; C4: un día de 4 (borde de la 4ta banda)
+    flota = [{"Matricula": "S1", "CapacidadTanque": 100.0, "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S2", "CapacidadTanque": 100.0, "TipoVehiculo": "SEDAN"}]
+    cargas = [
+        {"id": "C1", "vehiculo_id": "S1", "fecha": "2024-05-10", "litros": 100.0, "odometro": 1000},
+        {"id": "C2a", "vehiculo_id": "S1", "fecha": "2024-05-11", "litros": 60.0, "odometro": 1100},
+        {"id": "C2b", "vehiculo_id": "S1", "fecha": "2024-05-11", "litros": 61.0, "odometro": 1200},
+        {"id": "C3a", "vehiculo_id": "S1", "fecha": "2024-05-12", "litros": 50.0, "odometro": 1300},
+        {"id": "C3b", "vehiculo_id": "S1", "fecha": "2024-05-12", "litros": 50.0, "odometro": 1400},
+        {"id": "C3c", "vehiculo_id": "S1", "fecha": "2024-05-12", "litros": 50.0, "odometro": 1500},
+        {"id": "C4a", "vehiculo_id": "S2", "fecha": "2024-05-13", "litros": 26.0, "odometro": 2000},
+        {"id": "C4b", "vehiculo_id": "S2", "fecha": "2024-05-13", "litros": 26.0, "odometro": 2100},
+        {"id": "C4c", "vehiculo_id": "S2", "fecha": "2024-05-13", "litros": 26.0, "odometro": 2200},
+        {"id": "C4d", "vehiculo_id": "S2", "fecha": "2024-05-13", "litros": 25.0, "odometro": 2300},
+    ]
+    detalle = _fraccionamiento_detalle(_datos_de_fraccionamiento(cargas, flota), None)
+
+    assert detalle["por_cantidad_de_cargas"] == {"total": 4, "cargas_1": 1, "cargas_2": 1,
+                                                 "cargas_3": 1, "cargas_4_o_mas": 1}
+    assert detalle["dias_solo_con_una_carga"] == 1 and detalle["dias_con_dos_o_mas_cargas"] == 3
+
+    # C2: 121 / 100 = 1,21 -> la banda 1,05 a 1,50; C3: 150 / 100 = 1,50 (borde, cae en esa banda);
+    # C4: 103 / 100 = 1,03 (borde de la primera banda del día)
+    assert detalle["litros_del_dia_sobre_la_capacidad"] == {"total": 3, "hasta_1_00": 0,
+                                                             "1_00_a_1_05": 1, "1_05_a_1_50": 2,
+                                                             "mas_de_1_50": 0}
+    # Por tipo de vehículo, solo los días fragmentados: S1 tiene 2 y 3 cargas, S2 al menos 4
+    assert detalle["fragmentados_por_tipo_de_vehiculo"] == {
+        "PICK-UP": {"cargas_2": 1, "cargas_3": 1, "cargas_4_o_mas": 0},
+        "SEDAN": {"cargas_2": 0, "cargas_3": 0, "cargas_4_o_mas": 1}}
+
+
+def test_el_fraccionamiento_marca_los_dias_de_km_no_evaluables(monkeypatch):
+    """Un día con odómetro que se repite o falta no entra al rendimiento y se cuenta aparte."""
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    monkeypatch.setattr("perfilador.auditoria.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _fraccionamiento_detalle
+
+    flota = [{"Matricula": "S1", "CapacidadTanque": 100.0, "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S2", "CapacidadTanque": 100.0, "TipoVehiculo": "PICK-UP"}]
+    cargas = [  # S1: km 100 (evaluable); S2: el odómetro no avanza -> no evaluable
+        {"id": "A1", "vehiculo_id": "S1", "fecha": "2024-05-10", "litros": 50.0, "odometro": 1000},
+        {"id": "A2", "vehiculo_id": "S1", "fecha": "2024-05-10", "litros": 50.0, "odometro": 1100},
+        {"id": "B1", "vehiculo_id": "S2", "fecha": "2024-05-10", "litros": 50.0, "odometro": 5000},
+        {"id": "B2", "vehiculo_id": "S2", "fecha": "2024-05-10", "litros": 50.0, "odometro": 5000},
+    ]
+    detalle = _fraccionamiento_detalle(_datos_de_fraccionamiento(cargas, flota), None)
+    assert detalle["dias_con_dos_o_mas_cargas"] == 2
+    assert detalle["rendimiento_del_dia"]["total"] == 1
+    assert detalle["rendimiento_del_dia"]["km_no_evaluable"] == 1
+
+
+def test_el_fraccionamiento_cuenta_los_pedidos_por_dia(monkeypatch):
+    """Con cruce por dominio y día: un día con pedido para todas, uno para algunas y uno para ninguna."""
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    monkeypatch.setattr("perfilador.auditoria.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _fraccionamiento_detalle
+
+    flota = [{"Matricula": "S1", "CapacidadTanque": 100.0, "TipoVehiculo": "PICK-UP"}]
+    cargas = [{"id": "A1", "vehiculo_id": "S1", "fecha": "2024-05-10", "hora": "08:00:00",
+               "litros": 50.0, "odometro": 1000},
+              {"id": "A2", "vehiculo_id": "S1", "fecha": "2024-05-10", "hora": "18:00:00",
+               "litros": 50.0, "odometro": 1100},
+              {"id": "B1", "vehiculo_id": "S1", "fecha": "2024-05-11", "hora": "08:00:00",
+               "litros": 50.0, "odometro": 1200},
+              {"id": "B2", "vehiculo_id": "S1", "fecha": "2024-05-11", "hora": "18:00:00",
+               "litros": 50.0, "odometro": 1300},
+              {"id": "C1", "vehiculo_id": "S1", "fecha": "2024-05-12", "hora": "08:00:00",
+               "litros": 50.0, "odometro": 1400},
+              {"id": "C2", "vehiculo_id": "S1", "fecha": "2024-05-12", "hora": "18:00:00",
+               "litros": 50.0, "odometro": 1500}]
+    pedidos = [{"id": "P-A1", "vehiculo_id": "S1", "dominio": "AAA111", "fecha": "2024-05-10", "hora": "08:00:00",
+                "litros_cargados": 50.0, "litros_autorizados": 50.0, "rendido": "SI", "anulado": "NO",
+                "tarjeta_personal": False, "estacion_servicio": "ESTACION UNO", "solicitante": "1",
+                "bandera_rendicion": "Verde", "nivel_tanque": "TANQUE LLENO"},
+               {"id": "P-A2", "vehiculo_id": "S1", "dominio": "AAA111", "fecha": "2024-05-10", "hora": "18:00:00",
+                "litros_cargados": 50.0, "litros_autorizados": 60.0, "rendido": "SI", "anulado": "NO",
+                "tarjeta_personal": False, "estacion_servicio": "ESTACION UNO", "solicitante": "1",
+                "bandera_rendicion": "Amarillo", "nivel_tanque": "1/2 TANQUE"},
+               {"id": "P-B1", "vehiculo_id": "S1", "dominio": "AAA111", "fecha": "2024-05-11", "hora": "08:00:00",
+                "litros_cargados": 50.0, "litros_autorizados": 50.0, "rendido": "SI", "anulado": "NO",
+                "tarjeta_personal": False, "estacion_servicio": "ESTACION UNO", "solicitante": "1",
+                "bandera_rendicion": "Verde", "nivel_tanque": "TANQUE LLENO"}]
+    datos = _datos_de_fraccionamiento(cargas, flota, pedidos=pedidos)
+    detalle = _fraccionamiento_detalle(datos, None)
+    assert detalle["pedido_para"]["total"] == 3
+    assert detalle["pedido_para"]["para_todas_las_cargas"] == 1     # el día de A
+    assert detalle["pedido_para"]["para_algunas_cargas"] == 1       # el día de B (uno de dos)
+    assert detalle["pedido_para"]["para_ninguna_carga"] == 1        # el día de C
+
+
+def test_el_fraccionamiento_informa_no_disponible_si_falta_la_columna(monkeypatch):
+    """Sin las columnas de bandera y nivel en el registro, (e) sale `no_disponible` y el bloque sigue."""
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    monkeypatch.setattr("perfilador.auditoria.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _fraccionamiento_detalle
+
+    flota = [{"Matricula": "S1", "CapacidadTanque": 100.0, "TipoVehiculo": "PICK-UP"}]
+    cargas = [{"id": "A1", "vehiculo_id": "S1", "fecha": "2024-05-10", "litros": 50.0, "odometro": 1000},
+              {"id": "A2", "vehiculo_id": "S1", "fecha": "2024-05-10", "litros": 50.0, "odometro": 1100}]
+    sin_columnas = [{"id": "P-A1", "vehiculo_id": "S1", "dominio": "AAA111", "fecha": "2024-05-10",
+                     "hora": "08:00:00", "litros_cargados": 50.0, "litros_autorizados": 50.0,
+                     "rendido": "SI", "anulado": "NO", "tarjeta_personal": False,
+                     "estacion_servicio": "ESTACION UNO", "solicitante": "1"}]
+    detalle = _fraccionamiento_detalle(_datos_de_fraccionamiento(cargas, flota, pedidos=sin_columnas), None)
+    assert detalle["bandera_de_rendicion"] == "no_disponible"
+    assert detalle["nivel_del_tanque"] == "no_disponible"
+    assert detalle["km_por_hora_de_motor"] == "no_disponible"
+
+
+def test_el_fraccionamiento_no_publica_un_entero_del_1_al_19_ni_deja_restarlo(sintetico):
+    """El bloque real, en agregado: ningún entero de 1 a 19 suelto y ninguna resta lo recupera."""
+    bloque = auditar(con_forma_real(sintetico), proveedor="proveedor zeta", semillas=(1001,),
+                     solo="fraccionamiento_detalle")["diagnostico"]["fraccionamiento_detalle"]
+    assert "error" not in bloque
+    chicos = _enteros_chicos_del_detalle(bloque)
+    assert not chicos, "\n".join(chicos)
+    malos = _residuos_chicos({"fraccionamiento_detalle": bloque})
+    assert not malos, "\n".join(malos)
+
+
+def _datos_de_causa(cargas, flota, pedidos=None, alertas=None):
+    """Un `datos` con lo justo para el bloque de causa del exceso, con las columnas que lee el adaptador."""
+    consumo = pd.DataFrame(cargas)
+    completo = {"hora": "08:00:00", "dominio": "AAA111", "tipo_identificacion": "PATENTE",
+                "numero_tarjeta": None, "conductor": None, "odometro": None}
+    for columna, valor in completo.items():
+        if columna not in consumo:
+            consumo[columna] = valor
+    padron = pd.DataFrame(flota)
+    for columna in ("NumeroTarjeta", "Dominio", "NumeroMotor", "Marca", "Modelo", "TipoVehiculo"):
+        if columna not in padron:
+            padron[columna] = None
+    return {"consumo": consumo, "flota": padron,
+            "solicitudes": pd.DataFrame(pedidos) if pedidos is not None else None,
+            "reclamos": None, "alertas": pd.DataFrame(alertas) if alertas is not None else None}
+
+
+def test_la_causa_del_exceso_clasifica_por_capacidad_del_padron(monkeypatch):
+    """Un vehículo muy apartado de la mediana de sus pares va a capacidad del padrón inconsistente."""
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    monkeypatch.setattr("perfilador.auditoria.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _exceso_por_causa
+
+    # S1 registra 50 L pero sus pares (mismo marca+modelo) tienen 100 L: se aparta 50 % (inconsistente).
+    # Sus cargas exceden el 2 % en forma repetida y de cociente parecido.
+    flota = [{"Matricula": "S1", "CapacidadTanque": 50.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S2", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S3", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S4", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"}]
+    cargas = [{"id": f"S1-{i}", "vehiculo_id": "S1", "fecha": f"2024-05-{10 + i:02d}", "litros": 52.0}
+              for i in range(4)]
+    cargas += [{"id": f"S2-{i}", "vehiculo_id": "S2", "fecha": f"2024-05-{10 + i:02d}", "litros": 50.0}
+               for i in range(4)]
+    bloque = _exceso_por_causa(_datos_de_causa(cargas, flota), None)
+    assert bloque["por_categoria"]["total"] == 1
+    assert bloque["por_categoria"]["capacidad_del_padron_inconsistente"] == 1
+    assert bloque["por_categoria"]["error_de_vinculacion"] == 0
+
+
+def test_la_causa_del_exceso_marca_el_error_de_vinculacion(monkeypatch):
+    """La misma tarjeta cargando a dos vehículos el mismo día es error de vinculación."""
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    monkeypatch.setattr("perfilador.auditoria.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _exceso_por_causa
+
+    flota = [{"Matricula": "S1", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S2", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"}]
+    cargas = [{"id": "S1-a", "vehiculo_id": "S1", "fecha": "2024-05-10", "litros": 130.0, "numero_tarjeta": "T-9"},
+              {"id": "S2-a", "vehiculo_id": "S2", "fecha": "2024-05-10", "litros": 130.0, "numero_tarjeta": "T-9"}]
+    bloque = _exceso_por_causa(_datos_de_causa(cargas, flota), None)
+    assert bloque["por_categoria"]["error_de_vinculacion"] == 2
+
+
+def test_la_causa_del_exceso_marca_el_exceso_repetido_con_capacidad_consistente(monkeypatch):
+    """Coincide con sus pares pero excede en forma repetida: capacidad consistente con exceso repetido."""
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    monkeypatch.setattr("perfilador.auditoria.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _exceso_por_causa
+
+    flota = [{"Matricula": "S1", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S2", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S3", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"}]
+    cargas = [{"id": f"S1-{i}", "vehiculo_id": "S1", "fecha": f"2024-05-{10 + i:02d}", "litros": 103.0}
+              for i in range(4)]
+    bloque = _exceso_por_causa(_datos_de_causa(cargas, flota), None)
+    assert bloque["por_categoria"]["capacidad_consistente_con_exceso_repetido"] == 1
+
+
+def test_la_causa_del_exceso_marca_el_exceso_aislado(monkeypatch):
+    """Una sola carga con exceso y cociente irregular, sin explicación: exceso aislado."""
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    monkeypatch.setattr("perfilador.auditoria.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _exceso_por_causa
+
+    flota = [{"Matricula": "S1", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S2", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S3", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"}]
+    cargas = [{"id": "S1-0", "vehiculo_id": "S1", "fecha": "2024-05-10", "litros": 130.0},
+              {"id": "S1-1", "vehiculo_id": "S1", "fecha": "2024-05-11", "litros": 50.0}]
+    bloque = _exceso_por_causa(_datos_de_causa(cargas, flota), None)
+    assert bloque["por_categoria"]["exceso_aislado"] == 1
+
+
+def test_la_causa_del_exceso_marca_no_evaluable_sin_capacidad(monkeypatch):
+    """Sin capacidad en el padrón no se puede evaluar: no evaluable, y el bloque sigue."""
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    monkeypatch.setattr("perfilador.auditoria.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _exceso_por_causa
+
+    flota = [{"Matricula": "S1", "CapacidadTanque": None, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S2", "CapacidadTanque": None, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"}]
+    cargas = [{"id": "S1-0", "vehiculo_id": "S1", "fecha": "2024-05-10", "litros": 130.0}]
+    bloque = _exceso_por_causa(_datos_de_causa(cargas, flota), None)
+    assert "error" not in bloque
+    assert bloque["por_categoria"]["total"] == 1
+    assert bloque["por_categoria"]["no_evaluable"] == 1
+
+
+def test_la_causa_del_exceso_resume_explicados_y_no_explicados(monkeypatch):
+    """El resumen junta las categorías 1 y 2 como explicados y las 3, 4 y 5 como no explicados."""
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 1)
+    monkeypatch.setattr("perfilador.auditoria.MINIMO_GRUPO", 1)
+    from perfilador.auditoria import _exceso_por_causa
+
+    flota = [{"Matricula": "S1", "CapacidadTanque": 50.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S2", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S3", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S4", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"},
+             {"Matricula": "S5", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"}]
+    cargas = [{"id": "S1-a", "vehiculo_id": "S1", "fecha": "2024-05-10", "litros": 52.0},
+              {"id": "S2-a", "vehiculo_id": "S2", "fecha": "2024-05-10", "litros": 130.0},
+              {"id": "S2-b", "vehiculo_id": "S2", "fecha": "2024-05-11", "litros": 50.0}]
+    bloque = _exceso_por_causa(_datos_de_causa(cargas, flota), None)
+    assert bloque["resumen"]["explicados"] == 1
+    assert bloque["resumen"]["no_explicados"] == 1
+
+
+def _restas_de_las_causas(bloque):
+    """Restas entre las tres vistas del bloque que podrían revelar un grupo de 1 a 19.
+
+    Las vistas salen del mismo conteo y se solapan: total menos cualquier suma de partes visibles de la
+    misma unidad (por categoría de vehículos, por categoría de cargas y el resumen), y el total de una
+    vista menos la clave de esa categoría en la otra.
+    """
+    chicas = []
+    de_vehiculos = bloque["por_categoria"]
+    de_cargas = bloque["cargas_por_categoria"]
+    resumen = bloque["resumen"]
+    vistas = {"por_categoria": (de_vehiculos["total"], de_vehiculos),
+              "cargas_por_categoria": (de_cargas["total"], de_cargas),
+              "resumen": (resumen["total"], resumen)}
+    for nombre, (total, vista) in vistas.items():
+        if not isinstance(total, int) or isinstance(total, bool):
+            continue
+        visibles = [valor for clave, valor in vista.items()
+                    if clave != "total" and isinstance(valor, int) and not isinstance(valor, bool)]
+        for combinacion in range(1 << len(visibles)):
+            suma = sum(v for indice, v in enumerate(visibles) if combinacion & (1 << indice))
+            if 0 < total - suma < 20:
+                chicas.append(f"{nombre}.total - partes = {total - suma}")
+    for clave in bloque["por_categoria"]:
+        if clave == "total":
+            continue
+        en_vehiculos = de_vehiculos[clave]
+        en_cargas = de_cargas[clave]
+        if isinstance(en_vehiculos, int) and isinstance(en_cargas, int):
+            if 0 < en_vehiculos - en_cargas < 20:
+                chicas.append(f"por_categoria.{clave} - cargas_por_categoria.{clave} = {en_vehiculos - en_cargas}")
+    return chicas
+
+
+def test_la_causa_del_exceso_no_deja_restar_entre_sus_vistas(monkeypatch):
+    """Con explicados chico y no explicados grande, ninguna resta entre vistas revela el grupo chico."""
+    monkeypatch.setattr("perfilador.controles.MINIMO_GRUPO", 20)
+    monkeypatch.setattr("perfilador.auditoria.MINIMO_GRUPO", 20)
+    from perfilador.auditoria import _exceso_por_causa
+
+    # Un vehículo aislado (explicados = 0) y 21 vehículos con exceso aislado (no explicados = 21)
+    flota = [{"Matricula": f"S{i}", "CapacidadTanque": 100.0, "Marca": "M", "Modelo": "X", "TipoVehiculo": "PICK-UP"}
+             for i in range(30)]
+    cargas = [{"id": f"S{i}-0", "vehiculo_id": f"S{i}", "fecha": "2024-05-10", "litros": 130.0}
+              for i in range(21)]
+    cargas += [{"id": "S29-0", "vehiculo_id": "S29", "fecha": "2024-05-10", "litros": 130.0},
+               {"id": "S29-1", "vehiculo_id": "S29", "fecha": "2024-05-11", "litros": 50.0}]
+    bloque = _exceso_por_causa(_datos_de_causa(cargas, flota), None)
+    assert "error" not in bloque
+    chicas = _restas_de_las_causas(bloque)
+    assert not chicas, "\n".join(chicas)
+
+
+def test_la_causa_del_exceso_no_publica_un_entero_del_1_al_19(sintetico):
+    """El bloque real, en agregado: ningún entero de 1 a 19 suelto ni recuperable por resta."""
+    bloque = auditar(con_forma_real(sintetico), proveedor="proveedor zeta", semillas=(1001,),
+                     solo="exceso_por_causa")["diagnostico"]["exceso_por_causa"]
+    assert "error" not in bloque
+    chicos = _enteros_chicos_del_detalle(bloque)
+    assert not chicos, "\n".join(chicos)
+    malos = _residuos_chicos({"exceso_por_causa": bloque}) + _restas_de_las_causas(bloque)
+    assert not malos, "\n".join(malos)
 
