@@ -1,0 +1,932 @@
+{
+  "perfilador_version": "1.1",
+  "tipo": "auditoria_agregada",
+  "generado": "2026-11-04",
+  "revision": {
+    "revisado": true,
+    "responsable": "Héctor",
+    "fecha": "2026-11-04",
+    "notas": null
+  },
+  "reglas_de_privacidad": "solo agregados; grupos de menos de 20 como 1–19",
+  "diagnostico": {
+    "fuentes_encontradas": [
+      "padron",
+      "consumo",
+      "registro",
+      "excepciones_odometro"
+    ],
+    "consumo": {
+      "fechas_legibles_pct": 100.0,
+      "con_vehiculo_del_padron_pct": 98.8,
+      "con_contrato_pct": 96.3,
+      "tarjetas_personales_pct": 1.1,
+      "contingencias_pct": 1.1
+    },
+    "registro": {
+      "con_proveedor_informado": false,
+      "estaciones_de_otra_red_pct": 0.0,
+      "pedidos_en_el_periodo_del_reporte": 253066,
+      "pedidos_en_dias_con_cargas_del_reporte": 253066,
+      "dias_con_cargas_del_reporte": 307,
+      "dias_del_periodo": 307
+    },
+    "excepciones_odometro": {
+      "excepciones": 98,
+      "con_vehiculo_del_padron_pct": 98.0
+    },
+    "no_disponible": {
+      "ubicacion_de_estaciones": "H7 no corre",
+      "recorrido_diario_gps": "H5 con GPS y la confirmación por GPS de H2c no corren",
+      "fecha_del_cambio_de_estado": "H6 no corre",
+      "transferencias_de_saldo": "H10 no corre"
+    },
+    "vinculacion": {
+      "cargas_evaluadas": 232371,
+      "vinculadas_pct": {
+        "exacto": 99.0,
+        "normalizado": 99.5,
+        "motor": 99.5,
+        "tarjeta": 99.8
+      },
+      "sin_vinculo_exacto": 2429,
+      "sin_vinculo_normalizado": 1084,
+      "por_causa": {
+        "tarjeta_del_padron": 679,
+        "ultimos_8_del_motor": 0,
+        "distancia_1_de_un_dominio": 369,
+        "otra_fuente": "1–19",
+        "forma_del_identificador": "1–19",
+        "sin_explicacion": "1–19"
+      },
+      "distancia_1_por_edicion": {
+        "confusion_visual": 0,
+        "letra_cambiada": null,
+        "transposicion": 0,
+        "letra_de_mas_o_de_menos": "1–19"
+      },
+      "distancia_1_con_mas_de_un_dominio": 303,
+      "motor_con_mas_de_un_movil": 0,
+      "forma_del_identificador": {
+        "vacio": 0,
+        "solo_digitos": "1–19",
+        "solo_letras": 0,
+        "largo_distinto": 0
+      },
+      "forma_de_todas_las_sin_vinculo": {
+        "vacio": 0,
+        "solo_digitos": "1–19",
+        "solo_letras": 0,
+        "largo_distinto": 0,
+        "forma_de_dominio": null
+      },
+      "registro": {
+        "pedidos_evaluados": 277686,
+        "vinculados_pct": {
+          "exacto": 99.5,
+          "normalizado": 99.5,
+          "motor": 99.5,
+          "matricula": 99.7
+        },
+        "sin_vinculo_exacto": 1479,
+        "sin_vinculo_normalizado": 1479,
+        "por_causa": {
+          "matricula_del_padron": null,
+          "ultimos_8_del_motor": 0,
+          "distancia_1_de_un_dominio": 853,
+          "otra_fuente": "1–19",
+          "forma_del_identificador": 0,
+          "sin_explicacion": 0
+        },
+        "distancia_1_por_edicion": {
+          "confusion_visual": 0,
+          "letra_cambiada": 853,
+          "transposicion": 0,
+          "letra_de_mas_o_de_menos": 0
+        },
+        "distancia_1_con_mas_de_un_dominio": 837,
+        "motor_con_mas_de_un_movil": 0,
+        "forma_del_identificador": {
+          "vacio": 0,
+          "solo_digitos": 0,
+          "solo_letras": 0,
+          "largo_distinto": 0
+        },
+        "forma_de_todas_las_sin_vinculo": {
+          "vacio": 611,
+          "solo_digitos": 0,
+          "solo_letras": 0,
+          "largo_distinto": 0,
+          "forma_de_dominio": 868
+        }
+      }
+    },
+    "facturacion_detalle_precios": null,
+    "odometro": {
+      "vehiculos_exceptuados_hoy": 0,
+      "cargas_con_excepcion_vigente": 628,
+      "cargas_sin_avance": 3820,
+      "sin_avance_con_excepcion": 545,
+      "sin_avance_el_mismo_dia_o_con_excepcion": 860,
+      "sin_avance_sin_excepcion": 2960,
+      "retrocesos": {
+        "todos": {
+          "total": 2994,
+          "tras_un_salto": 1108,
+          "lectura_baja_aislada": 1367,
+          "leve": 398,
+          "sin_vecinos": 0,
+          "se_queda_abajo": 121,
+          "otro_patron": 0,
+          "de_la_carga_del_mismo_dia": 358,
+          "vehiculos": 1509
+        },
+        "regla_ingenua": {
+          "total": 2994,
+          "tras_un_salto": 1108,
+          "lectura_baja_aislada": 1367,
+          "leve": 398,
+          "sin_vecinos": 0,
+          "se_queda_abajo": 121,
+          "otro_patron": 0,
+          "de_la_carga_del_mismo_dia": 358,
+          "vehiculos": 1509
+        },
+        "con_contexto": {
+          "total": 378,
+          "tras_un_salto": 0,
+          "lectura_baja_aislada": 0,
+          "leve": 307,
+          "sin_vecinos": 0,
+          "se_queda_abajo": 71,
+          "otro_patron": 0,
+          "de_la_carga_del_mismo_dia": 67,
+          "vehiculos": 301
+        }
+      },
+      "retrocesos_estudio": {
+        "leve_en_dias_distintos": {
+          "total": 258,
+          "por_baja": {
+            "menos_de_10": "1–19",
+            "de_10_a_100": null,
+            "de_100_a_500": 188
+          },
+          "retoma_desde_el_nuevo": null,
+          "vuelve_al_valor_viejo": 219
+        },
+        "se_queda_abajo": {
+          "total": 71,
+          "vehiculos": 49,
+          "por_caida": {
+            "de_500_a_5000": "1–19",
+            "de_5000_a_50000": null,
+            "mas_de_50000": 36
+          },
+          "con_excepcion_vigente": 0,
+          "continua_coherente": 44,
+          "vehiculos_por_casos": {
+            "1": 40,
+            "2": "1–19",
+            "3_o_mas": "1–19"
+          }
+        }
+      }
+    },
+    "contingencias": {
+      "error": "ValueError",
+      "donde": "_contingencias:242",
+      "_shim": "bloque envuelto localmente para no tumbar la corrida; defecto sin arreglar"
+    },
+    "exceso_volumetrico": {
+      "cargas_evaluables": 231994,
+      "cargas_sin_capacidad_registrada": 2908,
+      "cargas_sobre_umbral": {
+        "mas_de_1_0": 101,
+        "mas_de_1_02": 76,
+        "mas_de_1_05": 52,
+        "mas_de_1_1": 38
+      },
+      "vehiculos_con_exceso_mayor_al_2_pct": 28,
+      "vehiculos_con_exceso_desde_las_primeras_cargas": "1–19",
+      "vehiculos_con_exceso_despues_de_un_historial_normal": 21
+    },
+    "exceso_volumetrico_detalle": {
+      "desde_el_inicio": {
+        "vehiculos": "1–19",
+        "cargas_con_exceso": 50,
+        "vehiculos_con_3_o_mas_cargas_con_exceso": "1–19",
+        "vehiculos_para_la_mitad_de_las_cargas": "1–19",
+        "cociente_1_02_a_1_05": "1–19",
+        "cociente_1_05_a_1_10": "1–19",
+        "cociente_1_10_a_1_25": "1–19",
+        "cociente_1_25_a_1_50": "1–19",
+        "cociente_mas_de_1_50": "1–19",
+        "rendimiento_menos_de_0_5": "1–19",
+        "rendimiento_0_5_a_0_8": "1–19",
+        "rendimiento_0_8_a_1_2": "1–19",
+        "rendimiento_mas_de_1_2": "1–19",
+        "causa_probable_dominio_equivocado": null,
+        "causa_probable_proveedor_equivocado": 0,
+        "causa_probable_tarjeta_equivocada": 25,
+        "vehiculos_con_fraccion_menos_de_0_10": "1–19",
+        "vehiculos_con_fraccion_0_10_a_0_30": "1–19",
+        "vehiculos_con_fraccion_0_30_a_0_60": 0,
+        "vehiculos_con_fraccion_mas_de_0_60": "1–19",
+        "vehiculos_con_cv_menos_de_0_05": "1–19",
+        "vehiculos_con_cv_0_05_a_0_15": "1–19",
+        "vehiculos_con_cv_0_15_a_0_30": 0,
+        "vehiculos_con_cv_mas_de_0_30": "1–19"
+      },
+      "despues": {
+        "vehiculos": 21,
+        "cargas_con_exceso": 26,
+        "vehiculos_con_3_o_mas_cargas_con_exceso": "1–19",
+        "vehiculos_para_la_mitad_de_las_cargas": "1–19",
+        "cociente_1_02_a_1_05": "1–19",
+        "cociente_1_05_a_1_10": "1–19",
+        "cociente_1_10_a_1_25": "1–19",
+        "cociente_1_25_a_1_50": 0,
+        "cociente_mas_de_1_50": "1–19",
+        "rendimiento_menos_de_0_5": "1–19",
+        "rendimiento_0_5_a_0_8": "1–19",
+        "rendimiento_0_8_a_1_2": "1–19",
+        "rendimiento_mas_de_1_2": "1–19",
+        "causa_probable_dominio_equivocado": "1–19",
+        "causa_probable_proveedor_equivocado": 0,
+        "causa_probable_tarjeta_equivocada": "1–19",
+        "vehiculos_con_fraccion_menos_de_0_10": null,
+        "vehiculos_con_fraccion_0_10_a_0_30": "1–19",
+        "vehiculos_con_fraccion_0_30_a_0_60": 0,
+        "vehiculos_con_fraccion_mas_de_0_60": 0,
+        "vehiculos_con_cv_menos_de_0_05": "1–19",
+        "vehiculos_con_cv_0_05_a_0_15": 0,
+        "vehiculos_con_cv_0_15_a_0_30": 0,
+        "vehiculos_con_cv_mas_de_0_30": 0
+      }
+    },
+    "cobertura": {
+      "alcance": {
+        "reporte_de_consumo": "un proveedor",
+        "facturacion": "un proveedor",
+        "contratos": "un proveedor",
+        "registro_interno": "todas las redes"
+      },
+      "pedidos_del_proveedor_por_carga_del_reporte": 1.1,
+      "vehiculos_con_pedidos_del_proveedor_en_el_reporte_pct": 98.5,
+      "rendidos_sin_carga_con_el_vehiculo_en_el_reporte_ese_mes_pct": 77.4,
+      "cargas_de_otra_red_que_cierran_tramos": 0,
+      "por_mes": {
+        "2026-01": {
+          "cargas_del_reporte": 23273,
+          "pedidos_del_proveedor": 25863,
+          "pedidos_de_otra_red": 0
+        },
+        "2026-02": {
+          "cargas_del_reporte": 20244,
+          "pedidos_del_proveedor": 22315,
+          "pedidos_de_otra_red": 0
+        },
+        "2026-03": {
+          "cargas_del_reporte": 23615,
+          "pedidos_del_proveedor": 26113,
+          "pedidos_de_otra_red": 0
+        },
+        "2026-04": {
+          "cargas_del_reporte": 23145,
+          "pedidos_del_proveedor": 25426,
+          "pedidos_de_otra_red": 0
+        },
+        "2026-05": {
+          "cargas_del_reporte": 24051,
+          "pedidos_del_proveedor": 26478,
+          "pedidos_de_otra_red": 0
+        },
+        "2026-06": {
+          "cargas_del_reporte": 22572,
+          "pedidos_del_proveedor": 24701,
+          "pedidos_de_otra_red": 0
+        },
+        "2026-07": {
+          "cargas_del_reporte": 21597,
+          "pedidos_del_proveedor": 23599,
+          "pedidos_de_otra_red": 0
+        },
+        "2026-08": {
+          "cargas_del_reporte": 23986,
+          "pedidos_del_proveedor": 24601,
+          "pedidos_de_otra_red": 0
+        },
+        "2026-09": {
+          "cargas_del_reporte": 24229,
+          "pedidos_del_proveedor": 25224,
+          "pedidos_de_otra_red": 0
+        },
+        "2026-10": {
+          "cargas_del_reporte": 25583,
+          "pedidos_del_proveedor": 26087,
+          "pedidos_de_otra_red": 0
+        },
+        "2026-11": {
+          "cargas_del_reporte": 2607,
+          "pedidos_del_proveedor": 2659,
+          "pedidos_de_otra_red": 0
+        }
+      }
+    },
+    "cruce_registro_ventanas": {
+      "cargas_sin_pedido": {
+        "total": 8228,
+        "con_pedido_del_mismo_vehiculo": {
+          "total": 8228,
+          "hasta_3_horas": 624,
+          "de_3_a_6_horas": 1747,
+          "de_6_a_12_horas": 1001,
+          "de_12_a_24_horas": 584,
+          "ninguno_a_menos_de_24_horas": 4272
+        }
+      },
+      "pedidos_sin_carga": {
+        "total": 24023
+      },
+      "minutos_de_los_pares_que_cruzan": {
+        "total": 226674,
+        "hasta_5": 139012,
+        "de_5_a_30": 40614,
+        "de_30_a_60": 5600,
+        "de_1_a_3_horas": 4616,
+        "mas_de_3_horas": 36832
+      },
+      "por_mes": {
+        "2026-01": {
+          "cargas_sin_pedido": 1012,
+          "pedidos_sin_carga": 3347
+        },
+        "2026-02": {
+          "cargas_sin_pedido": 816,
+          "pedidos_sin_carga": 2657
+        },
+        "2026-03": {
+          "cargas_sin_pedido": 825,
+          "pedidos_sin_carga": 3057
+        },
+        "2026-04": {
+          "cargas_sin_pedido": 867,
+          "pedidos_sin_carga": 2979
+        },
+        "2026-05": {
+          "cargas_sin_pedido": 733,
+          "pedidos_sin_carga": 2964
+        },
+        "2026-06": {
+          "cargas_sin_pedido": 731,
+          "pedidos_sin_carga": 2685
+        },
+        "2026-07": {
+          "cargas_sin_pedido": 669,
+          "pedidos_sin_carga": 2457
+        },
+        "2026-08": {
+          "cargas_sin_pedido": 953,
+          "pedidos_sin_carga": 1330
+        },
+        "2026-09": {
+          "cargas_sin_pedido": 822,
+          "pedidos_sin_carga": 1436
+        },
+        "2026-10": {
+          "cargas_sin_pedido": 730,
+          "pedidos_sin_carga": 1006
+        },
+        "2026-11": {
+          "cargas_sin_pedido": 70,
+          "pedidos_sin_carga": 105
+        }
+      },
+      "por_tipo_de_vehiculo": {
+        "AMBULANCIA": {
+          "cargas_sin_pedido": 0,
+          "pedidos_sin_carga": "1–19"
+        },
+        "AUTOBOMBA": {
+          "cargas_sin_pedido": "1–19",
+          "pedidos_sin_carga": "1–19"
+        },
+        "CAMION": {
+          "cargas_sin_pedido": "1–19",
+          "pedidos_sin_carga": 79
+        },
+        "FURGON": {
+          "cargas_sin_pedido": "1–19",
+          "pedidos_sin_carga": "1–19"
+        },
+        "LANCHA": {
+          "cargas_sin_pedido": 0,
+          "pedidos_sin_carga": "1–19"
+        },
+        "MINIBUS": {
+          "cargas_sin_pedido": "1–19",
+          "pedidos_sin_carga": "1–19"
+        },
+        "MOTOCICLETA": {
+          "cargas_sin_pedido": 983,
+          "pedidos_sin_carga": 1042
+        },
+        "OMNIBUS": {
+          "cargas_sin_pedido": "1–19",
+          "pedidos_sin_carga": "1–19"
+        },
+        "PICK-UP": {
+          "cargas_sin_pedido": 2528,
+          "pedidos_sin_carga": 18798
+        },
+        "PICK-UP 4X4": {
+          "cargas_sin_pedido": 339,
+          "pedidos_sin_carga": 562
+        },
+        "SEDAN": {
+          "cargas_sin_pedido": 1844,
+          "pedidos_sin_carga": 2990
+        },
+        "sin_dato": {
+          "cargas_sin_pedido": 2513,
+          "pedidos_sin_carga": 507
+        }
+      }
+    }
+  },
+  "reglas": {
+    "avance_menor_a_5_km": {
+      "alertas": 4133,
+      "pct": 1.8,
+      "sobre": "consumo"
+    },
+    "carga_de_registro_anulado": {
+      "alertas": 46,
+      "pct": 0.0,
+      "sobre": "consumo",
+      "causa_probable_pct": {
+        "sin_explicacion": 100.0
+      }
+    },
+    "carga_sin_movil_identificado": {
+      "alertas": 362,
+      "pct": 0.2,
+      "sobre": "consumo"
+    },
+    "carga_sin_registro": {
+      "alertas": 6716,
+      "pct": 2.9,
+      "sobre": "consumo",
+      "causa_probable_pct": {
+        "sin_explicacion": 65.8,
+        "dominio_equivocado": 27.1,
+        "tarjeta_equivocada": 7.1
+      }
+    },
+    "cargas_menos_de_6_horas": {
+      "alertas": 3887,
+      "pct": 1.7,
+      "sobre": "consumo"
+    },
+    "contingencia": {
+      "alertas": 2170,
+      "pct": 0.9,
+      "sobre": "consumo"
+    },
+    "cruce_por_dominio_y_dia": {
+      "alertas": 64402,
+      "pct": null,
+      "sobre": null,
+      "causa_probable_pct": {
+        "sin_explicacion": 98.0,
+        "dominio_equivocado": 1.7,
+        "tarjeta_equivocada": 0.3
+      }
+    },
+    "desacuerdo_de_litros": {
+      "alertas": 5591,
+      "pct": 2.4,
+      "sobre": "consumo",
+      "causa_probable_pct": {
+        "sin_explicacion": 99.7,
+        "tarjeta_equivocada": null,
+        "dominio_equivocado": null
+      }
+    },
+    "doble_cobro": {
+      "alertas": 61,
+      "pct": 0.0,
+      "sobre": "consumo"
+    },
+    "dominio_sin_vinculo": {
+      "alertas": 2109,
+      "pct": 0.9,
+      "sobre": "consumo"
+    },
+    "dominio_sin_vinculo_normalizado": {
+      "alertas": 942,
+      "pct": 0.4,
+      "sobre": "consumo",
+      "causa_probable_pct": {
+        "sin_explicacion": 56.9,
+        "dominio_equivocado": 42.9,
+        "tarjeta_equivocada": null
+      }
+    },
+    "exceso_sin_antecedente": {
+      "alertas": 73,
+      "pct": 0.0,
+      "sobre": "consumo",
+      "causa_probable_pct": {
+        "capacidad_tanque_mal_registrada": 68.5,
+        "sin_explicacion": null,
+        "tarjeta_equivocada": null,
+        "dominio_equivocado": null
+      }
+    },
+    "fraccionamiento_diario": {
+      "alertas": 2453,
+      "pct": 1.0,
+      "sobre": "consumo",
+      "causa_probable_pct": {
+        "sin_explicacion": 88.1,
+        "tarjeta_equivocada": 7.8,
+        "dominio_equivocado": 4.1
+      }
+    },
+    "fraccionamiento_sin_recorrido": {
+      "alertas": 1520,
+      "pct": 0.6,
+      "sobre": "consumo",
+      "causa_probable_pct": {
+        "sin_explicacion": 88.1,
+        "tarjeta_equivocada": 7.8,
+        "dominio_equivocado": 4.1
+      }
+    },
+    "litros_mayor_a_tanque": {
+      "alertas": 94,
+      "pct": 0.0,
+      "sobre": "consumo",
+      "causa_probable_pct": {
+        "sin_explicacion": 35.1,
+        "tarjeta_equivocada": 35.1,
+        "dominio_equivocado": 29.8
+      }
+    },
+    "nulo_conductor": {
+      "alertas": 194552,
+      "pct": 82.8,
+      "sobre": "consumo"
+    },
+    "nulo_odometro": {
+      "alertas": "1–19",
+      "pct": null,
+      "sobre": "consumo"
+    },
+    "odometro_disminuye": {
+      "alertas": 2994,
+      "pct": 1.3,
+      "sobre": "consumo",
+      "causa_probable_pct": {
+        "sin_explicacion": 81.3,
+        "tarjeta_equivocada": 14.3,
+        "dominio_equivocado": 4.4
+      }
+    },
+    "odometro_sin_avance": {
+      "alertas": 3820,
+      "pct": 1.6,
+      "sobre": "consumo",
+      "causa_probable_pct": {
+        "sin_explicacion": 98.5,
+        "dominio_equivocado": 1.4,
+        "tarjeta_equivocada": null
+      }
+    },
+    "pedido_sin_movil_identificado": {
+      "alertas": 843,
+      "pct": 0.3,
+      "sobre": "solicitudes"
+    },
+    "rendida_sin_carga": {
+      "alertas": 60475,
+      "pct": 23.9,
+      "sobre": "solicitudes",
+      "causa_probable_pct": {
+        "sin_explicacion": 96.6,
+        "dominio_equivocado": 2.7,
+        "tarjeta_equivocada": 0.7
+      }
+    },
+    "rendimiento_bajo_odometro": {
+      "alertas": 2784,
+      "pct": 1.2,
+      "sobre": "consumo",
+      "causa_probable_pct": {
+        "sin_explicacion": 96.3,
+        "dominio_equivocado": 2.9,
+        "tarjeta_equivocada": 0.8
+      }
+    },
+    "rendimiento_fuente": {
+      "alertas": 11341,
+      "pct": 4.8,
+      "sobre": "consumo"
+    },
+    "retroceso_con_contexto": {
+      "alertas": 378,
+      "pct": 0.2,
+      "sobre": "consumo",
+      "causa_probable_pct": {
+        "sin_explicacion": 85.7,
+        "tarjeta_equivocada": 8.5,
+        "dominio_equivocado": 5.8
+      }
+    },
+    "salto_con_contexto": {
+      "alertas": 338,
+      "pct": 0.1,
+      "sobre": "consumo",
+      "causa_probable_pct": {
+        "sin_explicacion": 96.7,
+        "dominio_equivocado": null
+      }
+    },
+    "salto_historial_vehiculo": {
+      "alertas": 2790,
+      "pct": 1.2,
+      "sobre": "consumo",
+      "causa_probable_pct": {
+        "sin_explicacion": 87.1,
+        "tarjeta_equivocada": 9.0,
+        "dominio_equivocado": 3.9
+      }
+    },
+    "salto_umbral_fijo": {
+      "alertas": 39309,
+      "pct": 16.7,
+      "sobre": "consumo",
+      "causa_probable_pct": {
+        "sin_explicacion": 98.5,
+        "dominio_equivocado": 0.9,
+        "tarjeta_equivocada": 0.6
+      }
+    },
+    "sin_avance_sin_excepcion": {
+      "alertas": 2960,
+      "pct": 1.3,
+      "sobre": "consumo",
+      "causa_probable_pct": {
+        "sin_explicacion": 98.7,
+        "dominio_equivocado": 1.3
+      }
+    },
+    "supera_autorizado_con_tolerancia": {
+      "alertas": 1634,
+      "pct": 0.7,
+      "sobre": "consumo",
+      "causa_probable_pct": {
+        "sin_explicacion": 99.6,
+        "tarjeta_equivocada": null
+      }
+    }
+  },
+  "hipotesis": {
+    "H1": {
+      "regla_con_contexto": "ni dominio normalizado, ni motor, ni tarjeta",
+      "ingenua": 2109,
+      "con_contexto": 362,
+      "en_ambas": 362,
+      "solo_con_contexto": 0
+    },
+    "H2b": {
+      "regla_con_contexto": "descarta reinicios y lecturas aisladas",
+      "ingenua": 2994,
+      "con_contexto": 378,
+      "en_ambas": 378,
+      "solo_con_contexto": 0
+    },
+    "H2c": {
+      "regla_con_contexto": "además: no es tipeo y el GPS no lo respalda",
+      "ingenua": 39309,
+      "con_contexto": 338,
+      "en_ambas": 73,
+      "solo_con_contexto": 265
+    },
+    "H3b": {
+      "regla_con_contexto": "tolerancia 2% y causa según historial",
+      "ingenua": 94,
+      "con_contexto": 73,
+      "en_ambas": 73,
+      "solo_con_contexto": 0
+    },
+    "H4": {
+      "regla_con_contexto": "además: el recorrido no lo justifica",
+      "ingenua": 94,
+      "con_contexto": 1520,
+      "en_ambas": "1–19",
+      "solo_con_contexto": 1508
+    },
+    "H5": {
+      "regla_con_contexto": "km/L según el odómetro",
+      "ingenua": 94,
+      "con_contexto": 2784,
+      "en_ambas": 0,
+      "solo_con_contexto": 2784
+    },
+    "H8": {
+      "regla_con_contexto": "dominio o persona y horario, asignación óptima, 0,5 L y 5% de tolerancia",
+      "ingenua": 64402,
+      "con_contexto": 72859,
+      "en_ambas": 61307,
+      "solo_con_contexto": 11552
+    },
+    "H12": {
+      "regla_con_contexto": "además: sin excepción vigente ese día y la carga anterior es de otro día",
+      "ingenua": 3820,
+      "con_contexto": 2960,
+      "en_ambas": 2960,
+      "solo_con_contexto": 0
+    },
+    "H13": {
+      "regla_con_contexto": "además: carga habitual del mismo vehículo a menos de 12 horas y ±2% de litros, también con el decimal corrido (×10, ×100, ÷10, ÷100)",
+      "ingenua": 2170,
+      "con_contexto": 61,
+      "en_ambas": 61,
+      "solo_con_contexto": 0
+    }
+  },
+  "cruce_registro": {
+    "cargas_con_pedido_cruce_voraz_pct": 97.0,
+    "cargas_con_pedido_cruce_con_contexto_pct": 96.5,
+    "minutos_de_la_carga_despues_del_pedido": {
+      "p05": -1.1,
+      "p50": 1.8,
+      "p95": 33.0
+    }
+  },
+  "modelos": {
+    "cargas_puntuadas": 196612,
+    "supervisado_probabilidad": {
+      "p05": 0.023,
+      "p50": 0.069,
+      "p95": 0.34,
+      "p99": 0.62
+    },
+    "supervisado_mayor_a_0_5_pct": 2.3,
+    "isolation_forest_anomalas_pct": 5.3,
+    "coincidencia_top_100": {
+      "supervisado_e_isolation_forest": 0,
+      "supervisado_y_reglas_con_contexto": 53,
+      "isolation_forest_y_reglas_con_contexto": 88
+    },
+    "variables": {
+      "ratio_litros_tanque": {
+        "real": {
+          "p05": 0.17,
+          "p50": 0.59,
+          "p95": 0.88
+        },
+        "sintetico": {
+          "p05": 0.31,
+          "p50": 0.59,
+          "p95": 0.92
+        }
+      },
+      "km": {
+        "real": {
+          "p05": 0,
+          "p50": 320.0,
+          "p95": 740.0
+        },
+        "sintetico": {
+          "p05": 43.0,
+          "p50": 350.0,
+          "p95": 590.0
+        }
+      },
+      "exceso_km": {
+        "real": {
+          "p05": -650.0,
+          "p50": 0,
+          "p95": 300.0
+        },
+        "sintetico": {
+          "p05": -370.0,
+          "p50": 0.71,
+          "p95": 190.0
+        }
+      },
+      "litros_vs_habitual": {
+        "real": {
+          "p05": 0.47,
+          "p50": 1.0,
+          "p95": 1.7
+        },
+        "sintetico": {
+          "p05": 0.69,
+          "p50": 1.0,
+          "p95": 1.4
+        }
+      },
+      "retroceso_km": {
+        "real": {
+          "p05": 0,
+          "p50": 0,
+          "p95": 0
+        },
+        "sintetico": {
+          "p05": 0,
+          "p50": 0,
+          "p95": 0
+        }
+      },
+      "rendimiento_relativo": {
+        "real": {
+          "p05": 0.79,
+          "p50": 1.0,
+          "p95": 4.5
+        },
+        "sintetico": {
+          "p05": 0.9,
+          "p50": 1.0,
+          "p95": 1.1
+        }
+      },
+      "cargas_en_el_dia": {
+        "real": {
+          "p05": 1.0,
+          "p50": 1.0,
+          "p95": 2.0
+        },
+        "sintetico": {
+          "p05": 1.0,
+          "p50": 1.0,
+          "p95": 2.0
+        }
+      },
+      "tanques_en_el_dia": {
+        "real": {
+          "p05": 0.21,
+          "p50": 0.6,
+          "p95": 0.93
+        },
+        "sintetico": {
+          "p05": 0.36,
+          "p50": 0.61,
+          "p95": 0.93
+        }
+      },
+      "vehiculo_inactivo": {
+        "real": {
+          "p05": 0,
+          "p50": 0,
+          "p95": 0
+        },
+        "sintetico": {
+          "p05": 0,
+          "p50": 0,
+          "p95": 0
+        }
+      },
+      "odometro_exceptuado": {
+        "real": {
+          "p05": 0,
+          "p50": 0,
+          "p95": 0
+        },
+        "sintetico": {
+          "p05": 0,
+          "p50": 0,
+          "p95": 0
+        }
+      },
+      "sin_solicitud": {
+        "real": {
+          "p05": 0,
+          "p50": 0,
+          "p95": 0
+        },
+        "sintetico": {
+          "p05": 0,
+          "p50": 0,
+          "p95": 0
+        }
+      },
+      "litros_vs_autorizado": {
+        "real": {
+          "p05": 1.0,
+          "p50": 1.0,
+          "p95": 1.0
+        },
+        "sintetico": {
+          "p05": 0.66,
+          "p50": 0.89,
+          "p95": 0.99
+        }
+      }
+    }
+  }
+}
